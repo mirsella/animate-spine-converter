@@ -1532,6 +1532,144 @@ exports.SpineFormatV3_8_99 = SpineFormatV3_8_99;
 
 /***/ }),
 
+/***/ "./source/spine/formats/SpineFormatV4_0_00.ts":
+/*!****************************************************!*\
+  !*** ./source/spine/formats/SpineFormatV4_0_00.ts ***!
+  \****************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __extends = (this && this.__extends) || (function () {
+    var extendStatics = function (d, b) {
+        extendStatics = Object.setPrototypeOf ||
+            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+            function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
+        return extendStatics(d, b);
+    };
+    return function (d, b) {
+        if (typeof b !== "function" && b !== null)
+            throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
+        extendStatics(d, b);
+        function __() { this.constructor = d; }
+        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+    };
+})();
+
+exports.SpineFormatV4_0_00 = void 0;
+var SpineFormatV3_8_99_1 = __webpack_require__(/*! ./SpineFormatV3_8_99 */ "./source/spine/formats/SpineFormatV3_8_99.ts");
+var SpineFormatV4_0_00 = /** @class */ (function (_super) {
+    __extends(SpineFormatV4_0_00, _super);
+    function SpineFormatV4_0_00() {
+        var _this = _super !== null && _super.apply(this, arguments) || this;
+        _this.version = '4.0.64';
+        return _this;
+    }
+    SpineFormatV4_0_00.prototype.convertTimelineFrameCurve = function (frame) {
+        var curve = frame.curve;
+        if (curve === 'stepped') {
+            return { curve: 'stepped' };
+        }
+        return null;
+    };
+    SpineFormatV4_0_00.prototype.convertTimelineGroup = function (group) {
+        var result = {};
+        for (var _i = 0, _a = group.timelines; _i < _a.length; _i++) {
+            var timeline = _a[_i];
+            result[this.convertTimelineType(timeline.type)] = this.convertTimeline(timeline);
+        }
+        return result;
+    };
+    SpineFormatV4_0_00.prototype.convertTimelineType = function (type) {
+        if (type === "color" /* SpineTimelineType.COLOR */) {
+            return 'rgba';
+        }
+        return type;
+    };
+    return SpineFormatV4_0_00;
+}(SpineFormatV3_8_99_1.SpineFormatV3_8_99));
+exports.SpineFormatV4_0_00 = SpineFormatV4_0_00;
+
+
+/***/ }),
+
+/***/ "./source/spine/formats/SpineFormatV4_1_00.ts":
+/*!****************************************************!*\
+  !*** ./source/spine/formats/SpineFormatV4_1_00.ts ***!
+  \****************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __extends = (this && this.__extends) || (function () {
+    var extendStatics = function (d, b) {
+        extendStatics = Object.setPrototypeOf ||
+            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+            function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
+        return extendStatics(d, b);
+    };
+    return function (d, b) {
+        if (typeof b !== "function" && b !== null)
+            throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
+        extendStatics(d, b);
+        function __() { this.constructor = d; }
+        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+    };
+})();
+
+exports.SpineFormatV4_1_00 = void 0;
+var SpineFormatV4_0_00_1 = __webpack_require__(/*! ./SpineFormatV4_0_00 */ "./source/spine/formats/SpineFormatV4_0_00.ts");
+var SpineFormatV4_1_00 = /** @class */ (function (_super) {
+    __extends(SpineFormatV4_1_00, _super);
+    function SpineFormatV4_1_00() {
+        var _this = _super !== null && _super.apply(this, arguments) || this;
+        _this.version = '4.1.19';
+        return _this;
+    }
+    return SpineFormatV4_1_00;
+}(SpineFormatV4_0_00_1.SpineFormatV4_0_00));
+exports.SpineFormatV4_1_00 = SpineFormatV4_1_00;
+
+
+/***/ }),
+
+/***/ "./source/spine/formats/SpineFormatV4_2_00.ts":
+/*!****************************************************!*\
+  !*** ./source/spine/formats/SpineFormatV4_2_00.ts ***!
+  \****************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __extends = (this && this.__extends) || (function () {
+    var extendStatics = function (d, b) {
+        extendStatics = Object.setPrototypeOf ||
+            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+            function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
+        return extendStatics(d, b);
+    };
+    return function (d, b) {
+        if (typeof b !== "function" && b !== null)
+            throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
+        extendStatics(d, b);
+        function __() { this.constructor = d; }
+        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+    };
+})();
+
+exports.SpineFormatV4_2_00 = void 0;
+var SpineFormatV4_1_00_1 = __webpack_require__(/*! ./SpineFormatV4_1_00 */ "./source/spine/formats/SpineFormatV4_1_00.ts");
+var SpineFormatV4_2_00 = /** @class */ (function (_super) {
+    __extends(SpineFormatV4_2_00, _super);
+    function SpineFormatV4_2_00() {
+        var _this = _super !== null && _super.apply(this, arguments) || this;
+        _this.version = '4.2.0';
+        return _this;
+    }
+    return SpineFormatV4_2_00;
+}(SpineFormatV4_1_00_1.SpineFormatV4_1_00));
+exports.SpineFormatV4_2_00 = SpineFormatV4_2_00;
+
+
+/***/ }),
+
 /***/ "./source/spine/timeline/SpineTimeline.ts":
 /*!************************************************!*\
   !*** ./source/spine/timeline/SpineTimeline.ts ***!
@@ -2454,11 +2592,11 @@ var __webpack_unused_export__;
 __webpack_unused_export__ = ({ value: true });
 var Converter_1 = __webpack_require__(/*! ./core/Converter */ "./source/core/Converter.ts");
 var Logger_1 = __webpack_require__(/*! ./logger/Logger */ "./source/logger/Logger.ts");
-var SpineFormatV3_8_99_1 = __webpack_require__(/*! ./spine/formats/SpineFormatV3_8_99 */ "./source/spine/formats/SpineFormatV3_8_99.ts");
+var SpineFormatV4_2_00_1 = __webpack_require__(/*! ./spine/formats/SpineFormatV4_2_00 */ "./source/spine/formats/SpineFormatV4_2_00.ts");
 var SpineSkeletonHelper_1 = __webpack_require__(/*! ./spine/SpineSkeletonHelper */ "./source/spine/SpineSkeletonHelper.ts");
 //-----------------------------------
 var config = {
-    outputFormat: new SpineFormatV3_8_99_1.SpineFormatV3_8_99(),
+    outputFormat: new SpineFormatV4_2_00_1.SpineFormatV4_2_00(),
     imagesExportPath: './images/',
     appendSkeletonToImagesPath: true,
     mergeSkeletons: false,

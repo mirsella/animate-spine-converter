@@ -1,13 +1,13 @@
 import { Converter } from './core/Converter';
 import { ConverterConfig } from './core/ConverterConfig';
 import { Logger } from './logger/Logger';
-import { SpineFormatV3_8_99 } from './spine/formats/SpineFormatV3_8_99';
+import { SpineFormatV4_2_00 } from './spine/formats/SpineFormatV4_2_00';
 import { SpineSkeletonHelper } from './spine/SpineSkeletonHelper';
 
 //-----------------------------------
 
 const config:ConverterConfig = {
-    outputFormat: new SpineFormatV3_8_99(),
+    outputFormat: new SpineFormatV4_2_00(),
     imagesExportPath: './images/',
     appendSkeletonToImagesPath: true,
     mergeSkeletons: false,
