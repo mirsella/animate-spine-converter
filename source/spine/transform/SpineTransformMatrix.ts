@@ -15,15 +15,31 @@ export class SpineTransformMatrix implements SpineTransform {
     public constructor(element:FlashElement) {
         const matrix = element.matrix;
 
-        this.y = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
-        this.x = matrix.tx;
+        let baseX = matrix.tx;
+        let baseY = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
 
         if (element.elementType === 'shape') {
             if (element.layer.layerType !== 'mask') {
-                this.y = element.y * SpineTransformMatrix.Y_DIRECTION;
-                this.x = element.x;
+                baseY = element.y * SpineTransformMatrix.Y_DIRECTION;
+                baseX = element.x;
             }
         }
+
+        const tp = element.transformationPoint;
+        if (tp && element.elementType !== 'shape') {
+            const rotation = element.rotation * Math.PI / 180;
+            const cos = Math.cos(rotation);
+            const sin = Math.sin(rotation);
+            const scaledX = tp.x * element.scaleX;
+            const scaledY = tp.y * element.scaleY;
+            const rotatedX = scaledX * cos - scaledY * sin;
+            const rotatedY = scaledX * sin + scaledY * cos;
+            baseX += rotatedX;
+            baseY -= rotatedY;
+        }
+
+        this.x = baseX;
+        this.y = baseY;
 
         this.rotation = 0;
         this.scaleX = element.scaleX;

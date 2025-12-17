@@ -1859,14 +1859,28 @@ var NumberUtil_1 = __webpack_require__(/*! ../../utils/NumberUtil */ "./source/u
 var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (function () {
     function SpineTransformMatrix(element) {
         var matrix = element.matrix;
-        this.y = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
-        this.x = matrix.tx;
+        var baseX = matrix.tx;
+        var baseY = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
         if (element.elementType === 'shape') {
             if (element.layer.layerType !== 'mask') {
-                this.y = element.y * SpineTransformMatrix.Y_DIRECTION;
-                this.x = element.x;
+                baseY = element.y * SpineTransformMatrix.Y_DIRECTION;
+                baseX = element.x;
             }
         }
+        var tp = element.transformationPoint;
+        if (tp && element.elementType !== 'shape') {
+            var rotation = element.rotation * Math.PI / 180;
+            var cos = Math.cos(rotation);
+            var sin = Math.sin(rotation);
+            var scaledX = tp.x * element.scaleX;
+            var scaledY = tp.y * element.scaleY;
+            var rotatedX = scaledX * cos - scaledY * sin;
+            var rotatedY = scaledX * sin + scaledY * cos;
+            baseX += rotatedX;
+            baseY -= rotatedY;
+        }
+        this.x = baseX;
+        this.y = baseY;
         this.rotation = 0;
         this.scaleX = element.scaleX;
         this.scaleY = element.scaleY;
@@ -2070,13 +2084,18 @@ var ImageUtil = /** @class */ (function () {
         var element = exporter.selection[0];
         var x = element.x;
         var y = element.y;
+        var tp = instance.transformationPoint;
+        var pivotOffsetX = tp ? tp.x : 0;
+        var pivotOffsetY = tp ? tp.y : 0;
         var image = ImageUtil.exportSelection(path, exporter, scale, autoExport, true);
         return {
             width: image.width,
             height: image.height,
             scale: scale,
-            x: -x,
-            y: y
+            x: -x - pivotOffsetX,
+            y: y + pivotOffsetY,
+            pivotOffsetX: pivotOffsetX,
+            pivotOffsetY: pivotOffsetY
         };
     };
     ImageUtil.exportBitmap = function (path, instance, autoExport) {

@@ -70,6 +70,10 @@ export class ImageUtil {
         const x = element.x;
         const y = element.y;
 
+        const tp = instance.transformationPoint;
+        const pivotOffsetX = tp ? tp.x : 0;
+        const pivotOffsetY = tp ? tp.y : 0;
+
         const image = ImageUtil.exportSelection(
             path, exporter,
             scale, autoExport,
@@ -80,8 +84,10 @@ export class ImageUtil {
             width: image.width,
             height: image.height,
             scale: scale,
-            x: -x,
-            y: y
+            x: -x - pivotOffsetX,
+            y: y + pivotOffsetY,
+            pivotOffsetX: pivotOffsetX,
+            pivotOffsetY: pivotOffsetY
         };
     }
 
