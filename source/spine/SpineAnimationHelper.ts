@@ -35,11 +35,11 @@ export class SpineAnimationHelper {
     public static applyBoneTransform(bone:SpineBone, transform:SpineTransform):void {
         bone.x = transform.x;
         bone.y = transform.y;
-        bone.rotation = transform.rotation;
-        bone.scaleX = transform.scaleX;
-        bone.scaleY = transform.scaleY;
-        bone.shearX = transform.shearX;
-        bone.shearY = transform.shearY;
+        bone.rotation = 0;
+        bone.scaleX = 1;
+        bone.scaleY = 1;
+        bone.shearX = 0;
+        bone.shearY = 0;
     }
 
     public static applySlotAttachment(animation:SpineAnimation, slot:SpineSlot, context:ConverterContext, attachment:SpineAttachment, time:number):void {

@@ -22,14 +22,26 @@ export class SpineTransformMatrix implements SpineTransform {
 
         if (element.elementType === 'shape') {
             if (element.layer.layerType !== 'mask') {
-                baseX = element.x;
                 baseY = element.y * SpineTransformMatrix.Y_DIRECTION;
+                baseX = element.x;
             }
         }
 
         const tp = element.transformationPoint;
         this.pivotX = tp ? tp.x : 0;
         this.pivotY = tp ? tp.y : 0;
+
+        if (tp && element.elementType !== 'shape') {
+            const rotation = element.rotation * Math.PI / 180;
+            const cos = Math.cos(rotation);
+            const sin = Math.sin(rotation);
+            const scaledX = tp.x * element.scaleX;
+            const scaledY = tp.y * element.scaleY;
+            const rotatedX = scaledX * cos - scaledY * sin;
+            const rotatedY = scaledX * sin + scaledY * cos;
+            baseX += rotatedX;
+            baseY -= rotatedY;
+        }
 
         this.x = baseX;
         this.y = baseY;
