@@ -728,11 +728,11 @@ var SpineAnimationHelper = /** @class */ (function () {
     SpineAnimationHelper.applyBoneTransform = function (bone, transform) {
         bone.x = transform.x;
         bone.y = transform.y;
-        bone.rotation = transform.rotation;
-        bone.scaleX = transform.scaleX;
-        bone.scaleY = transform.scaleY;
-        bone.shearX = transform.shearX;
-        bone.shearY = transform.shearY;
+        bone.rotation = 0;
+        bone.scaleX = 1;
+        bone.scaleY = 1;
+        bone.shearX = 0;
+        bone.shearY = 0;
     };
     SpineAnimationHelper.applySlotAttachment = function (animation, slot, context, attachment, time) {
         var timeline = animation.createSlotTimeline(slot);
@@ -1866,13 +1866,24 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
         var baseY = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
         if (element.elementType === 'shape') {
             if (element.layer.layerType !== 'mask') {
-                baseX = element.x;
                 baseY = element.y * SpineTransformMatrix.Y_DIRECTION;
+                baseX = element.x;
             }
         }
         var tp = element.transformationPoint;
         this.pivotX = tp ? tp.x : 0;
         this.pivotY = tp ? tp.y : 0;
+        if (tp && element.elementType !== 'shape') {
+            var rotation = element.rotation * Math.PI / 180;
+            var cos = Math.cos(rotation);
+            var sin = Math.sin(rotation);
+            var scaledX = tp.x * element.scaleX;
+            var scaledY = tp.y * element.scaleY;
+            var rotatedX = scaledX * cos - scaledY * sin;
+            var rotatedY = scaledX * sin + scaledY * cos;
+            baseX += rotatedX;
+            baseY -= rotatedY;
+        }
         this.x = baseX;
         this.y = baseY;
         this.rotation = 0;
@@ -1880,7 +1891,7 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
         this.scaleY = element.scaleY;
         this.shearX = 0;
         this.shearY = 0;
-        if (NumberUtil_1.NumberUtil.equals(element.skewX, element.skewY)) {
+        if (NumberUtil_1.NumberUtil.equals(element.skewX, element.skewY, 0.1)) {
             this.rotation = -element.rotation;
         }
         else {

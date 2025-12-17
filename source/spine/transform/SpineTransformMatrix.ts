@@ -52,7 +52,7 @@ export class SpineTransformMatrix implements SpineTransform {
         this.shearX = 0;
         this.shearY = 0;
 
-        if (NumberUtil.equals(element.skewX, element.skewY)) {
+        if (NumberUtil.equals(element.skewX, element.skewY, 0.1)) {
             this.rotation = -element.rotation;
         } else {
             this.shearX = -element.skewY;
