@@ -4,6 +4,4 @@ export interface SpineImage {
     width:number;
     height:number;
     scale:number;
-    pivotOffsetX?:number;
-    pivotOffsetY?:number;
 }

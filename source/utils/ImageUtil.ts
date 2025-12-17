@@ -67,12 +67,12 @@ export class ImageUtil {
         exporter.addItem({ x: 0, y: 0 }, instance.libraryItem);
 
         const [ element ] = exporter.selection;
-        const x = element.x;
-        const y = element.y;
+        const regPointX = element.x;
+        const regPointY = element.y;
 
         const tp = instance.transformationPoint;
-        const pivotOffsetX = tp ? tp.x : 0;
-        const pivotOffsetY = tp ? tp.y : 0;
+        const pivotX = tp ? tp.x : 0;
+        const pivotY = tp ? tp.y : 0;
 
         const image = ImageUtil.exportSelection(
             path, exporter,
@@ -80,14 +80,15 @@ export class ImageUtil {
             true
         );
 
+        const offsetX = -regPointX - pivotX;
+        const offsetY = regPointY + pivotY;
+
         return {
             width: image.width,
             height: image.height,
             scale: scale,
-            x: -x - pivotOffsetX,
-            y: y + pivotOffsetY,
-            pivotOffsetX: pivotOffsetX,
-            pivotOffsetY: pivotOffsetY
+            x: offsetX,
+            y: offsetY
         };
     }
 
