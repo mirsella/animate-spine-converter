@@ -74,8 +74,12 @@ export class Converter {
         attachment.height = spineImage.height;
         attachment.scaleX = 1 / spineImage.scale;
         attachment.scaleY = 1 / spineImage.scale;
-        attachment.x = spineImage.x;
-        attachment.y = spineImage.y;
+
+        const tp = context.element.transformationPoint;
+        const pivotX = tp ? tp.x : 0;
+        const pivotY = tp ? tp.y : 0;
+        attachment.x = spineImage.x - pivotX;
+        attachment.y = spineImage.y + pivotY;
 
         //-----------------------------------
 

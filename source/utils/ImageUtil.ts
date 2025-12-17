@@ -70,25 +70,18 @@ export class ImageUtil {
         const regPointX = element.x;
         const regPointY = element.y;
 
-        const tp = instance.transformationPoint;
-        const pivotX = tp ? tp.x : 0;
-        const pivotY = tp ? tp.y : 0;
-
         const image = ImageUtil.exportSelection(
             path, exporter,
             scale, autoExport,
             true
         );
 
-        const offsetX = -regPointX - pivotX;
-        const offsetY = regPointY + pivotY;
-
         return {
             width: image.width,
             height: image.height,
             scale: scale,
-            x: offsetX,
-            y: offsetY
+            x: -regPointX,
+            y: regPointY
         };
     }
 

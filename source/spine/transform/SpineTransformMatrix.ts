@@ -11,19 +11,28 @@ export class SpineTransformMatrix implements SpineTransform {
     public scaleY:number;
     public shearX:number;
     public shearY:number;
+    public pivotX:number;
+    public pivotY:number;
 
     public constructor(element:FlashElement) {
         const matrix = element.matrix;
 
-        this.y = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
-        this.x = matrix.tx;
+        let baseX = matrix.tx;
+        let baseY = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
 
         if (element.elementType === 'shape') {
             if (element.layer.layerType !== 'mask') {
-                this.y = element.y * SpineTransformMatrix.Y_DIRECTION;
-                this.x = element.x;
+                baseX = element.x;
+                baseY = element.y * SpineTransformMatrix.Y_DIRECTION;
             }
         }
+
+        const tp = element.transformationPoint;
+        this.pivotX = tp ? tp.x : 0;
+        this.pivotY = tp ? tp.y : 0;
+
+        this.x = baseX;
+        this.y = baseY;
 
         this.rotation = 0;
         this.scaleX = element.scaleX;

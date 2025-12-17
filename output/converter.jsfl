@@ -60,8 +60,11 @@ var Converter = /** @class */ (function () {
         attachment.height = spineImage.height;
         attachment.scaleX = 1 / spineImage.scale;
         attachment.scaleY = 1 / spineImage.scale;
-        attachment.x = spineImage.x;
-        attachment.y = spineImage.y;
+        var tp = context.element.transformationPoint;
+        var pivotX = tp ? tp.x : 0;
+        var pivotY = tp ? tp.y : 0;
+        attachment.x = spineImage.x - pivotX;
+        attachment.y = spineImage.y + pivotY;
         //-----------------------------------
         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, slot, context, attachment, context.time);
     };
@@ -1859,14 +1862,19 @@ var NumberUtil_1 = __webpack_require__(/*! ../../utils/NumberUtil */ "./source/u
 var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (function () {
     function SpineTransformMatrix(element) {
         var matrix = element.matrix;
-        this.y = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
-        this.x = matrix.tx;
+        var baseX = matrix.tx;
+        var baseY = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
         if (element.elementType === 'shape') {
             if (element.layer.layerType !== 'mask') {
-                this.y = element.y * SpineTransformMatrix.Y_DIRECTION;
-                this.x = element.x;
+                baseX = element.x;
+                baseY = element.y * SpineTransformMatrix.Y_DIRECTION;
             }
         }
+        var tp = element.transformationPoint;
+        this.pivotX = tp ? tp.x : 0;
+        this.pivotY = tp ? tp.y : 0;
+        this.x = baseX;
+        this.y = baseY;
         this.rotation = 0;
         this.scaleX = element.scaleX;
         this.scaleY = element.scaleY;
@@ -2070,18 +2078,13 @@ var ImageUtil = /** @class */ (function () {
         var element = exporter.selection[0];
         var regPointX = element.x;
         var regPointY = element.y;
-        var tp = instance.transformationPoint;
-        var pivotX = tp ? tp.x : 0;
-        var pivotY = tp ? tp.y : 0;
         var image = ImageUtil.exportSelection(path, exporter, scale, autoExport, true);
-        var offsetX = -regPointX - pivotX;
-        var offsetY = regPointY + pivotY;
         return {
             width: image.width,
             height: image.height,
             scale: scale,
-            x: offsetX,
-            y: offsetY
+            x: -regPointX,
+            y: regPointY
         };
     };
     ImageUtil.exportBitmap = function (path, instance, autoExport) {
