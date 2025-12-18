@@ -430,7 +430,11 @@ var ConverterContext = /** @class */ (function () {
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
             var boneName = context.bone.name;
+            var hasAssetClip = context.global.assetTransforms.size > 0;
             var assetTransform = context.global.assetTransforms.get(boneName);
+            if (hasAssetClip && !assetTransform) {
+                throw new Error("Asset \"".concat(boneName, "\" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose."));
+            }
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, assetTransform || transform);
         }
         //-----------------------------------
