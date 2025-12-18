@@ -768,12 +768,11 @@ exports.SpineAnimation = SpineAnimation;
 /*!**********************************************!*\
   !*** ./source/spine/SpineAnimationHelper.ts ***!
   \**********************************************/
-/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+/***/ (function(__unused_webpack_module, exports) {
 
 
 
 exports.SpineAnimationHelper = void 0;
-var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineAnimationHelper = /** @class */ (function () {
     function SpineAnimationHelper() {
     }
@@ -782,11 +781,7 @@ var SpineAnimationHelper = /** @class */ (function () {
         var curve = SpineAnimationHelper.obtainFrameCurve(context);
         var rotateTimeline = timeline.createTimeline("rotate" /* SpineTimelineType.ROTATE */);
         var rotateFrame = rotateTimeline.createFrame(time, curve);
-        var angle = transform.rotation - bone.rotation;
-        rotateFrame.angle = angle;
-        if (transform.rotation !== 0 || bone.rotation !== 0) {
-            Logger_1.Logger.trace("[DEBUG] applyBoneAnimation: bone=\"".concat(bone.name, "\", time=").concat(time, ", transformRot=").concat(transform.rotation, ", boneRot=").concat(bone.rotation, ", angleDelta=").concat(angle));
-        }
+        rotateFrame.angle = transform.rotation - bone.rotation;
         var translateTimeline = timeline.createTimeline("translate" /* SpineTimelineType.TRANSLATE */);
         var translateFrame = translateTimeline.createFrame(time, curve);
         translateFrame.x = transform.x - bone.x;
@@ -1632,8 +1627,20 @@ var __extends = (this && this.__extends) || (function () {
         d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
     };
 })();
+var __assign = (this && this.__assign) || function () {
+    __assign = Object.assign || function(t) {
+        for (var s, i = 1, n = arguments.length; i < n; i++) {
+            s = arguments[i];
+            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
+                t[p] = s[p];
+        }
+        return t;
+    };
+    return __assign.apply(this, arguments);
+};
 
 exports.SpineFormatV4_0_00 = void 0;
+var JsonFormatUtil_1 = __webpack_require__(/*! ../../utils/JsonFormatUtil */ "./source/utils/JsonFormatUtil.ts");
 var SpineFormatV3_8_99_1 = __webpack_require__(/*! ./SpineFormatV3_8_99 */ "./source/spine/formats/SpineFormatV3_8_99.ts");
 var SpineFormatV4_0_00 = /** @class */ (function (_super) {
     __extends(SpineFormatV4_0_00, _super);
@@ -1647,9 +1654,48 @@ var SpineFormatV4_0_00 = /** @class */ (function (_super) {
         if (curve === 'stepped') {
             return { curve: 'stepped' };
         }
+        if (curve != null) {
+            return {
+                curve: [curve.cx1, curve.cy1, curve.cx2, curve.cy2]
+            };
+        }
         return null;
     };
+    SpineFormatV4_0_00.prototype.convertTimeline = function (timeline) {
+        var length = timeline.frames.length;
+        var result = [];
+        for (var index = 0; index < length; index++) {
+            var frameData = timeline.frames[index];
+            var curve = this.convertTimelineFrameCurve(frameData);
+            var isRotate = timeline.type === "rotate" /* SpineTimelineType.ROTATE */;
+            var isTranslate = timeline.type === "translate" /* SpineTimelineType.TRANSLATE */;
+            var isScale = timeline.type === "scale" /* SpineTimelineType.SCALE */;
+            var isShear = timeline.type === "shear" /* SpineTimelineType.SHEAR */;
+            var isColor = timeline.type === "color" /* SpineTimelineType.COLOR */;
+            var isAttachment = timeline.type === "attachment" /* SpineTimelineType.ATTACHMENT */;
+            var frame = __assign({ time: frameData.time }, curve);
+            if (isRotate) {
+                frame.value = frameData.angle;
+            }
+            else if (isTranslate || isScale || isShear) {
+                frame.x = frameData.x;
+                frame.y = frameData.y;
+            }
+            else if (isColor) {
+                frame.color = frameData.color;
+            }
+            else if (isAttachment) {
+                frame.name = frameData.name;
+            }
+            if (index === (length - 1)) {
+                delete frame.curve;
+            }
+            result.push(JsonFormatUtil_1.JsonFormatUtil.cleanObject(frame));
+        }
+        return result;
+    };
     SpineFormatV4_0_00.prototype.convertTimelineGroup = function (group) {
+        this.optimizer.optimizeTimeline(group);
         var result = {};
         for (var _i = 0, _a = group.timelines; _i < _a.length; _i++) {
             var timeline = _a[_i];
@@ -1933,7 +1979,6 @@ exports.SpineTimelineGroupSlot = SpineTimelineGroupSlot;
 
 
 exports.SpineTransformMatrix = void 0;
-var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/Logger.ts");
 var NumberUtil_1 = __webpack_require__(/*! ../../utils/NumberUtil */ "./source/utils/NumberUtil.ts");
 var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (function () {
     function SpineTransformMatrix(element) {
@@ -1970,15 +2015,13 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
         // More robust rotation detection
         var skewX = element.skewX;
         var skewY = element.skewY;
-        Logger_1.Logger.trace("[DEBUG] Element: ".concat(element.name || element.layer.name, ", rot=").concat(element.rotation, ", skewX=").concat(skewX, ", skewY=").concat(skewY, ", matrix=[").concat(matrix.a, ",").concat(matrix.b, ",").concat(matrix.c, ",").concat(matrix.d, ",").concat(matrix.tx, ",").concat(matrix.ty, "]"));
-        if (NumberUtil_1.NumberUtil.equals(skewX, skewY, 0.5)) { // Loosened tolerance even more
+        if (NumberUtil_1.NumberUtil.equals(skewX, skewY, 0.5)) {
             this.rotation = -element.rotation;
         }
         else {
             this.shearX = -skewY;
             this.shearY = -skewX;
         }
-        Logger_1.Logger.trace("[DEBUG] Calculated: rot=".concat(this.rotation, ", shearX=").concat(this.shearX, ", shearY=").concat(this.shearY));
     }
     SpineTransformMatrix.Y_DIRECTION = -1;
     return SpineTransformMatrix;

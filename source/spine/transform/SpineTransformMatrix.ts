@@ -1,4 +1,3 @@
-import { Logger } from '../../logger/Logger';
 import { NumberUtil } from '../../utils/NumberUtil';
 import { SpineTransform } from './SpineTransform';
 
@@ -57,15 +56,11 @@ export class SpineTransformMatrix implements SpineTransform {
         const skewX = element.skewX;
         const skewY = element.skewY;
         
-        Logger.trace(`[DEBUG] Element: ${element.name || element.layer.name}, rot=${element.rotation}, skewX=${skewX}, skewY=${skewY}, matrix=[${matrix.a},${matrix.b},${matrix.c},${matrix.d},${matrix.tx},${matrix.ty}]`);
-
-        if (NumberUtil.equals(skewX, skewY, 0.5)) { // Loosened tolerance even more
+        if (NumberUtil.equals(skewX, skewY, 0.5)) {
             this.rotation = -element.rotation;
         } else {
             this.shearX = -skewY;
             this.shearY = -skewX;
         }
-        
-        Logger.trace(`[DEBUG] Calculated: rot=${this.rotation}, shearX=${this.shearX}, shearY=${this.shearY}`);
     }
 }
