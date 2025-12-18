@@ -90,7 +90,7 @@ export class ConverterContext {
             context.bone.initialized = true;
 
             const boneName = context.bone.name;
-            const hasAssetClip = context.global.assetTransforms.size > 0;
+            const hasAssetClip = context.global.assetTransforms.size() > 0;
             const assetTransform = context.global.assetTransforms.get(boneName);
             
             if (hasAssetClip && !assetTransform) {

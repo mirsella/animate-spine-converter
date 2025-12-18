@@ -430,7 +430,7 @@ var ConverterContext = /** @class */ (function () {
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
             var boneName = context.bone.name;
-            var hasAssetClip = context.global.assetTransforms.size > 0;
+            var hasAssetClip = context.global.assetTransforms.size() > 0;
             var assetTransform = context.global.assetTransforms.get(boneName);
             if (hasAssetClip && !assetTransform) {
                 throw new Error("Asset \"".concat(boneName, "\" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose."));
@@ -592,13 +592,9 @@ var ConverterMap = /** @class */ (function () {
         this.values = [];
         this.keys = [];
     }
-    Object.defineProperty(ConverterMap.prototype, "size", {
-        get: function () {
-            return this.keys.length;
-        },
-        enumerable: false,
-        configurable: true
-    });
+    ConverterMap.prototype.size = function () {
+        return this.keys.length;
+    };
     ConverterMap.prototype.set = function (key, value) {
         this.values.push(value);
         this.keys.push(key);

@@ -7,7 +7,7 @@ export class ConverterMap<KeyType, ValueType> {
         this.keys = [];
     }
 
-    public get size():number {
+    public size():number {
         return this.keys.length;
     }
 
