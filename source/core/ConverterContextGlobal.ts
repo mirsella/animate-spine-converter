@@ -20,7 +20,6 @@ export class ConverterContextGlobal extends ConverterContext {
     public shapesCache:ConverterMap<FlashElement | FlashItem, string>;
     public layersCache:ConverterMap<FlashLayer, SpineSlot[]>;
     public assetTransforms:ConverterMap<string, SpineTransformMatrix>;
-    public nameCounters:ConverterMap<number, ConverterMap<string, number>>;
 
     public labels:ConverterFrameLabel[];
     public stageType:ConverterStageType;
@@ -91,7 +90,6 @@ export class ConverterContextGlobal extends ConverterContext {
         context.shapesCache = new ConverterMap<FlashElement | FlashItem, string>();
         context.layersCache = new ConverterMap<FlashLayer, SpineSlot[]>();
         context.assetTransforms = new ConverterMap<string, SpineTransformMatrix>();
-        context.nameCounters = new ConverterMap<number, ConverterMap<string, number>>();
 
         //-----------------------------------
 

@@ -1,6 +1,5 @@
 import { ConverterContext } from '../core/ConverterContext';
 import { ConverterFrameLabel } from '../core/ConverterFrameLabel';
-import { ConverterMap } from '../core/ConverterMap';
 import { SpineBlendMode } from '../spine/types/SpineBlendMode';
 import { JsonUtil } from './JsonUtil';
 import { StringUtil } from './StringUtil';
@@ -27,27 +26,7 @@ export class ConvertUtil {
             result = ConvertUtil.createShapeName(context);
         }
 
-        const simplified = StringUtil.simplify(result);
-        
-        // Ensure uniqueness using per-frame counters
-        if (context && context.global && context.global.nameCounters) {
-            const frameIdx = (context.frame != null) ? context.frame.startFrame : 0;
-            let frameCounters = context.global.nameCounters.get(frameIdx);
-            
-            if (frameCounters == null) {
-                frameCounters = new ConverterMap<string, number>();
-                context.global.nameCounters.set(frameIdx, frameCounters);
-            }
-
-            const count = frameCounters.get(simplified) || 0;
-            frameCounters.set(simplified, count + 1);
-            
-            if (count > 0) {
-                return simplified + "_" + count;
-            }
-        }
-
-        return simplified;
+        return StringUtil.simplify(result);
     }
 
     public static obtainElementBlendMode(element:FlashElement):SpineBlendMode {

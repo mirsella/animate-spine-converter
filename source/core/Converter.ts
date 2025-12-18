@@ -18,7 +18,6 @@ import { StringUtil } from '../utils/StringUtil';
 import { ConverterConfig } from './ConverterConfig';
 import { ConverterContext } from './ConverterContext';
 import { ConverterContextGlobal } from './ConverterContextGlobal';
-import { ConverterMap } from './ConverterMap';
 import { ConverterStageType } from './ConverterStageType';
 
 export class Converter {

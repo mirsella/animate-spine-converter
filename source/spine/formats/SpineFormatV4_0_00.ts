@@ -81,6 +81,10 @@ export class SpineFormatV4_0_00 extends SpineFormatV3_8_99 {
             return 'rgba';
         }
 
+        if (type === SpineTimelineType.ROTATE) {
+            return 'rotation';
+        }
+
         return type;
     }
 }

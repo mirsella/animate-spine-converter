@@ -584,7 +584,6 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.shapesCache = new ConverterMap_1.ConverterMap();
         context.layersCache = new ConverterMap_1.ConverterMap();
         context.assetTransforms = new ConverterMap_1.ConverterMap();
-        context.nameCounters = new ConverterMap_1.ConverterMap();
         //-----------------------------------
         return context;
     };
@@ -1702,6 +1701,9 @@ var SpineFormatV4_0_00 = /** @class */ (function (_super) {
         if (type === "color" /* SpineTimelineType.COLOR */) {
             return 'rgba';
         }
+        if (type === "rotate" /* SpineTimelineType.ROTATE */) {
+            return 'rotation';
+        }
         return type;
     };
     return SpineFormatV4_0_00;
@@ -2010,7 +2012,7 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
         // More robust rotation detection
         var skewX = element.skewX;
         var skewY = element.skewY;
-        if (NumberUtil_1.NumberUtil.equals(skewX, skewY, 0.5)) {
+        if (NumberUtil_1.NumberUtil.equals(skewX, skewY, 0.5)) { // Loosened tolerance even more
             this.rotation = -element.rotation;
         }
         else {
@@ -2034,7 +2036,6 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
 
 
 exports.ConvertUtil = void 0;
-var ConverterMap_1 = __webpack_require__(/*! ../core/ConverterMap */ "./source/core/ConverterMap.ts");
 var JsonUtil_1 = __webpack_require__(/*! ./JsonUtil */ "./source/utils/JsonUtil.ts");
 var StringUtil_1 = __webpack_require__(/*! ./StringUtil */ "./source/utils/StringUtil.ts");
 var ConvertUtil = /** @class */ (function () {
@@ -2061,22 +2062,7 @@ var ConvertUtil = /** @class */ (function () {
         if (result === '' || result == null) {
             result = ConvertUtil.createShapeName(context);
         }
-        var simplified = StringUtil_1.StringUtil.simplify(result);
-        // Ensure uniqueness using per-frame counters
-        if (context && context.global && context.global.nameCounters) {
-            var frameIdx = (context.frame != null) ? context.frame.startFrame : 0;
-            var frameCounters = context.global.nameCounters.get(frameIdx);
-            if (frameCounters == null) {
-                frameCounters = new ConverterMap_1.ConverterMap();
-                context.global.nameCounters.set(frameIdx, frameCounters);
-            }
-            var count = frameCounters.get(simplified) || 0;
-            frameCounters.set(simplified, count + 1);
-            if (count > 0) {
-                return simplified + "_" + count;
-            }
-        }
-        return simplified;
+        return StringUtil_1.StringUtil.simplify(result);
     };
     ConvertUtil.obtainElementBlendMode = function (element) {
         if (element.blendMode === 'multiply') {
