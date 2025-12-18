@@ -7,6 +7,10 @@ export class ConverterMap<KeyType, ValueType> {
         this.keys = [];
     }
 
+    public get size():number {
+        return this.keys.length;
+    }
+
     public set(key:KeyType, value:ValueType):void {
         this.values.push(value);
         this.keys.push(key);

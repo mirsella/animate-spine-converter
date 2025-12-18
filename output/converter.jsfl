@@ -567,7 +567,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.imagesCache = new ConverterMap_1.ConverterMap();
         context.shapesCache = new ConverterMap_1.ConverterMap();
         context.layersCache = new ConverterMap_1.ConverterMap();
-        context.assetTransforms = new Map();
+        context.assetTransforms = new ConverterMap_1.ConverterMap();
         //-----------------------------------
         return context;
     };
@@ -592,6 +592,13 @@ var ConverterMap = /** @class */ (function () {
         this.values = [];
         this.keys = [];
     }
+    Object.defineProperty(ConverterMap.prototype, "size", {
+        get: function () {
+            return this.keys.length;
+        },
+        enumerable: false,
+        configurable: true
+    });
     ConverterMap.prototype.set = function (key, value) {
         this.values.push(value);
         this.keys.push(key);
