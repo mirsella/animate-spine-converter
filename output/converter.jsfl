@@ -254,10 +254,10 @@ var Converter = /** @class */ (function () {
             }
             for (var _i = 0, _a = frames[0].elements; _i < _a.length; _i++) {
                 var element = _a[_i];
-                var boneName = ConvertUtil_1.ConvertUtil.createBoneName(element, context);
+                var elementName = ConvertUtil_1.ConvertUtil.createElementName(element, context);
                 var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
-                context.global.assetTransforms.set(boneName, transform);
-                Logger_1.Logger.trace("  Extracted base transform for: ".concat(boneName));
+                context.global.assetTransforms.set(elementName, transform);
+                Logger_1.Logger.trace("  Extracted base transform for: ".concat(elementName));
             }
         }
     };
@@ -431,9 +431,10 @@ var ConverterContext = /** @class */ (function () {
             context.bone.initialized = true;
             var boneName = context.bone.name;
             var hasAssetClip = context.global.assetTransforms.size() > 0;
-            var assetTransform = context.global.assetTransforms.get(boneName);
+            var elementName = ConvertUtil_1.ConvertUtil.createElementName(element, this);
+            var assetTransform = context.global.assetTransforms.get(elementName);
             if (hasAssetClip && !assetTransform) {
-                throw new Error("Asset \"".concat(boneName, "\" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose."));
+                throw new Error("Asset \"".concat(elementName, "\" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose."));
             }
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, assetTransform || transform);
         }

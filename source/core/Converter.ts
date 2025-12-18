@@ -360,10 +360,10 @@ export class Converter {
             }
 
             for (const element of frames[0].elements) {
-                const boneName = ConvertUtil.createBoneName(element, context);
+                const elementName = ConvertUtil.createElementName(element, context);
                 const transform = new SpineTransformMatrix(element);
-                context.global.assetTransforms.set(boneName, transform);
-                Logger.trace(`  Extracted base transform for: ${boneName}`);
+                context.global.assetTransforms.set(elementName, transform);
+                Logger.trace(`  Extracted base transform for: ${elementName}`);
             }
         }
     }

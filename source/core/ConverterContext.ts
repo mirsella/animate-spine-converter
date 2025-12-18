@@ -91,10 +91,12 @@ export class ConverterContext {
 
             const boneName = context.bone.name;
             const hasAssetClip = context.global.assetTransforms.size() > 0;
-            const assetTransform = context.global.assetTransforms.get(boneName);
+            
+            const elementName = ConvertUtil.createElementName(element, this);
+            const assetTransform = context.global.assetTransforms.get(elementName);
             
             if (hasAssetClip && !assetTransform) {
-                throw new Error(`Asset "${boneName}" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose.`);
+                throw new Error(`Asset "${elementName}" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose.`);
             }
             
             SpineAnimationHelper.applyBoneTransform(
