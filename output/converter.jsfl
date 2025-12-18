@@ -728,11 +728,11 @@ var SpineAnimationHelper = /** @class */ (function () {
     SpineAnimationHelper.applyBoneTransform = function (bone, transform) {
         bone.x = transform.x;
         bone.y = transform.y;
-        bone.rotation = 0;
-        bone.scaleX = 1;
-        bone.scaleY = 1;
-        bone.shearX = 0;
-        bone.shearY = 0;
+        bone.rotation = transform.rotation;
+        bone.scaleX = transform.scaleX;
+        bone.scaleY = transform.scaleY;
+        bone.shearX = transform.shearX;
+        bone.shearY = transform.shearY;
     };
     SpineAnimationHelper.applySlotAttachment = function (animation, slot, context, attachment, time) {
         var timeline = animation.createSlotTimeline(slot);
