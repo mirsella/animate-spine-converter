@@ -440,10 +440,11 @@ var ConverterContext = /** @class */ (function () {
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
             var boneName = context.bone.name;
+            var nameParts = boneName.split('/');
+            var elementName = nameParts[nameParts.length - 1];
             var hasAssetClip = context.global.assetTransforms.size() > 0;
-            var elementName = ConvertUtil_1.ConvertUtil.createElementName(element, this);
             var assetTransform = context.global.assetTransforms.get(elementName);
-            Logger_1.Logger.trace("[BONE INIT] boneName=\"".concat(boneName, "\" elementName=\"").concat(elementName, "\" hasAsset=").concat(!!assetTransform, " totalAssets=").concat(context.global.assetTransforms.size()));
+            Logger_1.Logger.trace("[BONE INIT] boneName=\"".concat(boneName, "\" lookupName=\"").concat(elementName, "\" hasAsset=").concat(!!assetTransform, " totalAssets=").concat(context.global.assetTransforms.size()));
             if (hasAssetClip && !assetTransform) {
                 Logger_1.Logger.error("Asset \"".concat(elementName, "\" not found in ASSET MovieClip!"));
                 Logger_1.Logger.error("Available assets: ".concat(context.global.assetTransforms.keys.join(', ')));

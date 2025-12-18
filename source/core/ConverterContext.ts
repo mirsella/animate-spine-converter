@@ -91,12 +91,13 @@ export class ConverterContext {
             context.bone.initialized = true;
 
             const boneName = context.bone.name;
-            const hasAssetClip = context.global.assetTransforms.size() > 0;
+            const nameParts = boneName.split('/');
+            const elementName = nameParts[nameParts.length - 1];
             
-            const elementName = ConvertUtil.createElementName(element, this);
+            const hasAssetClip = context.global.assetTransforms.size() > 0;
             const assetTransform = context.global.assetTransforms.get(elementName);
             
-            Logger.trace(`[BONE INIT] boneName="${boneName}" elementName="${elementName}" hasAsset=${!!assetTransform} totalAssets=${context.global.assetTransforms.size()}`);
+            Logger.trace(`[BONE INIT] boneName="${boneName}" lookupName="${elementName}" hasAsset=${!!assetTransform} totalAssets=${context.global.assetTransforms.size()}`);
             
             if (hasAssetClip && !assetTransform) {
                 Logger.error(`Asset "${elementName}" not found in ASSET MovieClip!`);
