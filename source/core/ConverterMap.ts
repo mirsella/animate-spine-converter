@@ -12,8 +12,13 @@ export class ConverterMap<KeyType, ValueType> {
     }
 
     public set(key:KeyType, value:ValueType):void {
-        this.values.push(value);
-        this.keys.push(key);
+        const existingIndex = this.keys.indexOf(key);
+        if (existingIndex !== -1) {
+            this.values[existingIndex] = value;
+        } else {
+            this.values.push(value);
+            this.keys.push(key);
+        }
     }
 
     public get(key:KeyType):ValueType {

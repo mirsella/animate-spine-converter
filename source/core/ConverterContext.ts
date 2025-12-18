@@ -1,3 +1,4 @@
+import { Logger } from '../logger/Logger';
 import { SpineClippingAttachment } from '../spine/attachment/SpineClippingAttachment';
 import { SpineAnimationHelper } from '../spine/SpineAnimationHelper';
 import { SpineBone } from '../spine/SpineBone';
@@ -95,8 +96,18 @@ export class ConverterContext {
             const elementName = ConvertUtil.createElementName(element, this);
             const assetTransform = context.global.assetTransforms.get(elementName);
             
+            Logger.trace(`[BONE INIT] boneName="${boneName}" elementName="${elementName}" hasAsset=${!!assetTransform} totalAssets=${context.global.assetTransforms.size()}`);
+            
             if (hasAssetClip && !assetTransform) {
+                Logger.error(`Asset "${elementName}" not found in ASSET MovieClip!`);
+                Logger.error(`Available assets: ${context.global.assetTransforms.keys.join(', ')}`);
                 throw new Error(`Asset "${elementName}" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose.`);
+            }
+            
+            if (assetTransform) {
+                Logger.trace(`  Using ASSET transform for "${elementName}"`);
+            } else {
+                Logger.trace(`  Using first-frame transform for "${elementName}"`);
             }
             
             SpineAnimationHelper.applyBoneTransform(

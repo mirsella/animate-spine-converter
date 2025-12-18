@@ -332,40 +332,52 @@ export class Converter {
         const assetItem = this._document.library.findItemIndex('ASSET');
         
         if (assetItem === undefined) {
+            Logger.trace('No ASSET MovieClip found in library');
             return;
         }
 
         const assetLibItem = this._document.library.items[assetItem];
         
         if (!assetLibItem || assetLibItem.itemType !== 'movie clip') {
+            Logger.trace('ASSET item is not a movie clip');
             return;
         }
 
-        Logger.trace('Found ASSET MovieClip - extracting base transforms...');
+        Logger.trace('=== ASSET MovieClip found - extracting base transforms ===');
 
         const timeline = assetLibItem.timeline;
         const layers = timeline.layers;
+        
+        Logger.trace(`ASSET has ${layers.length} layers`);
 
         for (let layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
             const layer = layers[layerIdx];
             
+            Logger.trace(`  Layer ${layerIdx}: "${layer.name}" type=${layer.layerType}`);
+            
             if (layer.layerType !== 'normal') {
+                Logger.trace(`    Skipping non-normal layer`);
                 continue;
             }
 
             const frames = layer.frames;
             
             if (frames.length === 0 || frames[0].elements.length === 0) {
+                Logger.trace(`    No elements in first frame`);
                 continue;
             }
+
+            Logger.trace(`    Frame 0 has ${frames[0].elements.length} elements`);
 
             for (const element of frames[0].elements) {
                 const elementName = ConvertUtil.createElementName(element, context);
                 const transform = new SpineTransformMatrix(element);
                 context.global.assetTransforms.set(elementName, transform);
-                Logger.trace(`  Extracted base transform for: ${elementName}`);
+                Logger.trace(`    ✓ Stored: "${elementName}" (type=${element.elementType}, instance=${element.instanceType})`);
             }
         }
+        
+        Logger.trace(`=== Total ASSET transforms stored: ${context.global.assetTransforms.size()} ===`);
     }
 
     public convertSymbolInstance(element:FlashElement, context:ConverterContext):boolean {

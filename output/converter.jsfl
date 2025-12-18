@@ -234,32 +234,40 @@ var Converter = /** @class */ (function () {
     Converter.prototype.extractAssetTransforms = function (context) {
         var assetItem = this._document.library.findItemIndex('ASSET');
         if (assetItem === undefined) {
+            Logger_1.Logger.trace('No ASSET MovieClip found in library');
             return;
         }
         var assetLibItem = this._document.library.items[assetItem];
         if (!assetLibItem || assetLibItem.itemType !== 'movie clip') {
+            Logger_1.Logger.trace('ASSET item is not a movie clip');
             return;
         }
-        Logger_1.Logger.trace('Found ASSET MovieClip - extracting base transforms...');
+        Logger_1.Logger.trace('=== ASSET MovieClip found - extracting base transforms ===');
         var timeline = assetLibItem.timeline;
         var layers = timeline.layers;
+        Logger_1.Logger.trace("ASSET has ".concat(layers.length, " layers"));
         for (var layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
             var layer = layers[layerIdx];
+            Logger_1.Logger.trace("  Layer ".concat(layerIdx, ": \"").concat(layer.name, "\" type=").concat(layer.layerType));
             if (layer.layerType !== 'normal') {
+                Logger_1.Logger.trace("    Skipping non-normal layer");
                 continue;
             }
             var frames = layer.frames;
             if (frames.length === 0 || frames[0].elements.length === 0) {
+                Logger_1.Logger.trace("    No elements in first frame");
                 continue;
             }
+            Logger_1.Logger.trace("    Frame 0 has ".concat(frames[0].elements.length, " elements"));
             for (var _i = 0, _a = frames[0].elements; _i < _a.length; _i++) {
                 var element = _a[_i];
                 var elementName = ConvertUtil_1.ConvertUtil.createElementName(element, context);
                 var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
                 context.global.assetTransforms.set(elementName, transform);
-                Logger_1.Logger.trace("  Extracted base transform for: ".concat(elementName));
+                Logger_1.Logger.trace("    \u2713 Stored: \"".concat(elementName, "\" (type=").concat(element.elementType, ", instance=").concat(element.instanceType, ")"));
             }
         }
+        Logger_1.Logger.trace("=== Total ASSET transforms stored: ".concat(context.global.assetTransforms.size(), " ==="));
     };
     Converter.prototype.convertSymbolInstance = function (element, context) {
         if (element.elementType === 'instance' && element.instanceType === 'symbol') {
@@ -380,6 +388,7 @@ exports.ConverterColor = ConverterColor;
 
 
 exports.ConverterContext = void 0;
+var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineAnimationHelper_1 = __webpack_require__(/*! ../spine/SpineAnimationHelper */ "./source/spine/SpineAnimationHelper.ts");
 var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTransformMatrix */ "./source/spine/transform/SpineTransformMatrix.ts");
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
@@ -433,8 +442,17 @@ var ConverterContext = /** @class */ (function () {
             var hasAssetClip = context.global.assetTransforms.size() > 0;
             var elementName = ConvertUtil_1.ConvertUtil.createElementName(element, this);
             var assetTransform = context.global.assetTransforms.get(elementName);
+            Logger_1.Logger.trace("[BONE INIT] boneName=\"".concat(boneName, "\" elementName=\"").concat(elementName, "\" hasAsset=").concat(!!assetTransform, " totalAssets=").concat(context.global.assetTransforms.size()));
             if (hasAssetClip && !assetTransform) {
+                Logger_1.Logger.error("Asset \"".concat(elementName, "\" not found in ASSET MovieClip!"));
+                Logger_1.Logger.error("Available assets: ".concat(context.global.assetTransforms.keys.join(', ')));
                 throw new Error("Asset \"".concat(elementName, "\" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose."));
+            }
+            if (assetTransform) {
+                Logger_1.Logger.trace("  Using ASSET transform for \"".concat(elementName, "\""));
+            }
+            else {
+                Logger_1.Logger.trace("  Using first-frame transform for \"".concat(elementName, "\""));
             }
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, assetTransform || transform);
         }
@@ -597,8 +615,14 @@ var ConverterMap = /** @class */ (function () {
         return this.keys.length;
     };
     ConverterMap.prototype.set = function (key, value) {
-        this.values.push(value);
-        this.keys.push(key);
+        var existingIndex = this.keys.indexOf(key);
+        if (existingIndex !== -1) {
+            this.values[existingIndex] = value;
+        }
+        else {
+            this.values.push(value);
+            this.keys.push(key);
+        }
     };
     ConverterMap.prototype.get = function (key) {
         for (var index = 0; index < this.keys.length; index++) {
@@ -1969,11 +1993,11 @@ var ConvertUtil = /** @class */ (function () {
             if (JsonUtil_1.JsonUtil.validString(element.name)) {
                 result = element.name;
             }
+            else if (JsonUtil_1.JsonUtil.validString(element.libraryItem.name)) {
+                result = element.libraryItem.name;
+            }
             else if (JsonUtil_1.JsonUtil.validString(element.layer.name)) {
                 result = element.layer.name;
-            }
-            else {
-                result = element.libraryItem.name;
             }
         }
         else {

@@ -11,10 +11,10 @@ export class ConvertUtil {
         if (element.elementType === 'instance') {
             if (JsonUtil.validString(element.name)) {
                 result = element.name;
+            } else if (JsonUtil.validString(element.libraryItem.name)) {
+                result = element.libraryItem.name;
             } else if (JsonUtil.validString(element.layer.name)) {
                 result = element.layer.name;
-            } else {
-                result = element.libraryItem.name;
             }
         } else {
             if (JsonUtil.validString(element.layer.name)) {
