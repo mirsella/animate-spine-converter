@@ -3,6 +3,7 @@ import { SpineClippingAttachment } from '../spine/attachment/SpineClippingAttach
 import { SpineRegionAttachment } from '../spine/attachment/SpineRegionAttachment';
 import { SpineAnimationHelper } from '../spine/SpineAnimationHelper';
 import { SpineSkeleton } from '../spine/SpineSkeleton';
+import { SpineTransformMatrix } from '../spine/transform/SpineTransformMatrix';
 import { SpineAttachmentType } from '../spine/types/SpineAttachmentType';
 import { ConvertUtil } from '../utils/ConvertUtil';
 import { ImageExportFactory } from '../utils/ImageExportFactory';
@@ -327,9 +328,51 @@ export class Converter {
         return PathUtil.joinPath(this._workingPath, path);
     }
 
+    private extractAssetTransforms(context:ConverterContext):void {
+        const assetItem = this._document.library.findItemIndex('ASSET');
+        
+        if (assetItem === undefined) {
+            return;
+        }
+
+        const assetLibItem = this._document.library.items[assetItem];
+        
+        if (!assetLibItem || assetLibItem.itemType !== 'movie clip') {
+            return;
+        }
+
+        Logger.trace('Found ASSET MovieClip - extracting base transforms...');
+
+        const timeline = assetLibItem.timeline;
+        const layers = timeline.layers;
+
+        for (let layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
+            const layer = layers[layerIdx];
+            
+            if (layer.layerType !== 'normal') {
+                continue;
+            }
+
+            const frames = layer.frames;
+            
+            if (frames.length === 0 || frames[0].elements.length === 0) {
+                continue;
+            }
+
+            for (const element of frames[0].elements) {
+                const boneName = ConvertUtil.createBoneName(element, context);
+                const transform = new SpineTransformMatrix(element);
+                context.global.assetTransforms.set(boneName, transform);
+                Logger.trace(`  Extracted base transform for: ${boneName}`);
+            }
+        }
+    }
+
     public convertSymbolInstance(element:FlashElement, context:ConverterContext):boolean {
         if (element.elementType === 'instance' && element.instanceType === 'symbol') {
             try {
+                this.extractAssetTransforms(context);
+
                 context.global.stageType = ConverterStageType.STRUCTURE;
                 this.convertElement(context);
 

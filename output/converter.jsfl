@@ -14,6 +14,7 @@ exports.Converter = void 0;
 var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineAnimationHelper_1 = __webpack_require__(/*! ../spine/SpineAnimationHelper */ "./source/spine/SpineAnimationHelper.ts");
 var SpineSkeleton_1 = __webpack_require__(/*! ../spine/SpineSkeleton */ "./source/spine/SpineSkeleton.ts");
+var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTransformMatrix */ "./source/spine/transform/SpineTransformMatrix.ts");
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
 var ImageUtil_1 = __webpack_require__(/*! ../utils/ImageUtil */ "./source/utils/ImageUtil.ts");
 var JsonEncoder_1 = __webpack_require__(/*! ../utils/JsonEncoder */ "./source/utils/JsonEncoder.ts");
@@ -230,9 +231,40 @@ var Converter = /** @class */ (function () {
     Converter.prototype.resolveWorkingPath = function (path) {
         return PathUtil_1.PathUtil.joinPath(this._workingPath, path);
     };
+    Converter.prototype.extractAssetTransforms = function (context) {
+        var assetItem = this._document.library.findItemIndex('ASSET');
+        if (assetItem === undefined) {
+            return;
+        }
+        var assetLibItem = this._document.library.items[assetItem];
+        if (!assetLibItem || assetLibItem.itemType !== 'movie clip') {
+            return;
+        }
+        Logger_1.Logger.trace('Found ASSET MovieClip - extracting base transforms...');
+        var timeline = assetLibItem.timeline;
+        var layers = timeline.layers;
+        for (var layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
+            var layer = layers[layerIdx];
+            if (layer.layerType !== 'normal') {
+                continue;
+            }
+            var frames = layer.frames;
+            if (frames.length === 0 || frames[0].elements.length === 0) {
+                continue;
+            }
+            for (var _i = 0, _a = frames[0].elements; _i < _a.length; _i++) {
+                var element = _a[_i];
+                var boneName = ConvertUtil_1.ConvertUtil.createBoneName(element, context);
+                var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
+                context.global.assetTransforms.set(boneName, transform);
+                Logger_1.Logger.trace("  Extracted base transform for: ".concat(boneName));
+            }
+        }
+    };
     Converter.prototype.convertSymbolInstance = function (element, context) {
         if (element.elementType === 'instance' && element.instanceType === 'symbol') {
             try {
+                this.extractAssetTransforms(context);
                 context.global.stageType = "structure" /* ConverterStageType.STRUCTURE */;
                 this.convertElement(context);
                 for (var _i = 0, _a = context.global.labels; _i < _a.length; _i++) {
@@ -397,7 +429,9 @@ var ConverterContext = /** @class */ (function () {
         //-----------------------------------
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
-            SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, transform);
+            var boneName = context.bone.name;
+            var assetTransform = context.global.assetTransforms.get(boneName);
+            SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, assetTransform || transform);
         }
         //-----------------------------------
         if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */) {
@@ -529,6 +563,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.imagesCache = new ConverterMap_1.ConverterMap();
         context.shapesCache = new ConverterMap_1.ConverterMap();
         context.layersCache = new ConverterMap_1.ConverterMap();
+        context.assetTransforms = new Map();
         //-----------------------------------
         return context;
     };

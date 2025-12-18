@@ -89,9 +89,12 @@ export class ConverterContext {
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
 
+            const boneName = context.bone.name;
+            const assetTransform = context.global.assetTransforms.get(boneName);
+            
             SpineAnimationHelper.applyBoneTransform(
                 context.bone,
-                transform
+                assetTransform || transform
             );
         }
 
