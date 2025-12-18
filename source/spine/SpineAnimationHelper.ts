@@ -1,3 +1,4 @@
+import { Logger } from '../logger/Logger';
 import { ConverterContext } from '../core/ConverterContext';
 import { SpineAttachment } from './attachment/SpineAttachment';
 import { SpineAnimation } from './SpineAnimation';
@@ -14,7 +15,13 @@ export class SpineAnimationHelper {
 
         const rotateTimeline = timeline.createTimeline(SpineTimelineType.ROTATE);
         const rotateFrame = rotateTimeline.createFrame(time, curve);
-        rotateFrame.angle = transform.rotation - bone.rotation;
+        
+        const angle = transform.rotation - bone.rotation;
+        rotateFrame.angle = angle;
+        
+        if (transform.rotation !== 0 || bone.rotation !== 0) {
+            Logger.trace(`[DEBUG] applyBoneAnimation: bone="${bone.name}", time=${time}, transformRot=${transform.rotation}, boneRot=${bone.rotation}, angleDelta=${angle}`);
+        }
 
         const translateTimeline = timeline.createTimeline(SpineTimelineType.TRANSLATE);
         const translateFrame = translateTimeline.createFrame(time, curve);

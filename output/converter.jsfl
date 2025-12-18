@@ -768,11 +768,12 @@ exports.SpineAnimation = SpineAnimation;
 /*!**********************************************!*\
   !*** ./source/spine/SpineAnimationHelper.ts ***!
   \**********************************************/
-/***/ (function(__unused_webpack_module, exports) {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
 
 exports.SpineAnimationHelper = void 0;
+var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineAnimationHelper = /** @class */ (function () {
     function SpineAnimationHelper() {
     }
@@ -781,7 +782,11 @@ var SpineAnimationHelper = /** @class */ (function () {
         var curve = SpineAnimationHelper.obtainFrameCurve(context);
         var rotateTimeline = timeline.createTimeline("rotate" /* SpineTimelineType.ROTATE */);
         var rotateFrame = rotateTimeline.createFrame(time, curve);
-        rotateFrame.angle = transform.rotation - bone.rotation;
+        var angle = transform.rotation - bone.rotation;
+        rotateFrame.angle = angle;
+        if (transform.rotation !== 0 || bone.rotation !== 0) {
+            Logger_1.Logger.trace("[DEBUG] applyBoneAnimation: bone=\"".concat(bone.name, "\", time=").concat(time, ", transformRot=").concat(transform.rotation, ", boneRot=").concat(bone.rotation, ", angleDelta=").concat(angle));
+        }
         var translateTimeline = timeline.createTimeline("translate" /* SpineTimelineType.TRANSLATE */);
         var translateFrame = translateTimeline.createFrame(time, curve);
         translateFrame.x = transform.x - bone.x;
@@ -1928,6 +1933,7 @@ exports.SpineTimelineGroupSlot = SpineTimelineGroupSlot;
 
 
 exports.SpineTransformMatrix = void 0;
+var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/Logger.ts");
 var NumberUtil_1 = __webpack_require__(/*! ../../utils/NumberUtil */ "./source/utils/NumberUtil.ts");
 var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (function () {
     function SpineTransformMatrix(element) {
@@ -1964,6 +1970,7 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
         // More robust rotation detection
         var skewX = element.skewX;
         var skewY = element.skewY;
+        Logger_1.Logger.trace("[DEBUG] Element: ".concat(element.name || element.layer.name, ", rot=").concat(element.rotation, ", skewX=").concat(skewX, ", skewY=").concat(skewY, ", matrix=[").concat(matrix.a, ",").concat(matrix.b, ",").concat(matrix.c, ",").concat(matrix.d, ",").concat(matrix.tx, ",").concat(matrix.ty, "]"));
         if (NumberUtil_1.NumberUtil.equals(skewX, skewY, 0.5)) { // Loosened tolerance even more
             this.rotation = -element.rotation;
         }
@@ -1971,6 +1978,7 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
             this.shearX = -skewY;
             this.shearY = -skewX;
         }
+        Logger_1.Logger.trace("[DEBUG] Calculated: rot=".concat(this.rotation, ", shearX=").concat(this.shearX, ", shearY=").concat(this.shearY));
     }
     SpineTransformMatrix.Y_DIRECTION = -1;
     return SpineTransformMatrix;
@@ -1999,11 +2007,11 @@ var ConvertUtil = /** @class */ (function () {
             if (JsonUtil_1.JsonUtil.validString(element.name)) {
                 result = element.name;
             }
-            else if (element.libraryItem && JsonUtil_1.JsonUtil.validString(element.libraryItem.name)) {
-                result = element.libraryItem.name;
-            }
             else if (JsonUtil_1.JsonUtil.validString(element.layer.name)) {
                 result = element.layer.name;
+            }
+            else if (element.libraryItem && JsonUtil_1.JsonUtil.validString(element.libraryItem.name)) {
+                result = element.libraryItem.name;
             }
         }
         else {
