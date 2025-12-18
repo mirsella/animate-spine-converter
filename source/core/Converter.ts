@@ -254,9 +254,6 @@ export class Converter {
             if (frame == null || frame.startFrame !== frameIdx) {
                 continue;
             }
-            
-            // Reset name counters for each frame to maintain consistent unique names
-            context.global.nameCounters = new ConverterMap<string, number>();
 
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
@@ -353,9 +350,6 @@ export class Converter {
         const layers = timeline.layers;
         
         Logger.trace("ASSET has " + layers.length + " layers");
-        
-        // Reset name counters for ASSET extraction
-        context.global.nameCounters = new ConverterMap<string, number>();
 
         for (let layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
             const layer = layers[layerIdx];

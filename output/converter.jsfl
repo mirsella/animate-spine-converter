@@ -24,7 +24,6 @@ var PathUtil_1 = __webpack_require__(/*! ../utils/PathUtil */ "./source/utils/Pa
 var ShapeUtil_1 = __webpack_require__(/*! ../utils/ShapeUtil */ "./source/utils/ShapeUtil.ts");
 var StringUtil_1 = __webpack_require__(/*! ../utils/StringUtil */ "./source/utils/StringUtil.ts");
 var ConverterContextGlobal_1 = __webpack_require__(/*! ./ConverterContextGlobal */ "./source/core/ConverterContextGlobal.ts");
-var ConverterMap_1 = __webpack_require__(/*! ./ConverterMap */ "./source/core/ConverterMap.ts");
 var Converter = /** @class */ (function () {
     function Converter(document, config) {
         this._document = document;
@@ -180,8 +179,6 @@ var Converter = /** @class */ (function () {
             if (frame == null || frame.startFrame !== frameIdx) {
                 continue;
             }
-            // Reset name counters for each frame to maintain consistent unique names
-            context.global.nameCounters = new ConverterMap_1.ConverterMap();
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
@@ -249,8 +246,6 @@ var Converter = /** @class */ (function () {
         var timeline = assetLibItem.timeline;
         var layers = timeline.layers;
         Logger_1.Logger.trace("ASSET has " + layers.length + " layers");
-        // Reset name counters for ASSET extraction
-        context.global.nameCounters = new ConverterMap_1.ConverterMap();
         for (var layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
             var layer = layers[layerIdx];
             if (layer.layerType !== 'normal') {
@@ -2039,6 +2034,7 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
 
 
 exports.ConvertUtil = void 0;
+var ConverterMap_1 = __webpack_require__(/*! ../core/ConverterMap */ "./source/core/ConverterMap.ts");
 var JsonUtil_1 = __webpack_require__(/*! ./JsonUtil */ "./source/utils/JsonUtil.ts");
 var StringUtil_1 = __webpack_require__(/*! ./StringUtil */ "./source/utils/StringUtil.ts");
 var ConvertUtil = /** @class */ (function () {
@@ -2068,8 +2064,14 @@ var ConvertUtil = /** @class */ (function () {
         var simplified = StringUtil_1.StringUtil.simplify(result);
         // Ensure uniqueness using per-frame counters
         if (context && context.global && context.global.nameCounters) {
-            var count = context.global.nameCounters.get(simplified) || 0;
-            context.global.nameCounters.set(simplified, count + 1);
+            var frameIdx = (context.frame != null) ? context.frame.startFrame : 0;
+            var frameCounters = context.global.nameCounters.get(frameIdx);
+            if (frameCounters == null) {
+                frameCounters = new ConverterMap_1.ConverterMap();
+                context.global.nameCounters.set(frameIdx, frameCounters);
+            }
+            var count = frameCounters.get(simplified) || 0;
+            frameCounters.set(simplified, count + 1);
             if (count > 0) {
                 return simplified + "_" + count;
             }
