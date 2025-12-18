@@ -18,6 +18,7 @@ import { StringUtil } from '../utils/StringUtil';
 import { ConverterConfig } from './ConverterConfig';
 import { ConverterContext } from './ConverterContext';
 import { ConverterContextGlobal } from './ConverterContextGlobal';
+import { ConverterMap } from './ConverterMap';
 import { ConverterStageType } from './ConverterStageType';
 
 export class Converter {
@@ -253,6 +254,9 @@ export class Converter {
             if (frame == null || frame.startFrame !== frameIdx) {
                 continue;
             }
+            
+            // Reset name counters for each frame to maintain consistent unique names
+            context.global.nameCounters = new ConverterMap<string, number>();
 
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
@@ -348,36 +352,33 @@ export class Converter {
         const timeline = assetLibItem.timeline;
         const layers = timeline.layers;
         
-        Logger.trace(`ASSET has ${layers.length} layers`);
+        Logger.trace("ASSET has " + layers.length + " layers");
+        
+        // Reset name counters for ASSET extraction
+        context.global.nameCounters = new ConverterMap<string, number>();
 
         for (let layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
             const layer = layers[layerIdx];
             
-            Logger.trace(`  Layer ${layerIdx}: "${layer.name}" type=${layer.layerType}`);
-            
             if (layer.layerType !== 'normal') {
-                Logger.trace(`    Skipping non-normal layer`);
                 continue;
             }
 
             const frames = layer.frames;
             
             if (frames.length === 0 || frames[0].elements.length === 0) {
-                Logger.trace(`    No elements in first frame`);
                 continue;
             }
 
-            Logger.trace(`    Frame 0 has ${frames[0].elements.length} elements`);
-
             for (const element of frames[0].elements) {
-                const elementName = ConvertUtil.createElementName(element, context);
+                const uniqueKey = ConvertUtil.createElementName(element, context);
                 const transform = new SpineTransformMatrix(element);
-                context.global.assetTransforms.set(elementName, transform);
-                Logger.trace(`    ✓ Stored: "${elementName}" (type=${element.elementType}, instance=${element.instanceType})`);
+                context.global.assetTransforms.set(uniqueKey, transform);
+                Logger.trace("    ✓ Stored transform for: " + uniqueKey + " (Library: " + (element.libraryItem ? element.libraryItem.name : "N/A") + ")");
             }
         }
         
-        Logger.trace(`=== Total ASSET transforms stored: ${context.global.assetTransforms.size()} ===`);
+        Logger.trace("=== Total ASSET transforms stored: " + context.global.assetTransforms.size() + " ===");
     }
 
     public convertSymbolInstance(element:FlashElement, context:ConverterContext):boolean {

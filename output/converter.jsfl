@@ -24,6 +24,7 @@ var PathUtil_1 = __webpack_require__(/*! ../utils/PathUtil */ "./source/utils/Pa
 var ShapeUtil_1 = __webpack_require__(/*! ../utils/ShapeUtil */ "./source/utils/ShapeUtil.ts");
 var StringUtil_1 = __webpack_require__(/*! ../utils/StringUtil */ "./source/utils/StringUtil.ts");
 var ConverterContextGlobal_1 = __webpack_require__(/*! ./ConverterContextGlobal */ "./source/core/ConverterContextGlobal.ts");
+var ConverterMap_1 = __webpack_require__(/*! ./ConverterMap */ "./source/core/ConverterMap.ts");
 var Converter = /** @class */ (function () {
     function Converter(document, config) {
         this._document = document;
@@ -179,6 +180,8 @@ var Converter = /** @class */ (function () {
             if (frame == null || frame.startFrame !== frameIdx) {
                 continue;
             }
+            // Reset name counters for each frame to maintain consistent unique names
+            context.global.nameCounters = new ConverterMap_1.ConverterMap();
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
@@ -245,29 +248,27 @@ var Converter = /** @class */ (function () {
         Logger_1.Logger.trace('=== ASSET MovieClip found - extracting base transforms ===');
         var timeline = assetLibItem.timeline;
         var layers = timeline.layers;
-        Logger_1.Logger.trace("ASSET has ".concat(layers.length, " layers"));
+        Logger_1.Logger.trace("ASSET has " + layers.length + " layers");
+        // Reset name counters for ASSET extraction
+        context.global.nameCounters = new ConverterMap_1.ConverterMap();
         for (var layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
             var layer = layers[layerIdx];
-            Logger_1.Logger.trace("  Layer ".concat(layerIdx, ": \"").concat(layer.name, "\" type=").concat(layer.layerType));
             if (layer.layerType !== 'normal') {
-                Logger_1.Logger.trace("    Skipping non-normal layer");
                 continue;
             }
             var frames = layer.frames;
             if (frames.length === 0 || frames[0].elements.length === 0) {
-                Logger_1.Logger.trace("    No elements in first frame");
                 continue;
             }
-            Logger_1.Logger.trace("    Frame 0 has ".concat(frames[0].elements.length, " elements"));
             for (var _i = 0, _a = frames[0].elements; _i < _a.length; _i++) {
                 var element = _a[_i];
-                var elementName = ConvertUtil_1.ConvertUtil.createElementName(element, context);
+                var uniqueKey = ConvertUtil_1.ConvertUtil.createElementName(element, context);
                 var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
-                context.global.assetTransforms.set(elementName, transform);
-                Logger_1.Logger.trace("    \u2713 Stored: \"".concat(elementName, "\" (type=").concat(element.elementType, ", instance=").concat(element.instanceType, ")"));
+                context.global.assetTransforms.set(uniqueKey, transform);
+                Logger_1.Logger.trace("    ✓ Stored transform for: " + uniqueKey + " (Library: " + (element.libraryItem ? element.libraryItem.name : "N/A") + ")");
             }
         }
-        Logger_1.Logger.trace("=== Total ASSET transforms stored: ".concat(context.global.assetTransforms.size(), " ==="));
+        Logger_1.Logger.trace("=== Total ASSET transforms stored: " + context.global.assetTransforms.size() + " ===");
     };
     Converter.prototype.convertSymbolInstance = function (element, context) {
         if (element.elementType === 'instance' && element.instanceType === 'symbol') {
@@ -587,6 +588,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.shapesCache = new ConverterMap_1.ConverterMap();
         context.layersCache = new ConverterMap_1.ConverterMap();
         context.assetTransforms = new ConverterMap_1.ConverterMap();
+        context.nameCounters = new ConverterMap_1.ConverterMap();
         //-----------------------------------
         return context;
     };
@@ -1958,12 +1960,15 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
         this.scaleY = element.scaleY;
         this.shearX = 0;
         this.shearY = 0;
-        if (NumberUtil_1.NumberUtil.equals(element.skewX, element.skewY, 0.1)) {
+        // More robust rotation detection
+        var skewX = element.skewX;
+        var skewY = element.skewY;
+        if (NumberUtil_1.NumberUtil.equals(skewX, skewY, 0.5)) { // Loosened tolerance even more
             this.rotation = -element.rotation;
         }
         else {
-            this.shearX = -element.skewY;
-            this.shearY = -element.skewX;
+            this.shearX = -skewY;
+            this.shearY = -skewX;
         }
     }
     SpineTransformMatrix.Y_DIRECTION = -1;
@@ -1988,12 +1993,12 @@ var ConvertUtil = /** @class */ (function () {
     function ConvertUtil() {
     }
     ConvertUtil.createElementName = function (element, context) {
-        var result = element.layer.name;
+        var result = '';
         if (element.elementType === 'instance') {
             if (JsonUtil_1.JsonUtil.validString(element.name)) {
                 result = element.name;
             }
-            else if (JsonUtil_1.JsonUtil.validString(element.libraryItem.name)) {
+            else if (element.libraryItem && JsonUtil_1.JsonUtil.validString(element.libraryItem.name)) {
                 result = element.libraryItem.name;
             }
             else if (JsonUtil_1.JsonUtil.validString(element.layer.name)) {
@@ -2006,11 +2011,18 @@ var ConvertUtil = /** @class */ (function () {
             }
         }
         if (result === '' || result == null) {
-            return ConvertUtil.createShapeName(context);
+            result = ConvertUtil.createShapeName(context);
         }
-        else {
-            return StringUtil_1.StringUtil.simplify(result);
+        var simplified = StringUtil_1.StringUtil.simplify(result);
+        // Ensure uniqueness using per-frame counters
+        if (context && context.global && context.global.nameCounters) {
+            var count = context.global.nameCounters.get(simplified) || 0;
+            context.global.nameCounters.set(simplified, count + 1);
+            if (count > 0) {
+                return simplified + "_" + count;
+            }
         }
+        return simplified;
     };
     ConvertUtil.obtainElementBlendMode = function (element) {
         if (element.blendMode === 'multiply') {

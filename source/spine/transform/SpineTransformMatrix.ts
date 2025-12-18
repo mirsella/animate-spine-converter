@@ -52,11 +52,15 @@ export class SpineTransformMatrix implements SpineTransform {
         this.shearX = 0;
         this.shearY = 0;
 
-        if (NumberUtil.equals(element.skewX, element.skewY, 0.1)) {
+        // More robust rotation detection
+        const skewX = element.skewX;
+        const skewY = element.skewY;
+        
+        if (NumberUtil.equals(skewX, skewY, 0.5)) { // Loosened tolerance even more
             this.rotation = -element.rotation;
         } else {
-            this.shearX = -element.skewY;
-            this.shearY = -element.skewX;
+            this.shearX = -skewY;
+            this.shearY = -skewX;
         }
     }
 }

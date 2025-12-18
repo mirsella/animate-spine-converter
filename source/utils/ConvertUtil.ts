@@ -6,12 +6,12 @@ import { StringUtil } from './StringUtil';
 
 export class ConvertUtil {
     public static createElementName(element:FlashElement, context:ConverterContext):string {
-        let result = element.layer.name;
+        let result = '';
 
         if (element.elementType === 'instance') {
             if (JsonUtil.validString(element.name)) {
                 result = element.name;
-            } else if (JsonUtil.validString(element.libraryItem.name)) {
+            } else if (element.libraryItem && JsonUtil.validString(element.libraryItem.name)) {
                 result = element.libraryItem.name;
             } else if (JsonUtil.validString(element.layer.name)) {
                 result = element.layer.name;
@@ -23,10 +23,22 @@ export class ConvertUtil {
         }
 
         if (result === '' || result == null) {
-            return ConvertUtil.createShapeName(context);
-        } else {
-            return StringUtil.simplify(result);
+            result = ConvertUtil.createShapeName(context);
         }
+
+        const simplified = StringUtil.simplify(result);
+        
+        // Ensure uniqueness using per-frame counters
+        if (context && context.global && context.global.nameCounters) {
+            const count = context.global.nameCounters.get(simplified) || 0;
+            context.global.nameCounters.set(simplified, count + 1);
+            
+            if (count > 0) {
+                return simplified + "_" + count;
+            }
+        }
+
+        return simplified;
     }
 
     public static obtainElementBlendMode(element:FlashElement):SpineBlendMode {
