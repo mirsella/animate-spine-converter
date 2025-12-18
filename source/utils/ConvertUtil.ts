@@ -11,6 +11,8 @@ export class ConvertUtil {
         if (element.elementType === 'instance') {
             if (JsonUtil.validString(element.name)) {
                 result = element.name;
+            } else if (element.libraryItem && JsonUtil.validString(element.libraryItem.name)) {
+                result = element.libraryItem.name;
             } else {
                 result = element.layer.name;
             }

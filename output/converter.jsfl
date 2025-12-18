@@ -2047,6 +2047,9 @@ var ConvertUtil = /** @class */ (function () {
             if (JsonUtil_1.JsonUtil.validString(element.name)) {
                 result = element.name;
             }
+            else if (element.libraryItem && JsonUtil_1.JsonUtil.validString(element.libraryItem.name)) {
+                result = element.libraryItem.name;
+            }
             else {
                 result = element.layer.name;
             }
