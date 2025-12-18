@@ -11,15 +11,11 @@ export class ConvertUtil {
         if (element.elementType === 'instance') {
             if (JsonUtil.validString(element.name)) {
                 result = element.name;
-            } else if (JsonUtil.validString(element.layer.name)) {
+            } else {
                 result = element.layer.name;
-            } else if (element.libraryItem && JsonUtil.validString(element.libraryItem.name)) {
-                result = element.libraryItem.name;
             }
         } else {
-            if (JsonUtil.validString(element.layer.name)) {
-                result = element.layer.name;
-            }
+            result = element.layer.name;
         }
 
         if (result === '' || result == null) {
