@@ -105,14 +105,55 @@ export class ConverterContext {
             
             if (assetTransform) {
                 Logger.trace(`  Using ASSET transform for "${lookupName}"`);
+                
+                // Hybrid Pivot Calculation:
+                // Use ASSET Rotation/Scale/RegPoint (Neutral Pose)
+                // Use ANIMATION Pivot (Correct Axis)
+                
+                let hybridX = assetTransform.x;
+                let hybridY = assetTransform.y;
+
+                if (element.elementType !== 'shape') {
+                    const rotation = assetTransform.rotation * Math.PI / 180;
+                    const cos = Math.cos(rotation);
+                    const sin = Math.sin(rotation);
+                    
+                    // Calculate offset using ANIMATION pivot but ASSET scale
+                    const scaledX = transform.pivotX * assetTransform.scaleX;
+                    const scaledY = transform.pivotY * assetTransform.scaleY;
+                    
+                    const rotatedX = scaledX * cos - scaledY * sin;
+                    const rotatedY = scaledX * sin + scaledY * cos;
+                    
+                    // Reconstruct bone position: ASSET RegPoint + Rotated Animation Pivot
+                    hybridX = assetTransform.regX + rotatedX;
+                    hybridY = assetTransform.regY - rotatedY;
+                }
+
+                SpineAnimationHelper.applyBoneTransform(
+                    context.bone,
+                    {
+                        x: hybridX,
+                        y: hybridY,
+                        rotation: assetTransform.rotation,
+                        scaleX: assetTransform.scaleX,
+                        scaleY: assetTransform.scaleY,
+                        shearX: assetTransform.shearX,
+                        shearY: assetTransform.shearY,
+                        pivotX: transform.pivotX,
+                        pivotY: transform.pivotY,
+                        regX: assetTransform.regX,
+                        regY: assetTransform.regY
+                    }
+                );
             } else {
                 Logger.trace(`  Using first-frame transform for "${lookupName}"`);
+                
+                SpineAnimationHelper.applyBoneTransform(
+                    context.bone,
+                    transform
+                );
             }
-            
-            SpineAnimationHelper.applyBoneTransform(
-                context.bone,
-                assetTransform || transform
-            );
         }
 
         //-----------------------------------

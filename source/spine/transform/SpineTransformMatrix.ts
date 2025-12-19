@@ -13,6 +13,8 @@ export class SpineTransformMatrix implements SpineTransform {
     public shearY:number;
     public pivotX:number;
     public pivotY:number;
+    public regX:number;
+    public regY:number;
 
     public constructor(element:FlashElement) {
         const matrix = element.matrix;
@@ -26,6 +28,9 @@ export class SpineTransformMatrix implements SpineTransform {
                 baseX = element.x;
             }
         }
+
+        this.regX = baseX;
+        this.regY = baseY;
 
         const tp = element.transformationPoint;
         this.pivotX = tp ? tp.x : 0;

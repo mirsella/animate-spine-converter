@@ -448,11 +448,42 @@ var ConverterContext = /** @class */ (function () {
             }
             if (assetTransform) {
                 Logger_1.Logger.trace("  Using ASSET transform for \"".concat(lookupName, "\""));
+                // Hybrid Pivot Calculation:
+                // Use ASSET Rotation/Scale/RegPoint (Neutral Pose)
+                // Use ANIMATION Pivot (Correct Axis)
+                var hybridX = assetTransform.x;
+                var hybridY = assetTransform.y;
+                if (element.elementType !== 'shape') {
+                    var rotation = assetTransform.rotation * Math.PI / 180;
+                    var cos = Math.cos(rotation);
+                    var sin = Math.sin(rotation);
+                    // Calculate offset using ANIMATION pivot but ASSET scale
+                    var scaledX = transform.pivotX * assetTransform.scaleX;
+                    var scaledY = transform.pivotY * assetTransform.scaleY;
+                    var rotatedX = scaledX * cos - scaledY * sin;
+                    var rotatedY = scaledX * sin + scaledY * cos;
+                    // Reconstruct bone position: ASSET RegPoint + Rotated Animation Pivot
+                    hybridX = assetTransform.regX + rotatedX;
+                    hybridY = assetTransform.regY - rotatedY;
+                }
+                SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, {
+                    x: hybridX,
+                    y: hybridY,
+                    rotation: assetTransform.rotation,
+                    scaleX: assetTransform.scaleX,
+                    scaleY: assetTransform.scaleY,
+                    shearX: assetTransform.shearX,
+                    shearY: assetTransform.shearY,
+                    pivotX: transform.pivotX,
+                    pivotY: transform.pivotY,
+                    regX: assetTransform.regX,
+                    regY: assetTransform.regY
+                });
             }
             else {
                 Logger_1.Logger.trace("  Using first-frame transform for \"".concat(lookupName, "\""));
+                SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, transform);
             }
-            SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, assetTransform || transform);
         }
         //-----------------------------------
         if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */) {
@@ -1986,6 +2017,8 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
                 baseX = element.x;
             }
         }
+        this.regX = baseX;
+        this.regY = baseY;
         var tp = element.transformationPoint;
         this.pivotX = tp ? tp.x : 0;
         this.pivotY = tp ? tp.y : 0;

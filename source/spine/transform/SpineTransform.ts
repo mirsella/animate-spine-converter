@@ -8,4 +8,6 @@ export interface SpineTransform {
     shearY:number;
     pivotX:number;
     pivotY:number;
+    regX:number;
+    regY:number;
 }
