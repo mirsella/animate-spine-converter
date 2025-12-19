@@ -1702,9 +1702,6 @@ var SpineFormatV4_0_00 = /** @class */ (function (_super) {
         if (type === "color" /* SpineTimelineType.COLOR */) {
             return 'rgba';
         }
-        if (type === "rotate" /* SpineTimelineType.ROTATE */) {
-            return 'rotation';
-        }
         return type;
     };
     return SpineFormatV4_0_00;
