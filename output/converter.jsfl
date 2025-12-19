@@ -41,8 +41,8 @@ var Converter = /** @class */ (function () {
         var slot = context.createSlot(context.element).slot;
         if (context.global.stageType === "structure" /* ConverterStageType.STRUCTURE */) {
             if (context.clipping != null) {
-                // handling clipping end on "structure" stage only
                 context.clipping.end = slot;
+                Logger_1.Logger.trace('Clipping end slot set: ' + slot.name + ' layer=' + (context.layer ? context.layer.name : ''));
             }
             return;
         }
@@ -88,11 +88,18 @@ var Converter = /** @class */ (function () {
         context.clipping = attachment;
         //-----------------------------------
         attachment.vertices = ShapeUtil_1.ShapeUtil.extractVertices(context.element);
-        attachment.vertexCount = attachment.vertices.length / 2;
+        attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
+        if (attachment.vertexCount === 0) {
+            Logger_1.Logger.warning('Mask has no vertices: ' + slot.name);
+        }
+        else {
+            Logger_1.Logger.trace('Mask vertices extracted: ' + slot.name + ' count=' + attachment.vertexCount);
+        }
         //-----------------------------------
         if (context.global.stageType === "structure" /* ConverterStageType.STRUCTURE */) {
-            // handling clipping end on "structure" stage only
-            attachment.end = context.global.skeleton.findSlot(slot.name);
+            var endSlot = context.global.skeleton.findSlot(slot.name);
+            attachment.end = endSlot;
+            Logger_1.Logger.trace('Mask slot created (structure stage): ' + slot.name + ' end=' + (endSlot ? endSlot.name : 'null') + ' vertices=' + attachment.vertexCount);
             return;
         }
         //-----------------------------------
@@ -107,12 +114,55 @@ var Converter = /** @class */ (function () {
     //-----------------------------------
     Converter.prototype.composeElementMaskLayer = function (context, convertLayer) {
         var _this = this;
+        Logger_1.Logger.trace("Composing mask layer: ".concat(convertLayer.name));
         this.convertElementLayer(context.switchContextLayer(convertLayer), convertLayer, function (subcontext) {
-            if (subcontext.element.elementType === 'shape') {
+            var type = subcontext.element.elementType;
+            Logger_1.Logger.trace("Mask element type: ".concat(type));
+            if (type === 'shape') {
                 _this.convertShapeMaskElementSlot(subcontext);
                 context.clipping = subcontext.clipping;
             }
+            else if (type === 'instance') {
+                Logger_1.Logger.trace('Mask is an instance/symbol. Searching inside for vector shape...');
+                var innerShape = _this.findFirstShapeInSymbol(subcontext.element);
+                if (innerShape) {
+                    Logger_1.Logger.trace('Found vector shape inside mask symbol.');
+                    // Temporarily swap the element to the inner shape to extract vertices
+                    var originalElement = subcontext.element;
+                    subcontext.element = innerShape;
+                    _this.convertShapeMaskElementSlot(subcontext);
+                    subcontext.element = originalElement;
+                    context.clipping = subcontext.clipping;
+                }
+                else {
+                    Logger_1.Logger.warning("Mask symbol \"".concat(subcontext.element.name, "\" contains no vector shapes! Masking will fail."));
+                }
+            }
+            else {
+                Logger_1.Logger.warning("Mask element is not a shape! Type: ".concat(type, ". Masking may fail. Ensure mask layer contains only raw vector shapes or a simple graphic symbol."));
+            }
         });
+    };
+    Converter.prototype.findFirstShapeInSymbol = function (instance) {
+        if (!instance.libraryItem || !instance.libraryItem.timeline)
+            return null;
+        var timeline = instance.libraryItem.timeline;
+        for (var _i = 0, _a = timeline.layers; _i < _a.length; _i++) {
+            var layer = _a[_i];
+            // Only check normal layers
+            if (layer.layerType !== 'normal')
+                continue;
+            for (var _b = 0, _c = layer.frames; _b < _c.length; _b++) {
+                var frame = _c[_b];
+                for (var _d = 0, _e = frame.elements; _d < _e.length; _d++) {
+                    var element = _e[_d];
+                    if (element.elementType === 'shape') {
+                        return element;
+                    }
+                }
+            }
+        }
+        return null;
     };
     Converter.prototype.disposeElementMaskLayer = function (context) {
         context.clipping = null;
@@ -153,12 +203,22 @@ var Converter = /** @class */ (function () {
             var layer = layers[layerIdx];
             if (layer.layerType === 'normal') {
                 this.convertCompositeElementLayer(context, layer);
+                continue;
             }
             if (layer.layerType === 'masked') {
-                this.composeElementMaskLayer(context, LayerMaskUtil_1.LayerMaskUtil.extractTargetMask(layers, layerIdx));
+                var maskLayer = LayerMaskUtil_1.LayerMaskUtil.extractTargetMask(layers, layerIdx);
+                if (maskLayer == null) {
+                    Logger_1.Logger.warning('No mask layer found for masked layer: ' + layer.name);
+                }
+                else {
+                    Logger_1.Logger.trace('Applying mask layer "' + maskLayer.name + '" to masked layer "' + layer.name + '"');
+                    this.composeElementMaskLayer(context, maskLayer);
+                }
                 this.convertCompositeElementLayer(context, layer);
+                continue;
             }
             if (layer.layerType === 'mask') {
+                Logger_1.Logger.trace('Disposing mask layer: ' + layer.name);
                 this.disposeElementMaskLayer(context);
             }
         }
@@ -438,10 +498,13 @@ var ConverterContext = /** @class */ (function () {
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
             var lookupName = element.libraryItem ? StringUtil_1.StringUtil.simplify(element.libraryItem.name) : ConvertUtil_1.ConvertUtil.createElementName(element, this);
+            var isMaskLayer = this.layer && this.layer.layerType === 'mask';
             var hasAssetClip = context.global.assetTransforms.size() > 0;
-            var assetTransform = context.global.assetTransforms.get(lookupName);
-            Logger_1.Logger.trace("[BONE INIT] boneName=\"".concat(context.bone.name, "\" lookupName=\"").concat(lookupName, "\" hasAsset=").concat(!!assetTransform, " totalAssets=").concat(context.global.assetTransforms.size()));
-            if (hasAssetClip && !assetTransform) {
+            var assetTransform = (hasAssetClip && !isMaskLayer)
+                ? context.global.assetTransforms.get(lookupName)
+                : null;
+            Logger_1.Logger.trace("[BONE INIT] boneName=\"".concat(context.bone.name, "\" lookupName=\"").concat(lookupName, "\" isMask=").concat(isMaskLayer, " hasAsset=").concat(!!assetTransform, " totalAssets=").concat(context.global.assetTransforms.size()));
+            if (hasAssetClip && !assetTransform && !isMaskLayer) {
                 Logger_1.Logger.error("Asset \"".concat(lookupName, "\" not found in ASSET MovieClip!"));
                 Logger_1.Logger.error("Available assets: ".concat(context.global.assetTransforms.keys.join(', ')));
                 throw new Error("Asset \"".concat(lookupName, "\" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose."));
@@ -2643,28 +2706,121 @@ exports.PathUtil = PathUtil;
 /*!***********************************!*\
   !*** ./source/utils/ShapeUtil.ts ***!
   \***********************************/
-/***/ (function(__unused_webpack_module, exports) {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
 
 exports.ShapeUtil = void 0;
+var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
+var DEFAULT_CURVE_SEGMENTS = 5;
 var ShapeUtil = /** @class */ (function () {
     function ShapeUtil() {
     }
-    ShapeUtil.extractVertices = function (instance) {
-        var vertices = [];
+    ShapeUtil.extractVertices = function (instance, segmentsPerCurve) {
+        if (segmentsPerCurve === void 0) { segmentsPerCurve = DEFAULT_CURVE_SEGMENTS; }
         if (instance.elementType !== 'shape') {
             return null;
         }
+        if (instance.contours && instance.contours.length > 0) {
+            Logger_1.Logger.trace("Extracting vertices from ".concat(instance.contours.length, " contours (segmentsPerCurve=").concat(segmentsPerCurve, ")"));
+            return this.extractVerticesFromContours(instance, segmentsPerCurve);
+        }
+        Logger_1.Logger.trace("Extracting vertices from ".concat(instance.edges.length, " edges (fallback mode)"));
+        return this.extractVerticesFromEdges(instance, segmentsPerCurve);
+    };
+    ShapeUtil.extractVerticesFromContours = function (instance, segmentsPerCurve) {
+        var vertices = [];
+        var totalEdges = 0;
+        for (var i = 0; i < instance.contours.length; i++) {
+            var contour = instance.contours[i];
+            if (contour.interior) {
+                continue;
+            }
+            var startHalfEdge = contour.getHalfEdge();
+            if (startHalfEdge == null) {
+                continue;
+            }
+            var halfEdge = startHalfEdge;
+            var safetyCounter = 0;
+            var MAX_EDGES = 5000; // Reduced max edges
+            var contourEdges = 0;
+            // To detect loops when object equality fails (common in JSFL), we track visited edge geometry
+            // Key format: "x1_y1_x2_y2"
+            // Use plain object instead of Set because JSFL environment is old
+            var visitedEdges = {};
+            do {
+                if (safetyCounter++ > MAX_EDGES) {
+                    Logger_1.Logger.warning("Contour ".concat(i, " exceeded MAX_EDGES (").concat(MAX_EDGES, "). Breaking loop to prevent freeze."));
+                    break;
+                }
+                // Log progress less frequently to reduce overhead
+                if (safetyCounter % 2000 === 0) {
+                    Logger_1.Logger.trace("  > Contour ".concat(i, ": processed ").concat(safetyCounter, " edges..."));
+                }
+                var edge = halfEdge.getEdge();
+                var startVertex = halfEdge.getVertex();
+                // Determine end vertex (start of next half edge)
+                var nextHalfEdge = halfEdge.getNext();
+                if (!nextHalfEdge)
+                    break;
+                var endVertex = nextHalfEdge.getVertex();
+                // Unique ID for this half-edge geometry
+                var edgeKey = "".concat(startVertex.x, "_").concat(startVertex.y, "_").concat(endVertex.x, "_").concat(endVertex.y);
+                // If we've seen this exact edge geometry in this contour before, we've completed the loop
+                // (This handles cases where JSFL object identity fails)
+                if (visitedEdges[edgeKey]) {
+                    // Logger.trace(`  > Contour ${i}: Loop detected via geometry check at edge ${safetyCounter}.`);
+                    break;
+                }
+                visitedEdges[edgeKey] = true;
+                if (edge.isLine) {
+                    vertices.push(startVertex.x, -startVertex.y);
+                }
+                else {
+                    var control = edge.getControl(0);
+                    this.tessellateQuadraticBezier(vertices, startVertex, control, endVertex, segmentsPerCurve);
+                }
+                halfEdge = nextHalfEdge;
+                contourEdges++;
+                totalEdges++;
+            } while (halfEdge !== startHalfEdge && halfEdge != null);
+        }
+        Logger_1.Logger.trace("Total extracted vertices: ".concat(vertices.length / 2, " (from ").concat(totalEdges, " edges)"));
+        return vertices;
+    };
+    ShapeUtil.extractVerticesFromEdges = function (instance, segmentsPerCurve) {
+        var vertices = [];
         for (var _i = 0, _a = instance.edges; _i < _a.length; _i++) {
             var edge = _a[_i];
             var halfEdge = edge.getHalfEdge(0);
-            if (halfEdge != null) {
-                var vertex = halfEdge.getVertex();
-                vertices.push(vertex.x, -vertex.y);
+            if (halfEdge == null) {
+                continue;
+            }
+            var startVertex = halfEdge.getVertex();
+            if (edge.isLine) {
+                vertices.push(startVertex.x, -startVertex.y);
+            }
+            else {
+                var oppositeHalfEdge = halfEdge.getOppositeHalfEdge();
+                if (oppositeHalfEdge == null) {
+                    vertices.push(startVertex.x, -startVertex.y);
+                    continue;
+                }
+                var endVertex = oppositeHalfEdge.getVertex();
+                var control = edge.getControl(0);
+                this.tessellateQuadraticBezier(vertices, startVertex, control, endVertex, segmentsPerCurve);
             }
         }
         return vertices;
+    };
+    ShapeUtil.tessellateQuadraticBezier = function (vertices, p0, p1, p2, segments) {
+        for (var i = 0; i < segments; i++) {
+            var t = i / segments;
+            var mt = 1 - t;
+            var x = mt * mt * p0.x + 2 * mt * t * p1.x + t * t * p2.x;
+            var y = mt * mt * p0.y + 2 * mt * t * p1.y + t * t * p2.y;
+            vertices.push(x, -y);
+        }
     };
     return ShapeUtil;
 }());

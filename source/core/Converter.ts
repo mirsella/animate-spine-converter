@@ -47,8 +47,8 @@ export class Converter {
 
         if (context.global.stageType === ConverterStageType.STRUCTURE) {
             if (context.clipping != null) {
-                // handling clipping end on "structure" stage only
                 context.clipping.end = slot;
+                Logger.trace('Clipping end slot set: ' + slot.name + ' layer=' + (context.layer ? context.layer.name : '')); 
             }
 
             return;
@@ -121,14 +121,20 @@ export class Converter {
         //-----------------------------------
 
         attachment.vertices = ShapeUtil.extractVertices(context.element);
-        attachment.vertexCount = attachment.vertices.length / 2;
+        attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
+
+        if (attachment.vertexCount === 0) {
+            Logger.warning('Mask has no vertices: ' + slot.name);
+        } else {
+            Logger.trace('Mask vertices extracted: ' + slot.name + ' count=' + attachment.vertexCount);
+        }
 
         //-----------------------------------
 
         if (context.global.stageType === ConverterStageType.STRUCTURE) {
-            // handling clipping end on "structure" stage only
-            attachment.end = context.global.skeleton.findSlot(slot.name);
-
+            const endSlot = context.global.skeleton.findSlot(slot.name);
+            attachment.end = endSlot;
+            Logger.trace('Mask slot created (structure stage): ' + slot.name + ' end=' + (endSlot ? endSlot.name : 'null') + ' vertices=' + attachment.vertexCount);
             return;
         }
 
@@ -155,15 +161,56 @@ export class Converter {
     //-----------------------------------
 
     private composeElementMaskLayer(context:ConverterContext, convertLayer:FlashLayer):void {
+        Logger.trace(`Composing mask layer: ${convertLayer.name}`);
         this.convertElementLayer(
             context.switchContextLayer(convertLayer), convertLayer,
             (subcontext) => {
-                if (subcontext.element.elementType === 'shape') {
+                const type = subcontext.element.elementType;
+                Logger.trace(`Mask element type: ${type}`);
+                
+                if (type === 'shape') {
                     this.convertShapeMaskElementSlot(subcontext);
                     context.clipping = subcontext.clipping;
+                } else if (type === 'instance') {
+                    Logger.trace('Mask is an instance/symbol. Searching inside for vector shape...');
+                    const innerShape = this.findFirstShapeInSymbol(subcontext.element);
+                    
+                    if (innerShape) {
+                        Logger.trace('Found vector shape inside mask symbol.');
+                        // Temporarily swap the element to the inner shape to extract vertices
+                        const originalElement = subcontext.element;
+                        subcontext.element = innerShape;
+                        this.convertShapeMaskElementSlot(subcontext);
+                        subcontext.element = originalElement;
+                        
+                        context.clipping = subcontext.clipping;
+                    } else {
+                        Logger.warning(`Mask symbol "${subcontext.element.name}" contains no vector shapes! Masking will fail.`);
+                    }
+                } else {
+                    Logger.warning(`Mask element is not a shape! Type: ${type}. Masking may fail. Ensure mask layer contains only raw vector shapes or a simple graphic symbol.`);
                 }
             }
         );
+    }
+
+    private findFirstShapeInSymbol(instance: FlashElement): FlashElement | null {
+        if (!instance.libraryItem || !instance.libraryItem.timeline) return null;
+        
+        const timeline = instance.libraryItem.timeline;
+        for (const layer of timeline.layers) {
+            // Only check normal layers
+            if (layer.layerType !== 'normal') continue;
+            
+            for (const frame of layer.frames) {
+                for (const element of frame.elements) {
+                    if (element.elementType === 'shape') {
+                        return element;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     private disposeElementMaskLayer(context:ConverterContext):void {
@@ -219,14 +266,25 @@ export class Converter {
 
             if (layer.layerType === 'normal') {
                 this.convertCompositeElementLayer(context, layer);
+                continue;
             }
 
             if (layer.layerType === 'masked') {
-                this.composeElementMaskLayer(context, LayerMaskUtil.extractTargetMask(layers, layerIdx));
+                const maskLayer = LayerMaskUtil.extractTargetMask(layers, layerIdx);
+
+                if (maskLayer == null) {
+                    Logger.warning('No mask layer found for masked layer: ' + layer.name);
+                } else {
+                    Logger.trace('Applying mask layer "' + maskLayer.name + '" to masked layer "' + layer.name + '"');
+                    this.composeElementMaskLayer(context, maskLayer);
+                }
+
                 this.convertCompositeElementLayer(context, layer);
+                continue;
             }
 
             if (layer.layerType === 'mask') {
+                Logger.trace('Disposing mask layer: ' + layer.name);
                 this.disposeElementMaskLayer(context);
             }
         }

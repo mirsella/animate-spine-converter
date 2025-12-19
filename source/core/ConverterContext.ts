@@ -92,12 +92,15 @@ export class ConverterContext {
             context.bone.initialized = true;
 
             const lookupName = element.libraryItem ? StringUtil.simplify(element.libraryItem.name) : ConvertUtil.createElementName(element, this);
+            const isMaskLayer = this.layer && this.layer.layerType === 'mask';
             const hasAssetClip = context.global.assetTransforms.size() > 0;
-            const assetTransform = context.global.assetTransforms.get(lookupName);
+            const assetTransform = (hasAssetClip && !isMaskLayer) 
+                ? context.global.assetTransforms.get(lookupName) 
+                : null;
             
-            Logger.trace(`[BONE INIT] boneName="${context.bone.name}" lookupName="${lookupName}" hasAsset=${!!assetTransform} totalAssets=${context.global.assetTransforms.size()}`);
+            Logger.trace(`[BONE INIT] boneName="${context.bone.name}" lookupName="${lookupName}" isMask=${isMaskLayer} hasAsset=${!!assetTransform} totalAssets=${context.global.assetTransforms.size()}`);
             
-            if (hasAssetClip && !assetTransform) {
+            if (hasAssetClip && !assetTransform && !isMaskLayer) {
                 Logger.error(`Asset "${lookupName}" not found in ASSET MovieClip!`);
                 Logger.error(`Available assets: ${context.global.assetTransforms.keys.join(', ')}`);
                 throw new Error(`Asset "${lookupName}" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose.`);
