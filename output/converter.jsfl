@@ -257,10 +257,12 @@ var Converter = /** @class */ (function () {
             }
             for (var _i = 0, _a = frames[0].elements; _i < _a.length; _i++) {
                 var element = _a[_i];
-                var uniqueKey = ConvertUtil_1.ConvertUtil.createElementName(element, context);
-                var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
-                context.global.assetTransforms.set(uniqueKey, transform);
-                Logger_1.Logger.trace("    ✓ Stored transform for: " + uniqueKey + " (Library: " + (element.libraryItem ? element.libraryItem.name : "N/A") + ")");
+                if (element.libraryItem) {
+                    var uniqueKey = StringUtil_1.StringUtil.simplify(element.libraryItem.name);
+                    var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
+                    context.global.assetTransforms.set(uniqueKey, transform);
+                    Logger_1.Logger.trace("    ✓ Stored transform for: " + uniqueKey);
+                }
             }
         }
         Logger_1.Logger.trace("=== Total ASSET transforms stored: " + context.global.assetTransforms.size() + " ===");
@@ -388,6 +390,7 @@ var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logg
 var SpineAnimationHelper_1 = __webpack_require__(/*! ../spine/SpineAnimationHelper */ "./source/spine/SpineAnimationHelper.ts");
 var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTransformMatrix */ "./source/spine/transform/SpineTransformMatrix.ts");
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
+var StringUtil_1 = __webpack_require__(/*! ../utils/StringUtil */ "./source/utils/StringUtil.ts");
 var ConverterContext = /** @class */ (function () {
     function ConverterContext() {
         // empty
@@ -434,22 +437,20 @@ var ConverterContext = /** @class */ (function () {
         //-----------------------------------
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
-            var boneName = context.bone.name;
-            var nameParts = boneName.split('/');
-            var elementName = nameParts[nameParts.length - 1];
+            var lookupName = element.libraryItem ? StringUtil_1.StringUtil.simplify(element.libraryItem.name) : ConvertUtil_1.ConvertUtil.createElementName(element, this);
             var hasAssetClip = context.global.assetTransforms.size() > 0;
-            var assetTransform = context.global.assetTransforms.get(elementName);
-            Logger_1.Logger.trace("[BONE INIT] boneName=\"".concat(boneName, "\" lookupName=\"").concat(elementName, "\" hasAsset=").concat(!!assetTransform, " totalAssets=").concat(context.global.assetTransforms.size()));
+            var assetTransform = context.global.assetTransforms.get(lookupName);
+            Logger_1.Logger.trace("[BONE INIT] boneName=\"".concat(context.bone.name, "\" lookupName=\"").concat(lookupName, "\" hasAsset=").concat(!!assetTransform, " totalAssets=").concat(context.global.assetTransforms.size()));
             if (hasAssetClip && !assetTransform) {
-                Logger_1.Logger.error("Asset \"".concat(elementName, "\" not found in ASSET MovieClip!"));
+                Logger_1.Logger.error("Asset \"".concat(lookupName, "\" not found in ASSET MovieClip!"));
                 Logger_1.Logger.error("Available assets: ".concat(context.global.assetTransforms.keys.join(', ')));
-                throw new Error("Asset \"".concat(elementName, "\" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose."));
+                throw new Error("Asset \"".concat(lookupName, "\" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose."));
             }
             if (assetTransform) {
-                Logger_1.Logger.trace("  Using ASSET transform for \"".concat(elementName, "\""));
+                Logger_1.Logger.trace("  Using ASSET transform for \"".concat(lookupName, "\""));
             }
             else {
-                Logger_1.Logger.trace("  Using first-frame transform for \"".concat(elementName, "\""));
+                Logger_1.Logger.trace("  Using first-frame transform for \"".concat(lookupName, "\""));
             }
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, assetTransform || transform);
         }
@@ -2036,31 +2037,12 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
 
 
 exports.ConvertUtil = void 0;
-var JsonUtil_1 = __webpack_require__(/*! ./JsonUtil */ "./source/utils/JsonUtil.ts");
 var StringUtil_1 = __webpack_require__(/*! ./StringUtil */ "./source/utils/StringUtil.ts");
 var ConvertUtil = /** @class */ (function () {
     function ConvertUtil() {
     }
     ConvertUtil.createElementName = function (element, context) {
-        var result = '';
-        if (element.elementType === 'instance') {
-            if (JsonUtil_1.JsonUtil.validString(element.name)) {
-                result = element.name;
-            }
-            else if (element.libraryItem && JsonUtil_1.JsonUtil.validString(element.libraryItem.name)) {
-                result = element.libraryItem.name;
-            }
-            else {
-                result = element.layer.name;
-            }
-        }
-        else {
-            result = element.layer.name;
-        }
-        if (result === '' || result == null) {
-            result = ConvertUtil.createShapeName(context);
-        }
-        return StringUtil_1.StringUtil.simplify(result);
+        return StringUtil_1.StringUtil.simplify(element.layer.name);
     };
     ConvertUtil.obtainElementBlendMode = function (element) {
         if (element.blendMode === 'multiply') {

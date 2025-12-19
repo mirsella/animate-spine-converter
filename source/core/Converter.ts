@@ -364,10 +364,12 @@ export class Converter {
             }
 
             for (const element of frames[0].elements) {
-                const uniqueKey = ConvertUtil.createElementName(element, context);
-                const transform = new SpineTransformMatrix(element);
-                context.global.assetTransforms.set(uniqueKey, transform);
-                Logger.trace("    ✓ Stored transform for: " + uniqueKey + " (Library: " + (element.libraryItem ? element.libraryItem.name : "N/A") + ")");
+                if (element.libraryItem) {
+                    const uniqueKey = StringUtil.simplify(element.libraryItem.name);
+                    const transform = new SpineTransformMatrix(element);
+                    context.global.assetTransforms.set(uniqueKey, transform);
+                    Logger.trace("    ✓ Stored transform for: " + uniqueKey);
+                }
             }
         }
         

@@ -6,6 +6,7 @@ import { SpineSlot } from '../spine/SpineSlot';
 import { SpineTransformMatrix } from '../spine/transform/SpineTransformMatrix';
 import { SpineBlendMode } from '../spine/types/SpineBlendMode';
 import { ConvertUtil } from '../utils/ConvertUtil';
+import { StringUtil } from '../utils/StringUtil';
 import { ConverterColor } from './ConverterColor';
 import { ConverterContextGlobal } from './ConverterContextGlobal';
 import { ConverterFrameLabel } from './ConverterFrameLabel';
@@ -90,25 +91,22 @@ export class ConverterContext {
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
 
-            const boneName = context.bone.name;
-            const nameParts = boneName.split('/');
-            const elementName = nameParts[nameParts.length - 1];
-            
+            const lookupName = element.libraryItem ? StringUtil.simplify(element.libraryItem.name) : ConvertUtil.createElementName(element, this);
             const hasAssetClip = context.global.assetTransforms.size() > 0;
-            const assetTransform = context.global.assetTransforms.get(elementName);
+            const assetTransform = context.global.assetTransforms.get(lookupName);
             
-            Logger.trace(`[BONE INIT] boneName="${boneName}" lookupName="${elementName}" hasAsset=${!!assetTransform} totalAssets=${context.global.assetTransforms.size()}`);
+            Logger.trace(`[BONE INIT] boneName="${context.bone.name}" lookupName="${lookupName}" hasAsset=${!!assetTransform} totalAssets=${context.global.assetTransforms.size()}`);
             
             if (hasAssetClip && !assetTransform) {
-                Logger.error(`Asset "${elementName}" not found in ASSET MovieClip!`);
+                Logger.error(`Asset "${lookupName}" not found in ASSET MovieClip!`);
                 Logger.error(`Available assets: ${context.global.assetTransforms.keys.join(', ')}`);
-                throw new Error(`Asset "${elementName}" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose.`);
+                throw new Error(`Asset "${lookupName}" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose.`);
             }
             
             if (assetTransform) {
-                Logger.trace(`  Using ASSET transform for "${elementName}"`);
+                Logger.trace(`  Using ASSET transform for "${lookupName}"`);
             } else {
-                Logger.trace(`  Using first-frame transform for "${elementName}"`);
+                Logger.trace(`  Using first-frame transform for "${lookupName}"`);
             }
             
             SpineAnimationHelper.applyBoneTransform(

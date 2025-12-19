@@ -6,25 +6,7 @@ import { StringUtil } from './StringUtil';
 
 export class ConvertUtil {
     public static createElementName(element:FlashElement, context:ConverterContext):string {
-        let result = '';
-
-        if (element.elementType === 'instance') {
-            if (JsonUtil.validString(element.name)) {
-                result = element.name;
-            } else if (element.libraryItem && JsonUtil.validString(element.libraryItem.name)) {
-                result = element.libraryItem.name;
-            } else {
-                result = element.layer.name;
-            }
-        } else {
-            result = element.layer.name;
-        }
-
-        if (result === '' || result == null) {
-            result = ConvertUtil.createShapeName(context);
-        }
-
-        return StringUtil.simplify(result);
+        return StringUtil.simplify(element.layer.name);
     }
 
     public static obtainElementBlendMode(element:FlashElement):SpineBlendMode {
