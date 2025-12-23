@@ -88,7 +88,7 @@ var Converter = /** @class */ (function () {
         var attachment = slot.createAttachment(attachmentName, "clipping" /* SpineAttachmentType.CLIPPING */);
         context.clipping = attachment;
         //-----------------------------------
-        attachment.vertices = ShapeUtil_1.ShapeUtil.extractVertices(context.element, 8, matrix); // Use 8 segments for resolution
+        attachment.vertices = ShapeUtil_1.ShapeUtil.extractVertices(context.element, 16, matrix); // Use 16 segments for resolution
         attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
         if (attachment.vertexCount === 0) {
             Logger_1.Logger.warning('Mask has no vertices: ' + slot.name);
@@ -2786,6 +2786,12 @@ var ShapeUtil = /** @class */ (function () {
     ShapeUtil.extractVerticesFromContours = function (instance, segmentsPerCurve, matrix) {
         var vertices = [];
         var totalEdges = 0;
+        if (instance.contours.length > 1) {
+            Logger_1.Logger.trace("Shape has " + instance.contours.length + " contours. Multiple contours might cause 'jumps' in the clipping path.");
+        }
+        if (matrix) {
+            Logger_1.Logger.trace("Matrix: a=" + matrix.a.toFixed(4) + " b=" + matrix.b.toFixed(4) + " c=" + matrix.c.toFixed(4) + " d=" + matrix.d.toFixed(4) + " tx=" + matrix.tx.toFixed(2) + " ty=" + matrix.ty.toFixed(2));
+        }
         for (var i = 0; i < instance.contours.length; i++) {
             var contour = instance.contours[i];
             if (contour.interior) {
@@ -2795,13 +2801,17 @@ var ShapeUtil = /** @class */ (function () {
             if (startHalfEdge == null) {
                 continue;
             }
+            // Push the very first vertex of the contour
+            var firstVertex = startHalfEdge.getVertex();
+            var pStart = ShapeUtil.transformPoint(firstVertex.x, firstVertex.y, matrix);
+            vertices.push(pStart.x, -pStart.y);
             var halfEdge = startHalfEdge;
             var safetyCounter = 0;
             var MAX_EDGES = 5000;
             var visitedEdges = {};
             do {
                 if (safetyCounter++ > MAX_EDGES) {
-                    Logger_1.Logger.warning("Contour " + i + " exceeded MAX_EDGES (" + MAX_EDGES + "). Breaking loop.");
+                    Logger_1.Logger.warning("Contour " + i + " exceeded MAX_EDGES. Breaking loop.");
                     break;
                 }
                 var edge = halfEdge.getEdge();
@@ -2810,16 +2820,31 @@ var ShapeUtil = /** @class */ (function () {
                 if (!nextHalfEdge)
                     break;
                 var rawEnd = nextHalfEdge.getVertex();
-                // Geometry key to detect loops
-                var edgeKey = rawStart.x + "_" + rawStart.y + "_" + rawEnd.x + "_" + rawEnd.y;
-                if (visitedEdges[edgeKey]) {
+                // Loop detection
+                var edgeKey = rawStart.x.toFixed(2) + "_" + rawStart.y.toFixed(2) + "_" + rawEnd.x.toFixed(2) + "_" + rawEnd.y.toFixed(2);
+                if (visitedEdges[edgeKey])
                     break;
-                }
                 visitedEdges[edgeKey] = true;
                 var p0 = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
                 var p3 = ShapeUtil.transformPoint(rawEnd.x, rawEnd.y, matrix);
+                // Check for sequence continuity
+                if (vertices.length >= 2) {
+                    var lastX = vertices[vertices.length - 2];
+                    var lastY = -vertices[vertices.length - 1];
+                    var distSq = Math.pow(lastX - p0.x, 2) + Math.pow(lastY - p0.y, 2);
+                    if (distSq > 0.01) {
+                        Logger_1.Logger.warning("Contour GAP at Edge " + totalEdges + ": [" + lastX.toFixed(2) + "," + lastY.toFixed(2) + "] -> [" + p0.x.toFixed(2) + "," + p0.y.toFixed(2) + "]");
+                    }
+                }
+                var canonicalHalfEdge = edge.getHalfEdge(0);
+                var canonicalVertex = canonicalHalfEdge ? canonicalHalfEdge.getVertex() : null;
+                var isReverse = canonicalVertex &&
+                    (Math.abs(canonicalVertex.x - rawStart.x) > 0.01 || Math.abs(canonicalVertex.y - rawStart.y) > 0.01);
+                Logger_1.Logger.trace("Edge " + totalEdges + " " + (edge.isLine ? "LINE" : "CURVE") + " isReverse=" + isReverse + " [" + p0.x.toFixed(2) + "," + p0.y.toFixed(2) + "] -> [" + p3.x.toFixed(2) + "," + p3.y.toFixed(2) + "]");
                 if (edge.isLine) {
-                    vertices.push(p0.x, -p0.y);
+                    if (halfEdge.getNext() !== startHalfEdge) {
+                        vertices.push(p3.x, -p3.y);
+                    }
                 }
                 else {
                     var rawControl0 = edge.getControl(0);
@@ -2828,25 +2853,18 @@ var ShapeUtil = /** @class */ (function () {
                         rawControl1 = edge.getControl(1);
                     }
                     catch (e) { }
-                    // Determine traversal direction by comparing with edge's canonical half-edge
-                    // Edge control points are defined relative to getHalfEdge(0)
-                    var canonicalHalfEdge = edge.getHalfEdge(0);
-                    var canonicalVertex = canonicalHalfEdge ? canonicalHalfEdge.getVertex() : null;
-                    var isReverse = canonicalVertex &&
-                        (canonicalVertex.x !== rawStart.x || canonicalVertex.y !== rawStart.y);
                     var p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
-                    if (rawControl1) {
+                    if (rawControl1 && (Math.abs(rawControl1.x - rawEnd.x) > 0.01 || Math.abs(rawControl1.y - rawEnd.y) > 0.01)) {
                         var p2 = ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix);
                         if (isReverse) {
-                            ShapeUtil.tessellateCubicBezier(vertices, p0, p2, p1, p3, segmentsPerCurve);
+                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, p2, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                         }
                         else {
-                            ShapeUtil.tessellateCubicBezier(vertices, p0, p1, p2, p3, segmentsPerCurve);
+                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, p1, p2, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                         }
                     }
                     else {
-                        // Quadratic: control point order matters too when reversed
-                        ShapeUtil.tessellateQuadraticBezier(vertices, p0, p1, p3, segmentsPerCurve);
+                        ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                     }
                 }
                 halfEdge = nextHalfEdge;
@@ -2879,22 +2897,28 @@ var ShapeUtil = /** @class */ (function () {
             else {
                 var rawControl0 = edge.getControl(0);
                 var p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
-                ShapeUtil.tessellateQuadraticBezier(vertices, p0, p1, p3, segmentsPerCurve);
+                ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, p1, p3, segmentsPerCurve, false);
             }
         }
         return vertices;
     };
-    ShapeUtil.tessellateQuadraticBezier = function (vertices, p0, p1, p2, segments) {
-        for (var i = 0; i < segments; i++) {
+    ShapeUtil.tessellateQuadraticBezierPart = function (vertices, p0, p1, p2, segments, isLast) {
+        // Start point p0 is already pushed. We push from t = 1/seg to 1.0 (if not last)
+        var endLimit = isLast ? segments : segments + 1;
+        for (var i = 1; i < endLimit; i++) {
             var t = i / segments;
             var mt = 1 - t;
             var x = mt * mt * p0.x + 2 * mt * t * p1.x + t * t * p2.x;
             var y = mt * mt * p0.y + 2 * mt * t * p1.y + t * t * p2.y;
+            // Avoid duplicate of start if it's the very last point
+            if (isLast && i === segments)
+                continue;
             vertices.push(x, -y);
         }
     };
-    ShapeUtil.tessellateCubicBezier = function (vertices, p0, p1, p2, p3, segments) {
-        for (var i = 0; i < segments; i++) {
+    ShapeUtil.tessellateCubicBezierPart = function (vertices, p0, p1, p2, p3, segments, isLast) {
+        var endLimit = isLast ? segments : segments + 1;
+        for (var i = 1; i < endLimit; i++) {
             var t = i / segments;
             var mt = 1 - t;
             var mt2 = mt * mt;
@@ -2903,6 +2927,8 @@ var ShapeUtil = /** @class */ (function () {
             var t3 = t2 * t;
             var x = mt3 * p0.x + 3 * mt2 * t * p1.x + 3 * mt * t2 * p2.x + t3 * p3.x;
             var y = mt3 * p0.y + 3 * mt2 * t * p1.y + 3 * mt * t2 * p2.y + t3 * p3.y;
+            if (isLast && i === segments)
+                continue;
             vertices.push(x, -y);
         }
     };

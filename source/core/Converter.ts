@@ -120,7 +120,7 @@ export class Converter {
 
         //-----------------------------------
 
-        attachment.vertices = ShapeUtil.extractVertices(context.element, 8, matrix); // Use 8 segments for resolution
+        attachment.vertices = ShapeUtil.extractVertices(context.element, 16, matrix); // Use 16 segments for resolution
         attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
 
         if (attachment.vertexCount === 0) {

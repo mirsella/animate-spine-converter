@@ -46,6 +46,14 @@ export class ShapeUtil {
         const vertices:number[] = [];
         let totalEdges = 0;
 
+        if (instance.contours.length > 1) {
+            Logger.trace("Shape has " + instance.contours.length + " contours. Multiple contours might cause 'jumps' in the clipping path.");
+        }
+
+        if (matrix) {
+            Logger.trace("Matrix: a=" + matrix.a.toFixed(4) + " b=" + matrix.b.toFixed(4) + " c=" + matrix.c.toFixed(4) + " d=" + matrix.d.toFixed(4) + " tx=" + matrix.tx.toFixed(2) + " ty=" + matrix.ty.toFixed(2));
+        }
+
         for (let i = 0; i < instance.contours.length; i++) {
             const contour = instance.contours[i];
             if (contour.interior) {
@@ -57,15 +65,19 @@ export class ShapeUtil {
                 continue;
             }
 
+            // Push the very first vertex of the contour
+            const firstVertex = startHalfEdge.getVertex();
+            const pStart = ShapeUtil.transformPoint(firstVertex.x, firstVertex.y, matrix);
+            vertices.push(pStart.x, -pStart.y);
+
             let halfEdge = startHalfEdge;
             let safetyCounter = 0;
             const MAX_EDGES = 5000;
-            
             const visitedEdges: Record<string, boolean> = {};
 
             do {
                 if (safetyCounter++ > MAX_EDGES) {
-                    Logger.warning("Contour " + i + " exceeded MAX_EDGES (" + MAX_EDGES + "). Breaking loop.");
+                    Logger.warning("Contour " + i + " exceeded MAX_EDGES. Breaking loop.");
                     break;
                 }
 
@@ -76,44 +88,51 @@ export class ShapeUtil {
                 
                 const rawEnd = nextHalfEdge.getVertex();
 
-                // Geometry key to detect loops
-                const edgeKey = rawStart.x + "_" + rawStart.y + "_" + rawEnd.x + "_" + rawEnd.y;
-                if (visitedEdges[edgeKey]) {
-                     break;
-                }
+                // Loop detection
+                const edgeKey = rawStart.x.toFixed(2) + "_" + rawStart.y.toFixed(2) + "_" + rawEnd.x.toFixed(2) + "_" + rawEnd.y.toFixed(2);
+                if (visitedEdges[edgeKey]) break;
                 visitedEdges[edgeKey] = true;
 
                 const p0 = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
                 const p3 = ShapeUtil.transformPoint(rawEnd.x, rawEnd.y, matrix);
 
+                // Check for sequence continuity
+                if (vertices.length >= 2) {
+                    const lastX = vertices[vertices.length - 2];
+                    const lastY = -vertices[vertices.length - 1];
+                    const distSq = Math.pow(lastX - p0.x, 2) + Math.pow(lastY - p0.y, 2);
+                    if (distSq > 0.01) {
+                        Logger.warning("Contour GAP at Edge " + totalEdges + ": [" + lastX.toFixed(2) + "," + lastY.toFixed(2) + "] -> [" + p0.x.toFixed(2) + "," + p0.y.toFixed(2) + "]");
+                    }
+                }
+
+                const canonicalHalfEdge = edge.getHalfEdge(0);
+                const canonicalVertex = canonicalHalfEdge ? canonicalHalfEdge.getVertex() : null;
+                const isReverse = canonicalVertex && 
+                    (Math.abs(canonicalVertex.x - rawStart.x) > 0.01 || Math.abs(canonicalVertex.y - rawStart.y) > 0.01);
+
+                Logger.trace("Edge " + totalEdges + " " + (edge.isLine ? "LINE" : "CURVE") + " isReverse=" + isReverse + " [" + p0.x.toFixed(2) + "," + p0.y.toFixed(2) + "] -> [" + p3.x.toFixed(2) + "," + p3.y.toFixed(2) + "]");
+
                 if (edge.isLine) {
-                    vertices.push(p0.x, -p0.y);
+                    if (halfEdge.getNext() !== startHalfEdge) {
+                        vertices.push(p3.x, -p3.y);
+                    }
                 } else {
                     const rawControl0 = edge.getControl(0);
                     let rawControl1 = null;
-                    try {
-                        rawControl1 = edge.getControl(1);
-                    } catch(e) {}
-
-                    // Determine traversal direction by comparing with edge's canonical half-edge
-                    // Edge control points are defined relative to getHalfEdge(0)
-                    const canonicalHalfEdge = edge.getHalfEdge(0);
-                    const canonicalVertex = canonicalHalfEdge ? canonicalHalfEdge.getVertex() : null;
-                    const isReverse = canonicalVertex && 
-                        (canonicalVertex.x !== rawStart.x || canonicalVertex.y !== rawStart.y);
+                    try { rawControl1 = edge.getControl(1); } catch(e) {}
 
                     const p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
 
-                    if (rawControl1) {
+                    if (rawControl1 && (Math.abs(rawControl1.x - rawEnd.x) > 0.01 || Math.abs(rawControl1.y - rawEnd.y) > 0.01)) {
                         const p2 = ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix);
                         if (isReverse) {
-                            ShapeUtil.tessellateCubicBezier(vertices, p0, p2, p1, p3, segmentsPerCurve);
+                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, p2, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                         } else {
-                            ShapeUtil.tessellateCubicBezier(vertices, p0, p1, p2, p3, segmentsPerCurve);
+                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, p1, p2, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                         }
                     } else {
-                        // Quadratic: control point order matters too when reversed
-                        ShapeUtil.tessellateQuadraticBezier(vertices, p0, p1, p3, segmentsPerCurve);
+                        ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                     }
                 }
 
@@ -150,37 +169,46 @@ export class ShapeUtil {
             } else {
                 const rawControl0 = edge.getControl(0);
                 const p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
-                ShapeUtil.tessellateQuadraticBezier(vertices, p0, p1, p3, segmentsPerCurve);
+                ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, p1, p3, segmentsPerCurve, false);
             }
         }
         return vertices;
     }
 
-    private static tessellateQuadraticBezier(
+    private static tessellateQuadraticBezierPart(
         vertices:number[],
         p0:{x:number, y:number},
         p1:{x:number, y:number},
         p2:{x:number, y:number},
-        segments:number
+        segments:number,
+        isLast:boolean
     ):void {
-        for (let i = 0; i < segments; i++) {
+        // Start point p0 is already pushed. We push from t = 1/seg to 1.0 (if not last)
+        const endLimit = isLast ? segments : segments + 1;
+        for (let i = 1; i < endLimit; i++) {
             const t = i / segments;
             const mt = 1 - t;
             const x = mt * mt * p0.x + 2 * mt * t * p1.x + t * t * p2.x;
             const y = mt * mt * p0.y + 2 * mt * t * p1.y + t * t * p2.y;
+            
+            // Avoid duplicate of start if it's the very last point
+            if (isLast && i === segments) continue; 
+
             vertices.push(x, -y);
         }
     }
 
-    private static tessellateCubicBezier(
+    private static tessellateCubicBezierPart(
         vertices:number[],
         p0:{x:number, y:number},
         p1:{x:number, y:number},
         p2:{x:number, y:number},
         p3:{x:number, y:number},
-        segments:number
+        segments:number,
+        isLast:boolean
     ):void {
-        for (let i = 0; i < segments; i++) {
+        const endLimit = isLast ? segments : segments + 1;
+        for (let i = 1; i < endLimit; i++) {
             const t = i / segments;
             const mt = 1 - t;
             const mt2 = mt * mt;
@@ -190,6 +218,9 @@ export class ShapeUtil {
 
             const x = mt3 * p0.x + 3 * mt2 * t * p1.x + 3 * mt * t2 * p2.x + t3 * p3.x;
             const y = mt3 * p0.y + 3 * mt2 * t * p1.y + 3 * mt * t2 * p2.y + t3 * p3.y;
+
+            if (isLast && i === segments) continue;
+
             vertices.push(x, -y);
         }
     }
