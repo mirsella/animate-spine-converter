@@ -104,7 +104,7 @@ export class Converter {
         );
     }
 
-    private convertShapeMaskElementSlot(context:ConverterContext):void {
+    private convertShapeMaskElementSlot(context:ConverterContext, matrix:FlashMatrix = null):void {
         let attachmentName = context.global.shapesCache.get(context.element);
 
         if (attachmentName == null) {
@@ -120,7 +120,7 @@ export class Converter {
 
         //-----------------------------------
 
-        attachment.vertices = ShapeUtil.extractVertices(context.element);
+        attachment.vertices = ShapeUtil.extractVertices(context.element, 8, matrix); // Use 8 segments for resolution
         attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
 
         if (attachment.vertexCount === 0) {
@@ -169,7 +169,12 @@ export class Converter {
                 Logger.trace(`Mask element type: ${type}`);
                 
                 if (type === 'shape') {
-                    this.convertShapeMaskElementSlot(subcontext);
+                    // For raw shapes on stage, they are relative to (0,0) of the stage/timeline.
+                    // If the bone uses the shape's transform, we might need to adjust, 
+                    // but usually raw shapes just work if they don't have a matrix.
+                    // However, if the shape has been moved, it has a matrix.
+                    // Vertices are relative to the shape's origin.
+                    this.convertShapeMaskElementSlot(subcontext, subcontext.element.matrix);
                     context.clipping = subcontext.clipping;
                 } else if (type === 'instance') {
                     Logger.trace('Mask is an instance/symbol. Searching inside for vector shape...');
@@ -179,8 +184,38 @@ export class Converter {
                         Logger.trace('Found vector shape inside mask symbol.');
                         // Temporarily swap the element to the inner shape to extract vertices
                         const originalElement = subcontext.element;
+                        
+                        // Calculate offset matrix
+                        // Vertices from innerShape are relative to Symbol Origin (Registration Point, 0,0)
+                        // Bone is at Symbol Transformation Point (TP)
+                        // We need Vertices relative to Bone = Vertices - (TP - RegPoint)
+                        // RegPoint is at (matrix.tx, matrix.ty)
+                        // TP is at (element.x, element.y)
+                        // So Offset = RegPoint - TP
+                        // Final Vertex = InnerVertex + Offset
+                        
+                        const maskMatrix = originalElement.matrix;
+                        const tp = originalElement.transformationPoint; // .x, .y same as element.x, element.y
+                        
+                        // Default inner matrix (if raw shape) is identity
+                        const im = innerShape.matrix || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                        
+                        // Calculate the delta between RegPoint and TransPoint
+                        const deltaX = maskMatrix.tx - tp.x;
+                        const deltaY = maskMatrix.ty - tp.y;
+                        
+                        // Combine: InnerShape.tx + Delta
+                        const offsetMatrix = {
+                            a: im.a,
+                            b: im.b,
+                            c: im.c,
+                            d: im.d,
+                            tx: im.tx + deltaX,
+                            ty: im.ty + deltaY
+                        };
+
                         subcontext.element = innerShape;
-                        this.convertShapeMaskElementSlot(subcontext);
+                        this.convertShapeMaskElementSlot(subcontext, offsetMatrix);
                         subcontext.element = originalElement;
                         
                         context.clipping = subcontext.clipping;

@@ -76,7 +76,8 @@ var Converter = /** @class */ (function () {
             return ImageUtil_1.ImageUtil.exportBitmap(imagePath, context.element, _this._config.exportImages);
         });
     };
-    Converter.prototype.convertShapeMaskElementSlot = function (context) {
+    Converter.prototype.convertShapeMaskElementSlot = function (context, matrix) {
+        if (matrix === void 0) { matrix = null; }
         var attachmentName = context.global.shapesCache.get(context.element);
         if (attachmentName == null) {
             attachmentName = ConvertUtil_1.ConvertUtil.createAttachmentName(context.element, context);
@@ -87,7 +88,7 @@ var Converter = /** @class */ (function () {
         var attachment = slot.createAttachment(attachmentName, "clipping" /* SpineAttachmentType.CLIPPING */);
         context.clipping = attachment;
         //-----------------------------------
-        attachment.vertices = ShapeUtil_1.ShapeUtil.extractVertices(context.element);
+        attachment.vertices = ShapeUtil_1.ShapeUtil.extractVertices(context.element, 8, matrix); // Use 8 segments for resolution
         attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
         if (attachment.vertexCount === 0) {
             Logger_1.Logger.warning('Mask has no vertices: ' + slot.name);
@@ -119,7 +120,12 @@ var Converter = /** @class */ (function () {
             var type = subcontext.element.elementType;
             Logger_1.Logger.trace("Mask element type: ".concat(type));
             if (type === 'shape') {
-                _this.convertShapeMaskElementSlot(subcontext);
+                // For raw shapes on stage, they are relative to (0,0) of the stage/timeline.
+                // If the bone uses the shape's transform, we might need to adjust, 
+                // but usually raw shapes just work if they don't have a matrix.
+                // However, if the shape has been moved, it has a matrix.
+                // Vertices are relative to the shape's origin.
+                _this.convertShapeMaskElementSlot(subcontext, subcontext.element.matrix);
                 context.clipping = subcontext.clipping;
             }
             else if (type === 'instance') {
@@ -129,8 +135,32 @@ var Converter = /** @class */ (function () {
                     Logger_1.Logger.trace('Found vector shape inside mask symbol.');
                     // Temporarily swap the element to the inner shape to extract vertices
                     var originalElement = subcontext.element;
+                    // Calculate offset matrix
+                    // Vertices from innerShape are relative to Symbol Origin (Registration Point, 0,0)
+                    // Bone is at Symbol Transformation Point (TP)
+                    // We need Vertices relative to Bone = Vertices - (TP - RegPoint)
+                    // RegPoint is at (matrix.tx, matrix.ty)
+                    // TP is at (element.x, element.y)
+                    // So Offset = RegPoint - TP
+                    // Final Vertex = InnerVertex + Offset
+                    var maskMatrix = originalElement.matrix;
+                    var tp = originalElement.transformationPoint; // .x, .y same as element.x, element.y
+                    // Default inner matrix (if raw shape) is identity
+                    var im = innerShape.matrix || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                    // Calculate the delta between RegPoint and TransPoint
+                    var deltaX = maskMatrix.tx - tp.x;
+                    var deltaY = maskMatrix.ty - tp.y;
+                    // Combine: InnerShape.tx + Delta
+                    var offsetMatrix = {
+                        a: im.a,
+                        b: im.b,
+                        c: im.c,
+                        d: im.d,
+                        tx: im.tx + deltaX,
+                        ty: im.ty + deltaY
+                    };
                     subcontext.element = innerShape;
-                    _this.convertShapeMaskElementSlot(subcontext);
+                    _this.convertShapeMaskElementSlot(subcontext, offsetMatrix);
                     subcontext.element = originalElement;
                     context.clipping = subcontext.clipping;
                 }
@@ -2712,23 +2742,48 @@ exports.PathUtil = PathUtil;
 
 exports.ShapeUtil = void 0;
 var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
-var DEFAULT_CURVE_SEGMENTS = 5;
+var DEFAULT_CURVE_SEGMENTS = 20;
 var ShapeUtil = /** @class */ (function () {
     function ShapeUtil() {
     }
-    ShapeUtil.extractVertices = function (instance, segmentsPerCurve) {
+    ShapeUtil.extractVertices = function (instance, segmentsPerCurve, matrix) {
         if (segmentsPerCurve === void 0) { segmentsPerCurve = DEFAULT_CURVE_SEGMENTS; }
+        if (matrix === void 0) { matrix = null; }
         if (instance.elementType !== 'shape') {
             return null;
         }
         if (instance.contours && instance.contours.length > 0) {
-            Logger_1.Logger.trace("Extracting vertices from ".concat(instance.contours.length, " contours (segmentsPerCurve=").concat(segmentsPerCurve, ")"));
-            return this.extractVerticesFromContours(instance, segmentsPerCurve);
+            Logger_1.Logger.trace("Extracting vertices from " + instance.contours.length + " contours (segmentsPerCurve=" + segmentsPerCurve + ")");
+            return ShapeUtil.extractVerticesFromContours(instance, segmentsPerCurve, matrix);
         }
-        Logger_1.Logger.trace("Extracting vertices from ".concat(instance.edges.length, " edges (fallback mode)"));
-        return this.extractVerticesFromEdges(instance, segmentsPerCurve);
+        Logger_1.Logger.trace("Extracting vertices from " + instance.edges.length + " edges (fallback mode)");
+        return ShapeUtil.extractVerticesFromEdges(instance, segmentsPerCurve, matrix);
     };
-    ShapeUtil.extractVerticesFromContours = function (instance, segmentsPerCurve) {
+    /**
+     * Transforms a point by a 2D affine matrix.
+     */
+    ShapeUtil.transformPoint = function (x, y, matrix) {
+        if (!matrix)
+            return { x: x, y: y };
+        return {
+            x: x * matrix.a + y * matrix.c + matrix.tx,
+            y: x * matrix.b + y * matrix.d + matrix.ty
+        };
+    };
+    /**
+     * Multiplies two matrices: m1 * m2
+     */
+    ShapeUtil.multiplyMatrices = function (m1, m2) {
+        return {
+            a: m1.a * m2.a + m1.c * m2.b,
+            b: m1.b * m2.a + m1.d * m2.b,
+            c: m1.a * m2.c + m1.c * m2.d,
+            d: m1.b * m2.c + m1.d * m2.d,
+            tx: m1.a * m2.tx + m1.c * m2.ty + m1.tx,
+            ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
+        };
+    };
+    ShapeUtil.extractVerticesFromContours = function (instance, segmentsPerCurve, matrix) {
         var vertices = [];
         var totalEdges = 0;
         for (var i = 0; i < instance.contours.length; i++) {
@@ -2742,73 +2797,89 @@ var ShapeUtil = /** @class */ (function () {
             }
             var halfEdge = startHalfEdge;
             var safetyCounter = 0;
-            var MAX_EDGES = 5000; // Reduced max edges
-            var contourEdges = 0;
-            // To detect loops when object equality fails (common in JSFL), we track visited edge geometry
-            // Key format: "x1_y1_x2_y2"
-            // Use plain object instead of Set because JSFL environment is old
+            var MAX_EDGES = 5000;
             var visitedEdges = {};
             do {
                 if (safetyCounter++ > MAX_EDGES) {
-                    Logger_1.Logger.warning("Contour ".concat(i, " exceeded MAX_EDGES (").concat(MAX_EDGES, "). Breaking loop to prevent freeze."));
+                    Logger_1.Logger.warning("Contour " + i + " exceeded MAX_EDGES (" + MAX_EDGES + "). Breaking loop.");
                     break;
                 }
-                // Log progress less frequently to reduce overhead
-                if (safetyCounter % 2000 === 0) {
-                    Logger_1.Logger.trace("  > Contour ".concat(i, ": processed ").concat(safetyCounter, " edges..."));
-                }
                 var edge = halfEdge.getEdge();
-                var startVertex = halfEdge.getVertex();
-                // Determine end vertex (start of next half edge)
+                var rawStart = halfEdge.getVertex();
                 var nextHalfEdge = halfEdge.getNext();
                 if (!nextHalfEdge)
                     break;
-                var endVertex = nextHalfEdge.getVertex();
-                // Unique ID for this half-edge geometry
-                var edgeKey = "".concat(startVertex.x, "_").concat(startVertex.y, "_").concat(endVertex.x, "_").concat(endVertex.y);
-                // If we've seen this exact edge geometry in this contour before, we've completed the loop
-                // (This handles cases where JSFL object identity fails)
+                var rawEnd = nextHalfEdge.getVertex();
+                // Geometry key to detect loops
+                var edgeKey = rawStart.x + "_" + rawStart.y + "_" + rawEnd.x + "_" + rawEnd.y;
                 if (visitedEdges[edgeKey]) {
-                    // Logger.trace(`  > Contour ${i}: Loop detected via geometry check at edge ${safetyCounter}.`);
                     break;
                 }
                 visitedEdges[edgeKey] = true;
+                var p0 = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
+                var p3 = ShapeUtil.transformPoint(rawEnd.x, rawEnd.y, matrix);
                 if (edge.isLine) {
-                    vertices.push(startVertex.x, -startVertex.y);
+                    vertices.push(p0.x, -p0.y);
                 }
                 else {
-                    var control = edge.getControl(0);
-                    this.tessellateQuadraticBezier(vertices, startVertex, control, endVertex, segmentsPerCurve);
+                    var rawControl0 = edge.getControl(0);
+                    var rawControl1 = null;
+                    try {
+                        rawControl1 = edge.getControl(1);
+                    }
+                    catch (e) { }
+                    // Determine traversal direction by comparing with edge's canonical half-edge
+                    // Edge control points are defined relative to getHalfEdge(0)
+                    var canonicalHalfEdge = edge.getHalfEdge(0);
+                    var canonicalVertex = canonicalHalfEdge ? canonicalHalfEdge.getVertex() : null;
+                    var isReverse = canonicalVertex &&
+                        (canonicalVertex.x !== rawStart.x || canonicalVertex.y !== rawStart.y);
+                    var p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
+                    if (rawControl1) {
+                        var p2 = ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix);
+                        if (isReverse) {
+                            ShapeUtil.tessellateCubicBezier(vertices, p0, p2, p1, p3, segmentsPerCurve);
+                        }
+                        else {
+                            ShapeUtil.tessellateCubicBezier(vertices, p0, p1, p2, p3, segmentsPerCurve);
+                        }
+                    }
+                    else {
+                        // Quadratic: control point order matters too when reversed
+                        ShapeUtil.tessellateQuadraticBezier(vertices, p0, p1, p3, segmentsPerCurve);
+                    }
                 }
                 halfEdge = nextHalfEdge;
-                contourEdges++;
                 totalEdges++;
             } while (halfEdge !== startHalfEdge && halfEdge != null);
         }
-        Logger_1.Logger.trace("Total extracted vertices: ".concat(vertices.length / 2, " (from ").concat(totalEdges, " edges)"));
+        Logger_1.Logger.trace("Total extracted vertices: " + (vertices.length / 2) + " (from " + totalEdges + " edges)");
         return vertices;
     };
-    ShapeUtil.extractVerticesFromEdges = function (instance, segmentsPerCurve) {
+    ShapeUtil.extractVerticesFromEdges = function (instance, segmentsPerCurve, matrix) {
         var vertices = [];
-        for (var _i = 0, _a = instance.edges; _i < _a.length; _i++) {
-            var edge = _a[_i];
+        for (var i = 0; i < instance.edges.length; i++) {
+            var edge = instance.edges[i];
             var halfEdge = edge.getHalfEdge(0);
-            if (halfEdge == null) {
+            if (!halfEdge)
+                continue;
+            var rawStart = halfEdge.getVertex();
+            var nextHalfEdge = halfEdge.getOppositeHalfEdge();
+            if (!nextHalfEdge) {
+                var p = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
+                vertices.push(p.x, -p.y);
                 continue;
             }
-            var startVertex = halfEdge.getVertex();
+            var rawEnd = nextHalfEdge.getVertex();
+            var p0 = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
+            var p3 = ShapeUtil.transformPoint(rawEnd.x, rawEnd.y, matrix);
             if (edge.isLine) {
-                vertices.push(startVertex.x, -startVertex.y);
+                vertices.push(p0.x, -p0.y);
             }
             else {
-                var oppositeHalfEdge = halfEdge.getOppositeHalfEdge();
-                if (oppositeHalfEdge == null) {
-                    vertices.push(startVertex.x, -startVertex.y);
-                    continue;
-                }
-                var endVertex = oppositeHalfEdge.getVertex();
-                var control = edge.getControl(0);
-                this.tessellateQuadraticBezier(vertices, startVertex, control, endVertex, segmentsPerCurve);
+                var rawControl0 = edge.getControl(0);
+                var p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
+                ShapeUtil.tessellateQuadraticBezier(vertices, p0, p1, p3, segmentsPerCurve);
             }
         }
         return vertices;
@@ -2819,6 +2890,19 @@ var ShapeUtil = /** @class */ (function () {
             var mt = 1 - t;
             var x = mt * mt * p0.x + 2 * mt * t * p1.x + t * t * p2.x;
             var y = mt * mt * p0.y + 2 * mt * t * p1.y + t * t * p2.y;
+            vertices.push(x, -y);
+        }
+    };
+    ShapeUtil.tessellateCubicBezier = function (vertices, p0, p1, p2, p3, segments) {
+        for (var i = 0; i < segments; i++) {
+            var t = i / segments;
+            var mt = 1 - t;
+            var mt2 = mt * mt;
+            var mt3 = mt2 * mt;
+            var t2 = t * t;
+            var t3 = t2 * t;
+            var x = mt3 * p0.x + 3 * mt2 * t * p1.x + 3 * mt * t2 * p2.x + t3 * p3.x;
+            var y = mt3 * p0.y + 3 * mt2 * t * p1.y + 3 * mt * t2 * p2.y + t3 * p3.y;
             vertices.push(x, -y);
         }
     };

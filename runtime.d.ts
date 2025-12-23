@@ -35,8 +35,18 @@ declare global {
         interior:boolean;
     }
 
+    export interface FlashMatrix {
+        a:number;
+        b:number;
+        c:number;
+        d:number;
+        tx:number;
+        ty:number;
+    }
+
     export interface FlashElement {
         transformationPoint:FlashPoint;
+        matrix:FlashMatrix;
         edges:FlashEdge[];
         contours:FlashContour[];
     }
