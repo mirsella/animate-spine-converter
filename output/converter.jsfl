@@ -76,8 +76,9 @@ var Converter = /** @class */ (function () {
             return ImageUtil_1.ImageUtil.exportBitmap(imagePath, context.element, _this._config.exportImages);
         });
     };
-    Converter.prototype.convertShapeMaskElementSlot = function (context, matrix) {
+    Converter.prototype.convertShapeMaskElementSlot = function (context, matrix, controlOffset) {
         if (matrix === void 0) { matrix = null; }
+        if (controlOffset === void 0) { controlOffset = null; }
         var attachmentName = context.global.shapesCache.get(context.element);
         if (attachmentName == null) {
             attachmentName = ConvertUtil_1.ConvertUtil.createAttachmentName(context.element, context);
@@ -88,7 +89,7 @@ var Converter = /** @class */ (function () {
         var attachment = slot.createAttachment(attachmentName, "clipping" /* SpineAttachmentType.CLIPPING */);
         context.clipping = attachment;
         //-----------------------------------
-        attachment.vertices = ShapeUtil_1.ShapeUtil.extractVertices(context.element, 16, matrix); // Use 16 segments for resolution
+        attachment.vertices = ShapeUtil_1.ShapeUtil.extractVertices(context.element, 16, matrix, controlOffset); // Use 16 segments for resolution
         attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
         if (attachment.vertexCount === 0) {
             Logger_1.Logger.warning('Mask has no vertices: ' + slot.name);
@@ -125,7 +126,7 @@ var Converter = /** @class */ (function () {
                 // but usually raw shapes just work if they don't have a matrix.
                 // However, if the shape has been moved, it has a matrix.
                 // Vertices are relative to the shape's origin.
-                _this.convertShapeMaskElementSlot(subcontext, subcontext.element.matrix);
+                _this.convertShapeMaskElementSlot(subcontext, subcontext.element.matrix, null);
                 context.clipping = subcontext.clipping;
             }
             else if (type === 'instance') {
@@ -150,17 +151,18 @@ var Converter = /** @class */ (function () {
                     // Calculate the delta between RegPoint and TransPoint
                     var deltaX = maskMatrix.tx - tp.x;
                     var deltaY = maskMatrix.ty - tp.y;
-                    // Combine: InnerShape.tx + Delta
+                    // Combine: InnerShape.tx + Delta - MaskPosition (to make it relative to Bone)
                     var offsetMatrix = {
                         a: im.a,
                         b: im.b,
                         c: im.c,
                         d: im.d,
-                        tx: im.tx + deltaX,
-                        ty: im.ty + deltaY
+                        tx: im.tx + deltaX - maskMatrix.tx,
+                        ty: im.ty + deltaY - maskMatrix.ty
                     };
+                    var controlOffset = null;
                     subcontext.element = innerShape;
-                    _this.convertShapeMaskElementSlot(subcontext, offsetMatrix);
+                    _this.convertShapeMaskElementSlot(subcontext, offsetMatrix, controlOffset);
                     subcontext.element = originalElement;
                     context.clipping = subcontext.clipping;
                 }
@@ -2746,15 +2748,16 @@ var DEFAULT_CURVE_SEGMENTS = 20;
 var ShapeUtil = /** @class */ (function () {
     function ShapeUtil() {
     }
-    ShapeUtil.extractVertices = function (instance, segmentsPerCurve, matrix) {
+    ShapeUtil.extractVertices = function (instance, segmentsPerCurve, matrix, controlOffset) {
         if (segmentsPerCurve === void 0) { segmentsPerCurve = DEFAULT_CURVE_SEGMENTS; }
         if (matrix === void 0) { matrix = null; }
+        if (controlOffset === void 0) { controlOffset = null; }
         if (instance.elementType !== 'shape') {
             return null;
         }
         if (instance.contours && instance.contours.length > 0) {
             Logger_1.Logger.trace("Extracting vertices from " + instance.contours.length + " contours (segmentsPerCurve=" + segmentsPerCurve + ")");
-            return ShapeUtil.extractVerticesFromContours(instance, segmentsPerCurve, matrix);
+            return ShapeUtil.extractVerticesFromContours(instance, segmentsPerCurve, matrix, controlOffset);
         }
         Logger_1.Logger.trace("Extracting vertices from " + instance.edges.length + " edges (fallback mode)");
         return ShapeUtil.extractVerticesFromEdges(instance, segmentsPerCurve, matrix);
@@ -2783,7 +2786,8 @@ var ShapeUtil = /** @class */ (function () {
             ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
         };
     };
-    ShapeUtil.extractVerticesFromContours = function (instance, segmentsPerCurve, matrix) {
+    ShapeUtil.extractVerticesFromContours = function (instance, segmentsPerCurve, matrix, controlOffset) {
+        if (controlOffset === void 0) { controlOffset = null; }
         var vertices = [];
         var totalEdges = 0;
         if (instance.contours.length > 1) {
@@ -2848,13 +2852,28 @@ var ShapeUtil = /** @class */ (function () {
                 }
                 else {
                     var rawControl0 = edge.getControl(0);
+                    if (controlOffset) {
+                        rawControl0.x += controlOffset.x;
+                        rawControl0.y += controlOffset.y;
+                    }
                     var rawControl1 = null;
                     try {
                         rawControl1 = edge.getControl(1);
+                        if (rawControl1 && controlOffset) {
+                            rawControl1.x += controlOffset.x;
+                            rawControl1.y += controlOffset.y;
+                        }
                     }
                     catch (e) { }
                     var p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
-                    if (rawControl1 && (Math.abs(rawControl1.x - rawEnd.x) > 0.01 || Math.abs(rawControl1.y - rawEnd.y) > 0.01)) {
+                    if (totalEdges < 20) {
+                        Logger_1.Logger.trace("  C0: [" + rawControl0.x.toFixed(2) + "," + rawControl0.y.toFixed(2) + "]");
+                        if (rawControl1)
+                            Logger_1.Logger.trace("  C1: [" + rawControl1.x.toFixed(2) + "," + rawControl1.y.toFixed(2) + "]");
+                    }
+                    if (rawControl1) {
+                        if (totalEdges < 20)
+                            Logger_1.Logger.trace("  => CUBIC");
                         var p2 = ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix);
                         if (isReverse) {
                             ShapeUtil.tessellateCubicBezierPart(vertices, p0, p2, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
@@ -2864,6 +2883,8 @@ var ShapeUtil = /** @class */ (function () {
                         }
                     }
                     else {
+                        if (totalEdges < 20)
+                            Logger_1.Logger.trace("  => QUADRATIC");
                         ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                     }
                 }

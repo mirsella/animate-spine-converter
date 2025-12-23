@@ -104,7 +104,7 @@ export class Converter {
         );
     }
 
-    private convertShapeMaskElementSlot(context:ConverterContext, matrix:FlashMatrix = null):void {
+    private convertShapeMaskElementSlot(context:ConverterContext, matrix:FlashMatrix = null, controlOffset:{x:number, y:number} = null):void {
         let attachmentName = context.global.shapesCache.get(context.element);
 
         if (attachmentName == null) {
@@ -120,7 +120,7 @@ export class Converter {
 
         //-----------------------------------
 
-        attachment.vertices = ShapeUtil.extractVertices(context.element, 16, matrix); // Use 16 segments for resolution
+        attachment.vertices = ShapeUtil.extractVertices(context.element, 16, matrix, controlOffset); // Use 16 segments for resolution
         attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
 
         if (attachment.vertexCount === 0) {
@@ -174,7 +174,7 @@ export class Converter {
                     // but usually raw shapes just work if they don't have a matrix.
                     // However, if the shape has been moved, it has a matrix.
                     // Vertices are relative to the shape's origin.
-                    this.convertShapeMaskElementSlot(subcontext, subcontext.element.matrix);
+                    this.convertShapeMaskElementSlot(subcontext, subcontext.element.matrix, null);
                     context.clipping = subcontext.clipping;
                 } else if (type === 'instance') {
                     Logger.trace('Mask is an instance/symbol. Searching inside for vector shape...');
@@ -204,18 +204,20 @@ export class Converter {
                         const deltaX = maskMatrix.tx - tp.x;
                         const deltaY = maskMatrix.ty - tp.y;
                         
-                        // Combine: InnerShape.tx + Delta
+                        // Combine: InnerShape.tx + Delta - MaskPosition (to make it relative to Bone)
                         const offsetMatrix = {
                             a: im.a,
                             b: im.b,
                             c: im.c,
                             d: im.d,
-                            tx: im.tx + deltaX,
-                            ty: im.ty + deltaY
+                            tx: im.tx + deltaX - maskMatrix.tx,
+                            ty: im.ty + deltaY - maskMatrix.ty
                         };
 
+                        const controlOffset: {x: number, y: number} = null;
+
                         subcontext.element = innerShape;
-                        this.convertShapeMaskElementSlot(subcontext, offsetMatrix);
+                        this.convertShapeMaskElementSlot(subcontext, offsetMatrix, controlOffset);
                         subcontext.element = originalElement;
                         
                         context.clipping = subcontext.clipping;

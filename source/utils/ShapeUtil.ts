@@ -3,14 +3,14 @@ import { Logger } from '../logger/Logger';
 const DEFAULT_CURVE_SEGMENTS = 20;
 
 export class ShapeUtil {
-    public static extractVertices(instance:FlashElement, segmentsPerCurve:number = DEFAULT_CURVE_SEGMENTS, matrix:FlashMatrix = null):number[] {
+    public static extractVertices(instance:FlashElement, segmentsPerCurve:number = DEFAULT_CURVE_SEGMENTS, matrix:FlashMatrix = null, controlOffset:{x:number, y:number} = null):number[] {
         if (instance.elementType !== 'shape') {
             return null;
         }
 
         if (instance.contours && instance.contours.length > 0) {
             Logger.trace("Extracting vertices from " + instance.contours.length + " contours (segmentsPerCurve=" + segmentsPerCurve + ")");
-            return ShapeUtil.extractVerticesFromContours(instance, segmentsPerCurve, matrix);
+            return ShapeUtil.extractVerticesFromContours(instance, segmentsPerCurve, matrix, controlOffset);
         }
 
         Logger.trace("Extracting vertices from " + instance.edges.length + " edges (fallback mode)");
@@ -42,7 +42,7 @@ export class ShapeUtil {
         };
     }
 
-    private static extractVerticesFromContours(instance:FlashElement, segmentsPerCurve:number, matrix:FlashMatrix):number[] {
+    private static extractVerticesFromContours(instance:FlashElement, segmentsPerCurve:number, matrix:FlashMatrix, controlOffset:{x:number, y:number} = null):number[] {
         const vertices:number[] = [];
         let totalEdges = 0;
 
@@ -119,12 +119,29 @@ export class ShapeUtil {
                     }
                 } else {
                     const rawControl0 = edge.getControl(0);
+                    if (controlOffset) {
+                        rawControl0.x += controlOffset.x;
+                        rawControl0.y += controlOffset.y;
+                    }
+
                     let rawControl1 = null;
-                    try { rawControl1 = edge.getControl(1); } catch(e) {}
+                    try { 
+                        rawControl1 = edge.getControl(1); 
+                        if (rawControl1 && controlOffset) {
+                            rawControl1.x += controlOffset.x;
+                            rawControl1.y += controlOffset.y;
+                        }
+                    } catch(e) {}
 
                     const p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
 
-                    if (rawControl1 && (Math.abs(rawControl1.x - rawEnd.x) > 0.01 || Math.abs(rawControl1.y - rawEnd.y) > 0.01)) {
+                    if (totalEdges < 20) {
+                        Logger.trace("  C0: [" + rawControl0.x.toFixed(2) + "," + rawControl0.y.toFixed(2) + "]");
+                        if (rawControl1) Logger.trace("  C1: [" + rawControl1.x.toFixed(2) + "," + rawControl1.y.toFixed(2) + "]");
+                    }
+
+                    if (rawControl1) {
+                        if (totalEdges < 20) Logger.trace("  => CUBIC");
                         const p2 = ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix);
                         if (isReverse) {
                             ShapeUtil.tessellateCubicBezierPart(vertices, p0, p2, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
@@ -132,6 +149,7 @@ export class ShapeUtil {
                             ShapeUtil.tessellateCubicBezierPart(vertices, p0, p1, p2, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                         }
                     } else {
+                        if (totalEdges < 20) Logger.trace("  => QUADRATIC");
                         ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                     }
                 }
