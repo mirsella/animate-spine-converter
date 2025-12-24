@@ -2876,16 +2876,23 @@ var ShapeUtil = /** @class */ (function () {
                             Logger_1.Logger.trace("  => CUBIC");
                         var p2 = ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix);
                         if (isReverse) {
-                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, p2, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
+                            // Reverse traversal: p0 -> p3. Controls are p2 (near p0) and p1 (near p3).
+                            var validP2 = ShapeUtil.clampControlPoint(p0, p3, p2);
+                            var validP1 = ShapeUtil.clampControlPoint(p3, p0, p1);
+                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, validP2, validP1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                         }
                         else {
-                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, p1, p2, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
+                            // Forward traversal: p0 -> p3. Controls are p1 (near p0) and p2 (near p3).
+                            var validP1 = ShapeUtil.clampControlPoint(p0, p3, p1);
+                            var validP2 = ShapeUtil.clampControlPoint(p3, p0, p2);
+                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, validP1, validP2, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                         }
                     }
                     else {
                         if (totalEdges < 20)
                             Logger_1.Logger.trace("  => QUADRATIC");
-                        ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
+                        var validP1 = ShapeUtil.clampControlPoint(p0, p3, p1);
+                        ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, validP1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                     }
                 }
                 halfEdge = nextHalfEdge;
@@ -2894,6 +2901,26 @@ var ShapeUtil = /** @class */ (function () {
         }
         Logger_1.Logger.trace("Total extracted vertices: " + (vertices.length / 2) + " (from " + totalEdges + " edges)");
         return vertices;
+    };
+    ShapeUtil.clampControlPoint = function (pAnchor, pOpposite, pControl) {
+        var dx = pOpposite.x - pAnchor.x;
+        var dy = pOpposite.y - pAnchor.y;
+        var lenSq = dx * dx + dy * dy;
+        if (lenSq < 0.0001)
+            return pAnchor;
+        var cx = pControl.x - pAnchor.x;
+        var cy = pControl.y - pAnchor.y;
+        // Project onto edge vector: t = (c . d) / (d . d)
+        var t = (cx * dx + cy * dy) / lenSq;
+        if (t < 0) {
+            // Pulls backward
+            return { x: pAnchor.x, y: pAnchor.y };
+        }
+        if (t > 1) {
+            // Overshoots
+            return { x: pOpposite.x, y: pOpposite.y };
+        }
+        return pControl;
     };
     ShapeUtil.extractVerticesFromEdges = function (instance, segmentsPerCurve, matrix) {
         var vertices = [];

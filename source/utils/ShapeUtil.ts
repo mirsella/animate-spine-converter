@@ -143,14 +143,22 @@ export class ShapeUtil {
                     if (rawControl1) {
                         if (totalEdges < 20) Logger.trace("  => CUBIC");
                         const p2 = ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix);
+                        
                         if (isReverse) {
-                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, p2, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
+                            // Reverse traversal: p0 -> p3. Controls are p2 (near p0) and p1 (near p3).
+                            const validP2 = ShapeUtil.clampControlPoint(p0, p3, p2);
+                            const validP1 = ShapeUtil.clampControlPoint(p3, p0, p1);
+                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, validP2, validP1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                         } else {
-                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, p1, p2, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
+                            // Forward traversal: p0 -> p3. Controls are p1 (near p0) and p2 (near p3).
+                            const validP1 = ShapeUtil.clampControlPoint(p0, p3, p1);
+                            const validP2 = ShapeUtil.clampControlPoint(p3, p0, p2);
+                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, validP1, validP2, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                         }
                     } else {
                         if (totalEdges < 20) Logger.trace("  => QUADRATIC");
-                        ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, p1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
+                        const validP1 = ShapeUtil.clampControlPoint(p0, p3, p1);
+                        ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, validP1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                     }
                 }
 
@@ -161,6 +169,30 @@ export class ShapeUtil {
         
         Logger.trace("Total extracted vertices: " + (vertices.length / 2) + " (from " + totalEdges + " edges)");
         return vertices;
+    }
+
+    private static clampControlPoint(pAnchor: {x:number, y:number}, pOpposite: {x:number, y:number}, pControl: {x:number, y:number}): {x:number, y:number} {
+        const dx = pOpposite.x - pAnchor.x;
+        const dy = pOpposite.y - pAnchor.y;
+        const lenSq = dx*dx + dy*dy;
+        if (lenSq < 0.0001) return pAnchor;
+
+        const cx = pControl.x - pAnchor.x;
+        const cy = pControl.y - pAnchor.y;
+        
+        // Project onto edge vector: t = (c . d) / (d . d)
+        const t = (cx * dx + cy * dy) / lenSq;
+
+        if (t < 0) {
+            // Pulls backward
+            return { x: pAnchor.x, y: pAnchor.y };
+        }
+        if (t > 1) {
+            // Overshoots
+            return { x: pOpposite.x, y: pOpposite.y };
+        }
+        
+        return pControl;
     }
 
     private static extractVerticesFromEdges(instance:FlashElement, segmentsPerCurve:number, matrix:FlashMatrix):number[] {
