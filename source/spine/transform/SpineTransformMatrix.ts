@@ -1,4 +1,5 @@
 import { NumberUtil } from '../../utils/NumberUtil';
+import { Logger } from '../../logger/Logger';
 import { SpineTransform } from './SpineTransform';
 
 export class SpineTransformMatrix implements SpineTransform {
@@ -18,6 +19,9 @@ export class SpineTransformMatrix implements SpineTransform {
 
     public constructor(element:FlashElement) {
         const matrix = element.matrix;
+        
+        Logger.trace(`[SpineTransformMatrix] Init for ${element.name || '<anon>'} (${element.elementType})`);
+        Logger.trace(`  Raw Matrix: a=${matrix.a.toFixed(4)} b=${matrix.b.toFixed(4)} c=${matrix.c.toFixed(4)} d=${matrix.d.toFixed(4)} tx=${matrix.tx.toFixed(2)} ty=${matrix.ty.toFixed(2)}`);
 
         let baseX = matrix.tx;
         let baseY = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
@@ -67,5 +71,7 @@ export class SpineTransformMatrix implements SpineTransform {
             this.shearX = -skewY;
             this.shearY = -skewX;
         }
+
+        Logger.trace(`  Result: pos=(${this.x.toFixed(2)}, ${this.y.toFixed(2)}) rot=${this.rotation.toFixed(2)} scale=(${this.scaleX.toFixed(2)}, ${this.scaleY.toFixed(2)}) shear=(${this.shearX.toFixed(2)}, ${this.shearY.toFixed(2)}) pivot=(${this.pivotX.toFixed(2)}, ${this.pivotY.toFixed(2)}) reg=(${this.regX.toFixed(2)}, ${this.regY.toFixed(2)})`);
     }
 }

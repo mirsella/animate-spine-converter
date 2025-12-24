@@ -1,4 +1,5 @@
 import { SpineAnimation } from '../spine/SpineAnimation';
+import { Logger } from '../logger/Logger';
 import { SpineAnimationHelper } from '../spine/SpineAnimationHelper';
 import { SpineImage } from '../spine/SpineImage';
 import { SpineSkeleton } from '../spine/SpineSkeleton';
@@ -70,6 +71,7 @@ export class ConverterContextGlobal extends ConverterContext {
         //-----------------------------------
 
         if (config.transformRootBone) {
+            Logger.trace('[ConverterContextGlobal] Transforming Root Bone');
             SpineAnimationHelper.applyBoneTransform(
                 context.bone,
                 transform

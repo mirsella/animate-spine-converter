@@ -36,6 +36,8 @@ export class Converter {
     private convertElementSlot(context:ConverterContext, exportTarget:FlashElement | FlashItem, imageExportFactory:ImageExportFactory):void {
         let imageName = context.global.shapesCache.get(exportTarget);
 
+        Logger.trace(`[Slot] Converting slot for ${context.element.name || '<anon>'} (Image: ${imageName || 'new'})`);
+
         if (imageName == null) {
             imageName = ConvertUtil.createAttachmentName(context.element, context);
             context.global.shapesCache.set(exportTarget, imageName);
@@ -48,7 +50,6 @@ export class Converter {
         if (context.global.stageType === ConverterStageType.STRUCTURE) {
             if (context.clipping != null) {
                 context.clipping.end = slot;
-                Logger.trace('Clipping end slot set: ' + slot.name + ' layer=' + (context.layer ? context.layer.name : '')); 
             }
 
             return;
@@ -81,6 +82,10 @@ export class Converter {
         const pivotY = tp ? tp.y : 0;
         attachment.x = spineImage.x - pivotX;
         attachment.y = spineImage.y + pivotY;
+
+        Logger.trace(`  Image Pos: (${spineImage.x.toFixed(2)}, ${spineImage.y.toFixed(2)}) Size: ${spineImage.width}x${spineImage.height}`);
+        Logger.trace(`  Pivot: (${pivotX.toFixed(2)}, ${pivotY.toFixed(2)})`);
+        Logger.trace(`  Attachment Offset: (${attachment.x.toFixed(2)}, ${attachment.y.toFixed(2)})`);
 
         //-----------------------------------
 
@@ -125,8 +130,6 @@ export class Converter {
 
         if (attachment.vertexCount === 0) {
             Logger.warning('Mask has no vertices: ' + slot.name);
-        } else {
-            Logger.trace('Mask vertices extracted: ' + slot.name + ' count=' + attachment.vertexCount);
         }
 
         //-----------------------------------
@@ -134,7 +137,6 @@ export class Converter {
         if (context.global.stageType === ConverterStageType.STRUCTURE) {
             const endSlot = context.global.skeleton.findSlot(slot.name);
             attachment.end = endSlot;
-            Logger.trace('Mask slot created (structure stage): ' + slot.name + ' end=' + (endSlot ? endSlot.name : 'null') + ' vertices=' + attachment.vertexCount);
             return;
         }
 
@@ -161,12 +163,10 @@ export class Converter {
     //-----------------------------------
 
     private composeElementMaskLayer(context:ConverterContext, convertLayer:FlashLayer):void {
-        Logger.trace(`Composing mask layer: ${convertLayer.name}`);
         this.convertElementLayer(
             context.switchContextLayer(convertLayer), convertLayer,
             (subcontext) => {
                 const type = subcontext.element.elementType;
-                Logger.trace(`Mask element type: ${type}`);
                 
                 if (type === 'shape') {
                     // For raw shapes on stage, they are relative to (0,0) of the stage/timeline.
@@ -177,11 +177,9 @@ export class Converter {
                     this.convertShapeMaskElementSlot(subcontext, subcontext.element.matrix, null);
                     context.clipping = subcontext.clipping;
                 } else if (type === 'instance') {
-                    Logger.trace('Mask is an instance/symbol. Searching inside for vector shape...');
                     const innerShape = this.findFirstShapeInSymbol(subcontext.element);
                     
                     if (innerShape) {
-                        Logger.trace('Found vector shape inside mask symbol.');
                         // Temporarily swap the element to the inner shape to extract vertices
                         const originalElement = subcontext.element;
                         
@@ -312,7 +310,6 @@ export class Converter {
                 if (maskLayer == null) {
                     Logger.warning('No mask layer found for masked layer: ' + layer.name);
                 } else {
-                    Logger.trace('Applying mask layer "' + maskLayer.name + '" to masked layer "' + layer.name + '"');
                     this.composeElementMaskLayer(context, maskLayer);
                 }
 
@@ -321,7 +318,6 @@ export class Converter {
             }
 
             if (layer.layerType === 'mask') {
-                Logger.trace('Disposing mask layer: ' + layer.name);
                 this.disposeElementMaskLayer(context);
             }
         }

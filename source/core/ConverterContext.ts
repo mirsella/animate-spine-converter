@@ -64,6 +64,11 @@ export class ConverterContext {
 
     public createBone(element:FlashElement, time:number):ConverterContext {
         const transform = new SpineTransformMatrix(element);
+        
+        Logger.trace(`[Bone] Creating for element: ${element.name || '<anon>'} (${element.elementType})`);
+        Logger.trace(`  Flash Matrix: tx=${element.matrix.tx} ty=${element.matrix.ty}`);
+        Logger.trace(`  Transform: pos=(${transform.x.toFixed(2)}, ${transform.y.toFixed(2)}) rot=${(transform.rotation * 180 / Math.PI).toFixed(1)} scale=(${transform.scaleX.toFixed(2)}, ${transform.scaleY.toFixed(2)}) pivot=(${transform.pivotX.toFixed(2)}, ${transform.pivotY.toFixed(2)}) reg=(${transform.regX.toFixed(2)}, ${transform.regY.toFixed(2)})`);
+
         const context = new ConverterContext();
 
         //-----------------------------------
@@ -98,8 +103,6 @@ export class ConverterContext {
                 ? context.global.assetTransforms.get(lookupName) 
                 : null;
             
-            Logger.trace(`[BONE INIT] boneName="${context.bone.name}" lookupName="${lookupName}" isMask=${isMaskLayer} hasAsset=${!!assetTransform} totalAssets=${context.global.assetTransforms.size()}`);
-            
             if (hasAssetClip && !assetTransform && !isMaskLayer) {
                 Logger.error(`Asset "${lookupName}" not found in ASSET MovieClip!`);
                 Logger.error(`Available assets: ${context.global.assetTransforms.keys.join(', ')}`);
@@ -107,8 +110,9 @@ export class ConverterContext {
             }
             
             if (assetTransform) {
-                Logger.trace(`  Using ASSET transform for "${lookupName}"`);
-                
+                Logger.trace(`  [Asset Match] Found ASSET for ${lookupName}`);
+                Logger.trace(`    Asset: pos=(${assetTransform.x.toFixed(2)}, ${assetTransform.y.toFixed(2)}) rot=${(assetTransform.rotation).toFixed(1)} scale=(${assetTransform.scaleX.toFixed(2)}, ${assetTransform.scaleY.toFixed(2)}) reg=(${assetTransform.regX.toFixed(2)}, ${assetTransform.regY.toFixed(2)})`);
+
                 // Hybrid Pivot Calculation:
                 // Use ASSET Rotation/Scale/RegPoint (Neutral Pose)
                 // Use ANIMATION Pivot (Correct Axis)
@@ -117,7 +121,9 @@ export class ConverterContext {
                 let hybridY = assetTransform.y;
 
                 if (element.elementType !== 'shape') {
-                    const rotation = assetTransform.rotation * Math.PI / 180;
+                    // assetTransform.rotation is negative of Flash rotation (Spine convention).
+                    // We need Flash rotation to calculate the pivot offset in Flash space.
+                    const rotation = -assetTransform.rotation * Math.PI / 180;
                     const cos = Math.cos(rotation);
                     const sin = Math.sin(rotation);
                     
@@ -131,6 +137,10 @@ export class ConverterContext {
                     // Reconstruct bone position: ASSET RegPoint + Rotated Animation Pivot
                     hybridX = assetTransform.regX + rotatedX;
                     hybridY = assetTransform.regY - rotatedY;
+
+                    Logger.trace(`    Hybrid Calc: pivot=(${transform.pivotX.toFixed(2)}, ${transform.pivotY.toFixed(2)}) rot=${(rotation * 180 / Math.PI).toFixed(1)}`);
+                    Logger.trace(`    Rotated Offset: (${rotatedX.toFixed(2)}, ${rotatedY.toFixed(2)})`);
+                    Logger.trace(`    Final Pos: (${hybridX.toFixed(2)}, ${hybridY.toFixed(2)})`);
                 }
 
                 SpineAnimationHelper.applyBoneTransform(
@@ -150,8 +160,6 @@ export class ConverterContext {
                     }
                 );
             } else {
-                Logger.trace(`  Using first-frame transform for "${lookupName}"`);
-                
                 SpineAnimationHelper.applyBoneTransform(
                     context.bone,
                     transform

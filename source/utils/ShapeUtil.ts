@@ -9,11 +9,9 @@ export class ShapeUtil {
         }
 
         if (instance.contours && instance.contours.length > 0) {
-            Logger.trace("Extracting vertices from " + instance.contours.length + " contours (segmentsPerCurve=" + segmentsPerCurve + ")");
             return ShapeUtil.extractVerticesFromContours(instance, segmentsPerCurve, matrix, controlOffset);
         }
 
-        Logger.trace("Extracting vertices from " + instance.edges.length + " edges (fallback mode)");
         return ShapeUtil.extractVerticesFromEdges(instance, segmentsPerCurve, matrix);
     }
 
@@ -47,11 +45,11 @@ export class ShapeUtil {
         let totalEdges = 0;
 
         if (instance.contours.length > 1) {
-            Logger.trace("Shape has " + instance.contours.length + " contours. Multiple contours might cause 'jumps' in the clipping path.");
+            // Shape has multiple contours
         }
 
         if (matrix) {
-            Logger.trace("Matrix: a=" + matrix.a.toFixed(4) + " b=" + matrix.b.toFixed(4) + " c=" + matrix.c.toFixed(4) + " d=" + matrix.d.toFixed(4) + " tx=" + matrix.tx.toFixed(2) + " ty=" + matrix.ty.toFixed(2));
+            // Matrix available
         }
 
         for (let i = 0; i < instance.contours.length; i++) {
@@ -111,8 +109,6 @@ export class ShapeUtil {
                 const isReverse = canonicalVertex && 
                     (Math.abs(canonicalVertex.x - rawStart.x) > 0.01 || Math.abs(canonicalVertex.y - rawStart.y) > 0.01);
 
-                Logger.trace("Edge " + totalEdges + " " + (edge.isLine ? "LINE" : "CURVE") + " isReverse=" + isReverse + " [" + p0.x.toFixed(2) + "," + p0.y.toFixed(2) + "] -> [" + p3.x.toFixed(2) + "," + p3.y.toFixed(2) + "]");
-
                 if (edge.isLine) {
                     if (halfEdge.getNext() !== startHalfEdge) {
                         vertices.push(p3.x, -p3.y);
@@ -135,13 +131,7 @@ export class ShapeUtil {
 
                     const p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
 
-                    if (totalEdges < 20) {
-                        Logger.trace("  C0: [" + rawControl0.x.toFixed(2) + "," + rawControl0.y.toFixed(2) + "]");
-                        if (rawControl1) Logger.trace("  C1: [" + rawControl1.x.toFixed(2) + "," + rawControl1.y.toFixed(2) + "]");
-                    }
-
                     if (rawControl1) {
-                        if (totalEdges < 20) Logger.trace("  => CUBIC");
                         const p2 = ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix);
                         
                         if (isReverse) {
@@ -156,7 +146,6 @@ export class ShapeUtil {
                             ShapeUtil.tessellateCubicBezierPart(vertices, p0, validP1, validP2, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                         }
                     } else {
-                        if (totalEdges < 20) Logger.trace("  => QUADRATIC");
                         const validP1 = ShapeUtil.clampControlPoint(p0, p3, p1);
                         ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, validP1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
                     }
@@ -167,7 +156,6 @@ export class ShapeUtil {
             } while (halfEdge !== startHalfEdge && halfEdge != null);
         }
         
-        Logger.trace("Total extracted vertices: " + (vertices.length / 2) + " (from " + totalEdges + " edges)");
         return vertices;
     }
 
