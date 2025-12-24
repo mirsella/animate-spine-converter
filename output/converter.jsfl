@@ -89,7 +89,7 @@ var Converter = /** @class */ (function () {
         var attachment = slot.createAttachment(attachmentName, "clipping" /* SpineAttachmentType.CLIPPING */);
         context.clipping = attachment;
         //-----------------------------------
-        attachment.vertices = ShapeUtil_1.ShapeUtil.extractVertices(context.element, 16, matrix, controlOffset); // Use 16 segments for resolution
+        attachment.vertices = ShapeUtil_1.ShapeUtil.extractVertices(context.element, 32, matrix, controlOffset); // Use 32 segments for resolution
         attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
         if (attachment.vertexCount === 0) {
             Logger_1.Logger.warning('Mask has no vertices: ' + slot.name);
