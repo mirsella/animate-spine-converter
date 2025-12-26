@@ -28,6 +28,7 @@ export class ConverterContextGlobal extends ConverterContext {
     public label:ConverterFrameLabel;
     public skeleton:SpineSkeleton;
     public frameRate:number;
+    public config:ConverterConfig;
 
     public static initializeGlobal(element:FlashElement, config:ConverterConfig, frameRate:number, skeleton:SpineSkeleton = null, cache:ConverterContextGlobal = null):ConverterContextGlobal {
         const transform = new SpineTransformMatrix(element);
@@ -44,6 +45,7 @@ export class ConverterContextGlobal extends ConverterContext {
         context.animation = null;
         context.frameRate = frameRate;
         context.label = null;
+        context.config = config;
 
         //-----------------------------------
 
@@ -76,6 +78,12 @@ export class ConverterContextGlobal extends ConverterContext {
                 context.bone,
                 transform
             );
+
+            // Set the offset for the first layer of children
+            context.parentOffset = {
+                x: element.x - element.transformX,
+                y: (element.y - element.transformY) * SpineTransformMatrix.Y_DIRECTION
+            };
         }
 
         //-----------------------------------

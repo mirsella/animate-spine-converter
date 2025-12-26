@@ -14,7 +14,6 @@ exports.Converter = void 0;
 var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineAnimationHelper_1 = __webpack_require__(/*! ../spine/SpineAnimationHelper */ "./source/spine/SpineAnimationHelper.ts");
 var SpineSkeleton_1 = __webpack_require__(/*! ../spine/SpineSkeleton */ "./source/spine/SpineSkeleton.ts");
-var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTransformMatrix */ "./source/spine/transform/SpineTransformMatrix.ts");
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
 var ImageUtil_1 = __webpack_require__(/*! ../utils/ImageUtil */ "./source/utils/ImageUtil.ts");
 var JsonEncoder_1 = __webpack_require__(/*! ../utils/JsonEncoder */ "./source/utils/JsonEncoder.ts");
@@ -61,13 +60,11 @@ var Converter = /** @class */ (function () {
         attachment.height = spineImage.height;
         attachment.scaleX = 1 / spineImage.scale;
         attachment.scaleY = 1 / spineImage.scale;
-        var tp = context.element.transformationPoint;
-        var pivotX = tp ? tp.x : 0;
-        var pivotY = tp ? tp.y : 0;
-        attachment.x = spineImage.x - pivotX;
-        attachment.y = spineImage.y + pivotY;
-        Logger_1.Logger.trace("  Image Pos: (".concat(spineImage.x.toFixed(2), ", ").concat(spineImage.y.toFixed(2), ") Size: ").concat(spineImage.width, "x").concat(spineImage.height));
-        Logger_1.Logger.trace("  Pivot: (".concat(pivotX.toFixed(2), ", ").concat(pivotY.toFixed(2), ")"));
+        // Attachment x/y in Spine is the offset from the bone to the image center.
+        // Bone is at TP. ImageUtil.exportSelection returns offset from TP to Center.
+        attachment.x = spineImage.x;
+        attachment.y = spineImage.y;
+        Logger_1.Logger.trace("  Image Offset: (".concat(spineImage.x.toFixed(2), ", ").concat(spineImage.y.toFixed(2), ") Size: ").concat(spineImage.width, "x").concat(spineImage.height));
         Logger_1.Logger.trace("  Attachment Offset: (".concat(attachment.x.toFixed(2), ", ").concat(attachment.y.toFixed(2), ")"));
         //-----------------------------------
         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, slot, context, attachment, context.time);
@@ -146,14 +143,14 @@ var Converter = /** @class */ (function () {
                     // Calculate the delta between RegPoint and TransPoint
                     var deltaX = maskMatrix.tx - tp.x;
                     var deltaY = maskMatrix.ty - tp.y;
-                    // Combine: InnerShape.tx + Delta - MaskPosition (to make it relative to Bone)
+                    // Combined translation relative to bone: InnerShape.tx + (RegPoint - Bone)
                     var offsetMatrix = {
                         a: im.a,
                         b: im.b,
                         c: im.c,
                         d: im.d,
-                        tx: im.tx + deltaX - maskMatrix.tx,
-                        ty: im.ty + deltaY - maskMatrix.ty
+                        tx: im.tx + deltaX,
+                        ty: im.ty + deltaY
                     };
                     var controlOffset = null;
                     subcontext.element = innerShape;
@@ -316,46 +313,9 @@ var Converter = /** @class */ (function () {
     Converter.prototype.resolveWorkingPath = function (path) {
         return PathUtil_1.PathUtil.joinPath(this._workingPath, path);
     };
-    Converter.prototype.extractAssetTransforms = function (context) {
-        var assetItem = this._document.library.findItemIndex('ASSET');
-        if (assetItem === undefined) {
-            Logger_1.Logger.trace('No ASSET MovieClip found in library');
-            return;
-        }
-        var assetLibItem = this._document.library.items[assetItem];
-        if (!assetLibItem || assetLibItem.itemType !== 'movie clip') {
-            Logger_1.Logger.trace('ASSET item is not a movie clip');
-            return;
-        }
-        Logger_1.Logger.trace('=== ASSET MovieClip found - extracting base transforms ===');
-        var timeline = assetLibItem.timeline;
-        var layers = timeline.layers;
-        Logger_1.Logger.trace("ASSET has " + layers.length + " layers");
-        for (var layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
-            var layer = layers[layerIdx];
-            if (layer.layerType !== 'normal') {
-                continue;
-            }
-            var frames = layer.frames;
-            if (frames.length === 0 || frames[0].elements.length === 0) {
-                continue;
-            }
-            for (var _i = 0, _a = frames[0].elements; _i < _a.length; _i++) {
-                var element = _a[_i];
-                if (element.libraryItem) {
-                    var uniqueKey = StringUtil_1.StringUtil.simplify(element.libraryItem.name);
-                    var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
-                    context.global.assetTransforms.set(uniqueKey, transform);
-                    Logger_1.Logger.trace("    ✓ Stored transform for: " + uniqueKey);
-                }
-            }
-        }
-        Logger_1.Logger.trace("=== Total ASSET transforms stored: " + context.global.assetTransforms.size() + " ===");
-    };
     Converter.prototype.convertSymbolInstance = function (element, context) {
         if (element.elementType === 'instance' && element.instanceType === 'symbol') {
             try {
-                this.extractAssetTransforms(context);
                 context.global.stageType = "structure" /* ConverterStageType.STRUCTURE */;
                 this.convertElement(context);
                 for (var _i = 0, _a = context.global.labels; _i < _a.length; _i++) {
@@ -469,15 +429,29 @@ exports.ConverterColor = ConverterColor;
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
+var __assign = (this && this.__assign) || function () {
+    __assign = Object.assign || function(t) {
+        for (var s, i = 1, n = arguments.length; i < n; i++) {
+            s = arguments[i];
+            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
+                t[p] = s[p];
+        }
+        return t;
+    };
+    return __assign.apply(this, arguments);
+};
 
 exports.ConverterContext = void 0;
-var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineAnimationHelper_1 = __webpack_require__(/*! ../spine/SpineAnimationHelper */ "./source/spine/SpineAnimationHelper.ts");
 var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTransformMatrix */ "./source/spine/transform/SpineTransformMatrix.ts");
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
-var StringUtil_1 = __webpack_require__(/*! ../utils/StringUtil */ "./source/utils/StringUtil.ts");
 var ConverterContext = /** @class */ (function () {
     function ConverterContext() {
+        /**
+         * Offset to reconcile Flash's Registration Point hierarchy with Spine's Anchor Point hierarchy.
+         * parentOffset = parent.RegPoint - parent.AnchorPoint
+         */
+        this.parentOffset = { x: 0, y: 0 };
         // empty
     }
     //-----------------------------------
@@ -503,9 +477,6 @@ var ConverterContext = /** @class */ (function () {
     //-----------------------------------
     ConverterContext.prototype.createBone = function (element, time) {
         var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
-        Logger_1.Logger.trace("[Bone] Creating for element: ".concat(element.name || '<anon>', " (").concat(element.elementType, ")"));
-        Logger_1.Logger.trace("  Flash Matrix: tx=".concat(element.matrix.tx, " ty=").concat(element.matrix.ty));
-        Logger_1.Logger.trace("  Transform: pos=(".concat(transform.x.toFixed(2), ", ").concat(transform.y.toFixed(2), ") rot=").concat((transform.rotation * 180 / Math.PI).toFixed(1), " scale=(").concat(transform.scaleX.toFixed(2), ", ").concat(transform.scaleY.toFixed(2), ") pivot=(").concat(transform.pivotX.toFixed(2), ", ").concat(transform.pivotY.toFixed(2), ") reg=(").concat(transform.regX.toFixed(2), ", ").concat(transform.regY.toFixed(2), ")"));
         var context = new ConverterContext();
         //-----------------------------------
         context.bone = this.global.skeleton.createBone(ConvertUtil_1.ConvertUtil.createBoneName(element, this), this.bone);
@@ -525,64 +496,21 @@ var ConverterContext = /** @class */ (function () {
         //-----------------------------------
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
-            var lookupName = element.libraryItem ? StringUtil_1.StringUtil.simplify(element.libraryItem.name) : ConvertUtil_1.ConvertUtil.createElementName(element, this);
-            var isMaskLayer = this.layer && this.layer.layerType === 'mask';
-            var hasAssetClip = context.global.assetTransforms.size() > 0;
-            var assetTransform = (hasAssetClip && !isMaskLayer)
-                ? context.global.assetTransforms.get(lookupName)
-                : null;
-            if (hasAssetClip && !assetTransform && !isMaskLayer) {
-                Logger_1.Logger.error("Asset \"".concat(lookupName, "\" not found in ASSET MovieClip!"));
-                Logger_1.Logger.error("Available assets: ".concat(context.global.assetTransforms.keys.join(', ')));
-                throw new Error("Asset \"".concat(lookupName, "\" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose."));
-            }
-            if (assetTransform) {
-                Logger_1.Logger.trace("  [Asset Match] Found ASSET for ".concat(lookupName));
-                Logger_1.Logger.trace("    Asset: pos=(".concat(assetTransform.x.toFixed(2), ", ").concat(assetTransform.y.toFixed(2), ") rot=").concat((assetTransform.rotation).toFixed(1), " scale=(").concat(assetTransform.scaleX.toFixed(2), ", ").concat(assetTransform.scaleY.toFixed(2), ") reg=(").concat(assetTransform.regX.toFixed(2), ", ").concat(assetTransform.regY.toFixed(2), ")"));
-                // Hybrid Pivot Calculation:
-                // Use ASSET Rotation/Scale/RegPoint (Neutral Pose)
-                // Use ANIMATION Pivot (Correct Axis)
-                var hybridX = assetTransform.x;
-                var hybridY = assetTransform.y;
-                if (element.elementType !== 'shape') {
-                    // assetTransform.rotation is negative of Flash rotation (Spine convention).
-                    // We need Flash rotation to calculate the pivot offset in Flash space.
-                    var rotation = -assetTransform.rotation * Math.PI / 180;
-                    var cos = Math.cos(rotation);
-                    var sin = Math.sin(rotation);
-                    // Calculate offset using ANIMATION pivot but ASSET scale
-                    var scaledX = transform.pivotX * assetTransform.scaleX;
-                    var scaledY = transform.pivotY * assetTransform.scaleY;
-                    var rotatedX = scaledX * cos - scaledY * sin;
-                    var rotatedY = scaledX * sin + scaledY * cos;
-                    // Reconstruct bone position: ASSET RegPoint + Rotated Animation Pivot
-                    hybridX = assetTransform.regX + rotatedX;
-                    hybridY = assetTransform.regY - rotatedY;
-                    Logger_1.Logger.trace("    Hybrid Calc: pivot=(".concat(transform.pivotX.toFixed(2), ", ").concat(transform.pivotY.toFixed(2), ") rot=").concat((rotation * 180 / Math.PI).toFixed(1)));
-                    Logger_1.Logger.trace("    Rotated Offset: (".concat(rotatedX.toFixed(2), ", ").concat(rotatedY.toFixed(2), ")"));
-                    Logger_1.Logger.trace("    Final Pos: (".concat(hybridX.toFixed(2), ", ").concat(hybridY.toFixed(2), ")"));
-                }
-                SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, {
-                    x: hybridX,
-                    y: hybridY,
-                    rotation: assetTransform.rotation,
-                    scaleX: assetTransform.scaleX,
-                    scaleY: assetTransform.scaleY,
-                    shearX: assetTransform.shearX,
-                    shearY: assetTransform.shearY,
-                    pivotX: transform.pivotX,
-                    pivotY: transform.pivotY,
-                    regX: assetTransform.regX,
-                    regY: assetTransform.regY
-                });
-            }
-            else {
-                SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, transform);
-            }
+            // Bone position in Spine must be relative to the parent bone (Anchor).
+            // Flash element.x/y are relative to the parent Registration Point.
+            // localX = element.x + (parent.RegPoint.x - parent.Anchor.x)
+            var boneTransform = __assign(__assign({}, transform), { x: transform.x + this.parentOffset.x, y: transform.y + this.parentOffset.y });
+            SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, boneTransform);
         }
+        // Calculate the offset for children: delta between Registration Point and Anchor Point
+        context.parentOffset = {
+            x: element.x - element.transformX,
+            y: (element.y - element.transformY) * SpineTransformMatrix_1.SpineTransformMatrix.Y_DIRECTION
+        };
         //-----------------------------------
         if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */) {
-            SpineAnimationHelper_1.SpineAnimationHelper.applyBoneAnimation(context.global.animation, context.bone, context, transform, context.time);
+            var boneTransform = __assign(__assign({}, transform), { x: transform.x + this.parentOffset.x, y: transform.y + this.parentOffset.y });
+            SpineAnimationHelper_1.SpineAnimationHelper.applyBoneAnimation(context.global.animation, context.bone, context, boneTransform, context.time);
         }
         //-----------------------------------
         return context;
@@ -681,6 +609,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.animation = null;
         context.frameRate = frameRate;
         context.label = null;
+        context.config = config;
         //-----------------------------------
         context.skeleton = (skeleton == null) ? new SpineSkeleton_1.SpineSkeleton() : skeleton;
         context.skeleton.imagesPath = (config.appendSkeletonToImagesPath ? PathUtil_1.PathUtil.joinPath(config.imagesExportPath, name) : config.imagesExportPath);
@@ -702,6 +631,11 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         if (config.transformRootBone) {
             Logger_1.Logger.trace('[ConverterContextGlobal] Transforming Root Bone');
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, transform);
+            // Set the offset for the first layer of children
+            context.parentOffset = {
+                x: element.x - element.transformX,
+                y: (element.y - element.transformY) * SpineTransformMatrix_1.SpineTransformMatrix.Y_DIRECTION
+            };
         }
         //-----------------------------------
         return context;
@@ -2105,55 +2039,29 @@ exports.SpineTimelineGroupSlot = SpineTimelineGroupSlot;
 
 
 exports.SpineTransformMatrix = void 0;
-var NumberUtil_1 = __webpack_require__(/*! ../../utils/NumberUtil */ "./source/utils/NumberUtil.ts");
 var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/Logger.ts");
+var NumberUtil_1 = __webpack_require__(/*! ../../utils/NumberUtil */ "./source/utils/NumberUtil.ts");
 var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (function () {
     function SpineTransformMatrix(element) {
-        var matrix = element.matrix;
-        Logger_1.Logger.trace("[SpineTransformMatrix] Init for ".concat(element.name || '<anon>', " (").concat(element.elementType, ")"));
-        Logger_1.Logger.trace("  Raw Matrix: a=".concat(matrix.a.toFixed(4), " b=").concat(matrix.b.toFixed(4), " c=").concat(matrix.c.toFixed(4), " d=").concat(matrix.d.toFixed(4), " tx=").concat(matrix.tx.toFixed(2), " ty=").concat(matrix.ty.toFixed(2)));
-        var baseX = matrix.tx;
-        var baseY = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
-        if (element.elementType === 'shape') {
-            if (element.layer.layerType !== 'mask') {
-                baseY = element.y * SpineTransformMatrix.Y_DIRECTION;
-                baseX = element.x;
-            }
-        }
-        this.regX = baseX;
-        this.regY = baseY;
-        var tp = element.transformationPoint;
-        this.pivotX = tp ? tp.x : 0;
-        this.pivotY = tp ? tp.y : 0;
-        if (tp && element.elementType !== 'shape') {
-            var rotation = element.rotation * Math.PI / 180;
-            var cos = Math.cos(rotation);
-            var sin = Math.sin(rotation);
-            var scaledX = tp.x * element.scaleX;
-            var scaledY = tp.y * element.scaleY;
-            var rotatedX = scaledX * cos - scaledY * sin;
-            var rotatedY = scaledX * sin + scaledY * cos;
-            baseX += rotatedX;
-            baseY -= rotatedY;
-        }
-        this.x = baseX;
-        this.y = baseY;
+        var _a, _b;
+        // We use the Transformation Point (Anchor) for the bone position.
+        // element.transformX/Y represent the position of the Anchor Point in the parent timeline.
+        this.x = element.transformX;
+        this.y = element.transformY * SpineTransformMatrix.Y_DIRECTION;
+        Logger_1.Logger.trace("[SpineTransformMatrix] ".concat(element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>', ": x=").concat(element.x, ", y=").concat(element.y, ", transformX=").concat(element.transformX, ", transformY=").concat(element.transformY));
         this.rotation = 0;
         this.scaleX = element.scaleX;
         this.scaleY = element.scaleY;
         this.shearX = 0;
         this.shearY = 0;
-        // More robust rotation detection
-        var skewX = element.skewX;
-        var skewY = element.skewY;
-        if (NumberUtil_1.NumberUtil.equals(skewX, skewY, 0.5)) { // Loosened tolerance even more
+        if (NumberUtil_1.NumberUtil.equals(element.skewX, element.skewY)) {
             this.rotation = -element.rotation;
         }
         else {
-            this.shearX = -skewY;
-            this.shearY = -skewX;
+            this.shearX = -element.skewY;
+            this.shearY = -element.skewX;
         }
-        Logger_1.Logger.trace("  Result: pos=(".concat(this.x.toFixed(2), ", ").concat(this.y.toFixed(2), ") rot=").concat(this.rotation.toFixed(2), " scale=(").concat(this.scaleX.toFixed(2), ", ").concat(this.scaleY.toFixed(2), ") shear=(").concat(this.shearX.toFixed(2), ", ").concat(this.shearY.toFixed(2), ") pivot=(").concat(this.pivotX.toFixed(2), ", ").concat(this.pivotY.toFixed(2), ") reg=(").concat(this.regX.toFixed(2), ", ").concat(this.regY.toFixed(2), ")"));
+        Logger_1.Logger.trace("[SpineTransformMatrix] ".concat(element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '<anon>', ": pos=(").concat(this.x.toFixed(2), ", ").concat(this.y.toFixed(2), ") rot=").concat(this.rotation.toFixed(2)));
     }
     SpineTransformMatrix.Y_DIRECTION = -1;
     return SpineTransformMatrix;
@@ -2171,12 +2079,35 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
 
 
 exports.ConvertUtil = void 0;
+var JsonUtil_1 = __webpack_require__(/*! ./JsonUtil */ "./source/utils/JsonUtil.ts");
 var StringUtil_1 = __webpack_require__(/*! ./StringUtil */ "./source/utils/StringUtil.ts");
 var ConvertUtil = /** @class */ (function () {
     function ConvertUtil() {
     }
     ConvertUtil.createElementName = function (element, context) {
-        return StringUtil_1.StringUtil.simplify(element.layer.name);
+        var result = element.layer.name;
+        if (element.elementType === 'instance') {
+            if (JsonUtil_1.JsonUtil.validString(element.name)) {
+                result = element.name;
+            }
+            else if (JsonUtil_1.JsonUtil.validString(element.layer.name)) {
+                result = element.layer.name;
+            }
+            else {
+                result = element.libraryItem.name;
+            }
+        }
+        else {
+            if (JsonUtil_1.JsonUtil.validString(element.layer.name)) {
+                result = element.layer.name;
+            }
+        }
+        if (result === '' || result == null) {
+            return ConvertUtil.createShapeName(context);
+        }
+        else {
+            return StringUtil_1.StringUtil.simplify(result);
+        }
     };
     ConvertUtil.obtainElementBlendMode = function (element) {
         if (element.blendMode === 'multiply') {
@@ -2236,7 +2167,7 @@ var ConvertUtil = /** @class */ (function () {
     };
     ConvertUtil.createBoneName = function (element, context) {
         var result = ConvertUtil.createElementName(element, context);
-        if (context != null && context.bone.name !== 'root') {
+        if (context != null && context.bone != null && context.bone.name !== 'root') {
             return context.bone.name + '/' + result;
         }
         return result;
@@ -2264,42 +2195,72 @@ exports.ConvertUtil = ConvertUtil;
 /*!***********************************!*\
   !*** ./source/utils/ImageUtil.ts ***!
   \***********************************/
-/***/ (function(__unused_webpack_module, exports) {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
 
 exports.ImageUtil = void 0;
+var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var ImageUtil = /** @class */ (function () {
     function ImageUtil() {
     }
+    /**
+     * Exports the current selection in the document as a PNG.
+     * Calculates the offset from the reference element's Anchor Point (Transformation Point)
+     * to the center of the bounding box of the entire selection.
+     */
     ImageUtil.exportSelection = function (path, document, scale, autoExport, autoClose) {
         if (autoClose === void 0) { autoClose = false; }
+        if (document.selection.length === 0) {
+            throw new Error('ImageUtil.exportSelection: Nothing selected!');
+        }
+        var firstElement = document.selection[0];
+        // Flash element.transformX/Y represent the position of the Anchor Point (Circle)
+        // In the exporter document, after resetTransform, these are the local coordinates of the anchor.
+        var originX = firstElement.transformX;
+        var originY = firstElement.transformY;
+        Logger_1.Logger.trace("[ImageUtil] firstElement: x=".concat(firstElement.x, ", y=").concat(firstElement.y, ", transformX=").concat(firstElement.transformX, ", transformY=").concat(firstElement.transformY));
+        // Get bounding box in original Flash coordinates.
+        var rect = document.getSelectionRect();
+        var centerX = (rect.left + rect.right) / 2;
+        var centerY = (rect.top + rect.bottom) / 2;
+        // Relative offset from Anchor to Center (in original pixels)
+        var offsetX = centerX - originX;
+        var offsetY = centerY - originY;
+        // Group everything to scale and move it safely.
         document.group();
-        var space = 2;
-        var element = document.selection[0];
-        var height = Math.ceil(element.height + space);
-        var width = Math.ceil(element.width + space);
-        element.scaleX = scale;
-        element.scaleY = scale;
-        document.height = height * scale;
-        document.width = width * scale;
-        element.y = (height * scale) / 2;
-        element.x = (width * scale) / 2;
-        document.unGroup();
-        document.selectNone();
-        document.selectAll();
+        var group = document.selection[0];
+        // Scale the asset for export
+        group.scaleX = scale;
+        group.scaleY = scale;
+        // Get scaled bounding box
+        var scaledRect = document.getSelectionRect();
+        var width = scaledRect.right - scaledRect.left;
+        var height = scaledRect.bottom - scaledRect.top;
+        // Prepare document size with margin.
+        var margin = 10;
+        var docWidth = Math.ceil(width) + margin * 2;
+        var docHeight = Math.ceil(height) + margin * 2;
+        document.width = docWidth;
+        document.height = docHeight;
+        // Move selection so its bounding box center is exactly at the document center.
+        document.moveSelectionBy({
+            x: (docWidth / 2) - (scaledRect.left + scaledRect.right) / 2,
+            y: (docHeight / 2) - (scaledRect.top + scaledRect.bottom) / 2
+        });
         if (autoExport) {
             document.exportPNG(path, false, true);
         }
         if (autoClose) {
             document.close(false);
         }
+        Logger_1.Logger.trace("[ImageUtil] exportSelection: w=".concat(docWidth, ", h=").concat(docHeight, ", scale=").concat(scale, ", offset=(").concat(offsetX.toFixed(2), ", ").concat((-offsetY).toFixed(2), ")"));
         return {
-            width: width,
-            height: height,
+            width: docWidth,
+            height: docHeight,
             scale: scale,
-            x: 0,
-            y: 0
+            x: offsetX,
+            y: -offsetY // Flip Y for Spine
         };
     };
     ImageUtil.exportInstance = function (path, instance, document, scale, autoExport) {
@@ -2312,24 +2273,15 @@ var ImageUtil = /** @class */ (function () {
         exporter.clipPaste();
         var element = exporter.selection[0];
         ImageUtil.resetTransform(element);
-        exporter.selectNone();
         exporter.selectAll();
         return ImageUtil.exportSelection(path, exporter, scale, autoExport, true);
     };
     ImageUtil.exportLibraryItem = function (path, instance, scale, autoExport) {
         var exporter = fl.createDocument('timeline');
+        // addItem places registration point at (0,0)
         exporter.addItem({ x: 0, y: 0 }, instance.libraryItem);
-        var element = exporter.selection[0];
-        var regPointX = element.x;
-        var regPointY = element.y;
-        var image = ImageUtil.exportSelection(path, exporter, scale, autoExport, true);
-        return {
-            width: image.width,
-            height: image.height,
-            scale: scale,
-            x: -regPointX,
-            y: regPointY
-        };
+        exporter.selectAll();
+        return ImageUtil.exportSelection(path, exporter, scale, autoExport, true);
     };
     ImageUtil.exportBitmap = function (path, instance, autoExport) {
         if (autoExport) {
@@ -2781,16 +2733,16 @@ var ShapeUtil = /** @class */ (function () {
         };
     };
     /**
-     * Multiplies two matrices: m1 * m2
+     * Multiplies two matrices: m1 * m2 (apply m1 then m2)
      */
     ShapeUtil.multiplyMatrices = function (m1, m2) {
         return {
-            a: m1.a * m2.a + m1.c * m2.b,
-            b: m1.b * m2.a + m1.d * m2.b,
-            c: m1.a * m2.c + m1.c * m2.d,
-            d: m1.b * m2.c + m1.d * m2.d,
-            tx: m1.a * m2.tx + m1.c * m2.ty + m1.tx,
-            ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
+            a: m1.a * m2.a + m1.b * m2.c,
+            b: m1.a * m2.b + m1.b * m2.d,
+            c: m1.c * m2.a + m1.d * m2.c,
+            d: m1.c * m2.b + m1.d * m2.d,
+            tx: m1.tx * m2.a + m1.ty * m2.c + m2.tx,
+            ty: m1.tx * m2.b + m1.ty * m2.d + m2.ty
         };
     };
     ShapeUtil.extractVerticesFromContours = function (instance, segmentsPerCurve, matrix, controlOffset) {

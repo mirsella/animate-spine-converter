@@ -77,15 +77,14 @@ export class Converter {
         attachment.scaleX = 1 / spineImage.scale;
         attachment.scaleY = 1 / spineImage.scale;
 
-        const tp = context.element.transformationPoint;
-        const pivotX = tp ? tp.x : 0;
-        const pivotY = tp ? tp.y : 0;
-        attachment.x = spineImage.x - pivotX;
-        attachment.y = spineImage.y + pivotY;
+        // Attachment x/y in Spine is the offset from the bone to the image center.
+        // Bone is at TP. ImageUtil.exportSelection returns offset from TP to Center.
+        attachment.x = spineImage.x;
+        attachment.y = spineImage.y;
 
-        Logger.trace(`  Image Pos: (${spineImage.x.toFixed(2)}, ${spineImage.y.toFixed(2)}) Size: ${spineImage.width}x${spineImage.height}`);
-        Logger.trace(`  Pivot: (${pivotX.toFixed(2)}, ${pivotY.toFixed(2)})`);
+        Logger.trace(`  Image Offset: (${spineImage.x.toFixed(2)}, ${spineImage.y.toFixed(2)}) Size: ${spineImage.width}x${spineImage.height}`);
         Logger.trace(`  Attachment Offset: (${attachment.x.toFixed(2)}, ${attachment.y.toFixed(2)})`);
+
 
         //-----------------------------------
 
@@ -202,14 +201,14 @@ export class Converter {
                         const deltaX = maskMatrix.tx - tp.x;
                         const deltaY = maskMatrix.ty - tp.y;
                         
-                        // Combine: InnerShape.tx + Delta - MaskPosition (to make it relative to Bone)
+                        // Combined translation relative to bone: InnerShape.tx + (RegPoint - Bone)
                         const offsetMatrix = {
                             a: im.a,
                             b: im.b,
                             c: im.c,
                             d: im.d,
-                            tx: im.tx + deltaX - maskMatrix.tx,
-                            ty: im.ty + deltaY - maskMatrix.ty
+                            tx: im.tx + deltaX,
+                            ty: im.ty + deltaY
                         };
 
                         const controlOffset: {x: number, y: number} = null;
@@ -419,59 +418,9 @@ export class Converter {
         return PathUtil.joinPath(this._workingPath, path);
     }
 
-    private extractAssetTransforms(context:ConverterContext):void {
-        const assetItem = this._document.library.findItemIndex('ASSET');
-        
-        if (assetItem === undefined) {
-            Logger.trace('No ASSET MovieClip found in library');
-            return;
-        }
-
-        const assetLibItem = this._document.library.items[assetItem];
-        
-        if (!assetLibItem || assetLibItem.itemType !== 'movie clip') {
-            Logger.trace('ASSET item is not a movie clip');
-            return;
-        }
-
-        Logger.trace('=== ASSET MovieClip found - extracting base transforms ===');
-
-        const timeline = assetLibItem.timeline;
-        const layers = timeline.layers;
-        
-        Logger.trace("ASSET has " + layers.length + " layers");
-
-        for (let layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
-            const layer = layers[layerIdx];
-            
-            if (layer.layerType !== 'normal') {
-                continue;
-            }
-
-            const frames = layer.frames;
-            
-            if (frames.length === 0 || frames[0].elements.length === 0) {
-                continue;
-            }
-
-            for (const element of frames[0].elements) {
-                if (element.libraryItem) {
-                    const uniqueKey = StringUtil.simplify(element.libraryItem.name);
-                    const transform = new SpineTransformMatrix(element);
-                    context.global.assetTransforms.set(uniqueKey, transform);
-                    Logger.trace("    ✓ Stored transform for: " + uniqueKey);
-                }
-            }
-        }
-        
-        Logger.trace("=== Total ASSET transforms stored: " + context.global.assetTransforms.size() + " ===");
-    }
-
     public convertSymbolInstance(element:FlashElement, context:ConverterContext):boolean {
         if (element.elementType === 'instance' && element.instanceType === 'symbol') {
             try {
-                this.extractAssetTransforms(context);
-
                 context.global.stageType = ConverterStageType.STRUCTURE;
                 this.convertElement(context);
 

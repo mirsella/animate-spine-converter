@@ -1,4 +1,3 @@
-import { Logger } from '../logger/Logger';
 import { SpineClippingAttachment } from '../spine/attachment/SpineClippingAttachment';
 import { SpineAnimationHelper } from '../spine/SpineAnimationHelper';
 import { SpineBone } from '../spine/SpineBone';
@@ -6,7 +5,6 @@ import { SpineSlot } from '../spine/SpineSlot';
 import { SpineTransformMatrix } from '../spine/transform/SpineTransformMatrix';
 import { SpineBlendMode } from '../spine/types/SpineBlendMode';
 import { ConvertUtil } from '../utils/ConvertUtil';
-import { StringUtil } from '../utils/StringUtil';
 import { ConverterColor } from './ConverterColor';
 import { ConverterContextGlobal } from './ConverterContextGlobal';
 import { ConverterFrameLabel } from './ConverterFrameLabel';
@@ -26,6 +24,12 @@ export class ConverterContext {
     public clipping:SpineClippingAttachment;
     public slot:SpineSlot;
     public time:number;
+
+    /**
+     * Offset to reconcile Flash's Registration Point hierarchy with Spine's Anchor Point hierarchy.
+     * parentOffset = parent.RegPoint - parent.AnchorPoint
+     */
+    public parentOffset:{ x:number, y:number } = { x: 0, y: 0 };
 
     public constructor() {
         // empty
@@ -64,11 +68,6 @@ export class ConverterContext {
 
     public createBone(element:FlashElement, time:number):ConverterContext {
         const transform = new SpineTransformMatrix(element);
-        
-        Logger.trace(`[Bone] Creating for element: ${element.name || '<anon>'} (${element.elementType})`);
-        Logger.trace(`  Flash Matrix: tx=${element.matrix.tx} ty=${element.matrix.ty}`);
-        Logger.trace(`  Transform: pos=(${transform.x.toFixed(2)}, ${transform.y.toFixed(2)}) rot=${(transform.rotation * 180 / Math.PI).toFixed(1)} scale=(${transform.scaleX.toFixed(2)}, ${transform.scaleY.toFixed(2)}) pivot=(${transform.pivotX.toFixed(2)}, ${transform.pivotY.toFixed(2)}) reg=(${transform.regX.toFixed(2)}, ${transform.regY.toFixed(2)})`);
-
         const context = new ConverterContext();
 
         //-----------------------------------
@@ -96,85 +95,41 @@ export class ConverterContext {
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
 
-            const lookupName = element.libraryItem ? StringUtil.simplify(element.libraryItem.name) : ConvertUtil.createElementName(element, this);
-            const isMaskLayer = this.layer && this.layer.layerType === 'mask';
-            const hasAssetClip = context.global.assetTransforms.size() > 0;
-            const assetTransform = (hasAssetClip && !isMaskLayer) 
-                ? context.global.assetTransforms.get(lookupName) 
-                : null;
-            
-            if (hasAssetClip && !assetTransform && !isMaskLayer) {
-                Logger.error(`Asset "${lookupName}" not found in ASSET MovieClip!`);
-                Logger.error(`Available assets: ${context.global.assetTransforms.keys.join(', ')}`);
-                throw new Error(`Asset "${lookupName}" not found in ASSET MovieClip. Please add it to the ASSET MovieClip with its neutral base pose.`);
-            }
-            
-            if (assetTransform) {
-                Logger.trace(`  [Asset Match] Found ASSET for ${lookupName}`);
-                Logger.trace(`    Asset: pos=(${assetTransform.x.toFixed(2)}, ${assetTransform.y.toFixed(2)}) rot=${(assetTransform.rotation).toFixed(1)} scale=(${assetTransform.scaleX.toFixed(2)}, ${assetTransform.scaleY.toFixed(2)}) reg=(${assetTransform.regX.toFixed(2)}, ${assetTransform.regY.toFixed(2)})`);
+            // Bone position in Spine must be relative to the parent bone (Anchor).
+            // Flash element.x/y are relative to the parent Registration Point.
+            // localX = element.x + (parent.RegPoint.x - parent.Anchor.x)
+            const boneTransform = {
+                ...transform,
+                x: transform.x + this.parentOffset.x,
+                y: transform.y + this.parentOffset.y
+            };
 
-                // Hybrid Pivot Calculation:
-                // Use ASSET Rotation/Scale/RegPoint (Neutral Pose)
-                // Use ANIMATION Pivot (Correct Axis)
-                
-                let hybridX = assetTransform.x;
-                let hybridY = assetTransform.y;
-
-                if (element.elementType !== 'shape') {
-                    // assetTransform.rotation is negative of Flash rotation (Spine convention).
-                    // We need Flash rotation to calculate the pivot offset in Flash space.
-                    const rotation = -assetTransform.rotation * Math.PI / 180;
-                    const cos = Math.cos(rotation);
-                    const sin = Math.sin(rotation);
-                    
-                    // Calculate offset using ANIMATION pivot but ASSET scale
-                    const scaledX = transform.pivotX * assetTransform.scaleX;
-                    const scaledY = transform.pivotY * assetTransform.scaleY;
-                    
-                    const rotatedX = scaledX * cos - scaledY * sin;
-                    const rotatedY = scaledX * sin + scaledY * cos;
-                    
-                    // Reconstruct bone position: ASSET RegPoint + Rotated Animation Pivot
-                    hybridX = assetTransform.regX + rotatedX;
-                    hybridY = assetTransform.regY - rotatedY;
-
-                    Logger.trace(`    Hybrid Calc: pivot=(${transform.pivotX.toFixed(2)}, ${transform.pivotY.toFixed(2)}) rot=${(rotation * 180 / Math.PI).toFixed(1)}`);
-                    Logger.trace(`    Rotated Offset: (${rotatedX.toFixed(2)}, ${rotatedY.toFixed(2)})`);
-                    Logger.trace(`    Final Pos: (${hybridX.toFixed(2)}, ${hybridY.toFixed(2)})`);
-                }
-
-                SpineAnimationHelper.applyBoneTransform(
-                    context.bone,
-                    {
-                        x: hybridX,
-                        y: hybridY,
-                        rotation: assetTransform.rotation,
-                        scaleX: assetTransform.scaleX,
-                        scaleY: assetTransform.scaleY,
-                        shearX: assetTransform.shearX,
-                        shearY: assetTransform.shearY,
-                        pivotX: transform.pivotX,
-                        pivotY: transform.pivotY,
-                        regX: assetTransform.regX,
-                        regY: assetTransform.regY
-                    }
-                );
-            } else {
-                SpineAnimationHelper.applyBoneTransform(
-                    context.bone,
-                    transform
-                );
-            }
+            SpineAnimationHelper.applyBoneTransform(
+                context.bone,
+                boneTransform
+            );
         }
+
+        // Calculate the offset for children: delta between Registration Point and Anchor Point
+        context.parentOffset = {
+            x: element.x - element.transformX,
+            y: (element.y - element.transformY) * SpineTransformMatrix.Y_DIRECTION
+        };
 
         //-----------------------------------
 
         if (context.global.stageType === ConverterStageType.ANIMATION) {
+            const boneTransform = {
+                ...transform,
+                x: transform.x + this.parentOffset.x,
+                y: transform.y + this.parentOffset.y
+            };
+
             SpineAnimationHelper.applyBoneAnimation(
                 context.global.animation,
                 context.bone,
                 context,
-                transform,
+                boneTransform,
                 context.time
             );
         }

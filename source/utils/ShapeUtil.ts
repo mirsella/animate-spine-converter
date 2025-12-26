@@ -27,16 +27,16 @@ export class ShapeUtil {
     }
 
     /**
-     * Multiplies two matrices: m1 * m2
+     * Multiplies two matrices: m1 * m2 (apply m1 then m2)
      */
     public static multiplyMatrices(m1: FlashMatrix, m2: FlashMatrix): FlashMatrix {
         return {
-            a: m1.a * m2.a + m1.c * m2.b,
-            b: m1.b * m2.a + m1.d * m2.b,
-            c: m1.a * m2.c + m1.c * m2.d,
-            d: m1.b * m2.c + m1.d * m2.d,
-            tx: m1.a * m2.tx + m1.c * m2.ty + m1.tx,
-            ty: m1.b * m2.tx + m1.d * m2.ty + m1.ty
+            a: m1.a * m2.a + m1.b * m2.c,
+            b: m1.a * m2.b + m1.b * m2.d,
+            c: m1.c * m2.a + m1.d * m2.c,
+            d: m1.c * m2.b + m1.d * m2.d,
+            tx: m1.tx * m2.a + m1.ty * m2.c + m2.tx,
+            ty: m1.tx * m2.b + m1.ty * m2.d + m2.ty
         };
     }
 

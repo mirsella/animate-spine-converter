@@ -1,5 +1,5 @@
-import { NumberUtil } from '../../utils/NumberUtil';
 import { Logger } from '../../logger/Logger';
+import { NumberUtil } from '../../utils/NumberUtil';
 import { SpineTransform } from './SpineTransform';
 
 export class SpineTransformMatrix implements SpineTransform {
@@ -12,48 +12,14 @@ export class SpineTransformMatrix implements SpineTransform {
     public scaleY:number;
     public shearX:number;
     public shearY:number;
-    public pivotX:number;
-    public pivotY:number;
-    public regX:number;
-    public regY:number;
 
     public constructor(element:FlashElement) {
-        const matrix = element.matrix;
-        
-        Logger.trace(`[SpineTransformMatrix] Init for ${element.name || '<anon>'} (${element.elementType})`);
-        Logger.trace(`  Raw Matrix: a=${matrix.a.toFixed(4)} b=${matrix.b.toFixed(4)} c=${matrix.c.toFixed(4)} d=${matrix.d.toFixed(4)} tx=${matrix.tx.toFixed(2)} ty=${matrix.ty.toFixed(2)}`);
+        // We use the Transformation Point (Anchor) for the bone position.
+        // element.transformX/Y represent the position of the Anchor Point in the parent timeline.
+        this.x = element.transformX;
+        this.y = element.transformY * SpineTransformMatrix.Y_DIRECTION;
 
-        let baseX = matrix.tx;
-        let baseY = matrix.ty * SpineTransformMatrix.Y_DIRECTION;
-
-        if (element.elementType === 'shape') {
-            if (element.layer.layerType !== 'mask') {
-                baseY = element.y * SpineTransformMatrix.Y_DIRECTION;
-                baseX = element.x;
-            }
-        }
-
-        this.regX = baseX;
-        this.regY = baseY;
-
-        const tp = element.transformationPoint;
-        this.pivotX = tp ? tp.x : 0;
-        this.pivotY = tp ? tp.y : 0;
-
-        if (tp && element.elementType !== 'shape') {
-            const rotation = element.rotation * Math.PI / 180;
-            const cos = Math.cos(rotation);
-            const sin = Math.sin(rotation);
-            const scaledX = tp.x * element.scaleX;
-            const scaledY = tp.y * element.scaleY;
-            const rotatedX = scaledX * cos - scaledY * sin;
-            const rotatedY = scaledX * sin + scaledY * cos;
-            baseX += rotatedX;
-            baseY -= rotatedY;
-        }
-
-        this.x = baseX;
-        this.y = baseY;
+        Logger.trace(`[SpineTransformMatrix] ${element.name || element.libraryItem?.name || '<anon>'}: x=${element.x}, y=${element.y}, transformX=${element.transformX}, transformY=${element.transformY}`);
 
         this.rotation = 0;
         this.scaleX = element.scaleX;
@@ -61,17 +27,13 @@ export class SpineTransformMatrix implements SpineTransform {
         this.shearX = 0;
         this.shearY = 0;
 
-        // More robust rotation detection
-        const skewX = element.skewX;
-        const skewY = element.skewY;
-        
-        if (NumberUtil.equals(skewX, skewY, 0.5)) { // Loosened tolerance even more
+        if (NumberUtil.equals(element.skewX, element.skewY)) {
             this.rotation = -element.rotation;
         } else {
-            this.shearX = -skewY;
-            this.shearY = -skewX;
+            this.shearX = -element.skewY;
+            this.shearY = -element.skewX;
         }
 
-        Logger.trace(`  Result: pos=(${this.x.toFixed(2)}, ${this.y.toFixed(2)}) rot=${this.rotation.toFixed(2)} scale=(${this.scaleX.toFixed(2)}, ${this.scaleY.toFixed(2)}) shear=(${this.shearX.toFixed(2)}, ${this.shearY.toFixed(2)}) pivot=(${this.pivotX.toFixed(2)}, ${this.pivotY.toFixed(2)}) reg=(${this.regX.toFixed(2)}, ${this.regY.toFixed(2)})`);
+        Logger.trace(`[SpineTransformMatrix] ${element.name || element.libraryItem?.name || '<anon>'}: pos=(${this.x.toFixed(2)}, ${this.y.toFixed(2)}) rot=${this.rotation.toFixed(2)}`);
     }
 }

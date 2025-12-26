@@ -6,7 +6,27 @@ import { StringUtil } from './StringUtil';
 
 export class ConvertUtil {
     public static createElementName(element:FlashElement, context:ConverterContext):string {
-        return StringUtil.simplify(element.layer.name);
+        let result = element.layer.name;
+
+        if (element.elementType === 'instance') {
+            if (JsonUtil.validString(element.name)) {
+                result = element.name;
+            } else if (JsonUtil.validString(element.layer.name)) {
+                result = element.layer.name;
+            } else {
+                result = element.libraryItem.name;
+            }
+        } else {
+            if (JsonUtil.validString(element.layer.name)) {
+                result = element.layer.name;
+            }
+        }
+
+        if (result === '' || result == null) {
+            return ConvertUtil.createShapeName(context);
+        } else {
+            return StringUtil.simplify(result);
+        }
     }
 
     public static obtainElementBlendMode(element:FlashElement):SpineBlendMode {
@@ -74,7 +94,7 @@ export class ConvertUtil {
     public static createBoneName(element:FlashElement, context:ConverterContext):string {
         const result = ConvertUtil.createElementName(element, context);
 
-        if (context != null && context.bone.name !== 'root') {
+        if (context != null && context.bone != null && context.bone.name !== 'root') {
             return context.bone.name + '/' + result;
         }
 
