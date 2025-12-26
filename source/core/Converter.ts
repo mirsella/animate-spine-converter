@@ -31,62 +31,39 @@ export class Converter {
         this._config = config;
     }
 
-    //-----------------------------------
-
     private convertElementSlot(context:ConverterContext, exportTarget:FlashElement | FlashItem, imageExportFactory:ImageExportFactory):void {
         let imageName = context.global.shapesCache.get(exportTarget);
-
-        Logger.trace(`[Slot] Converting slot for ${context.element.name || '<anon>'} (Image: ${imageName || 'new'})`);
-
         if (imageName == null) {
             imageName = ConvertUtil.createAttachmentName(context.element, context);
             context.global.shapesCache.set(exportTarget, imageName);
         }
 
-        //-----------------------------------
-
-        const { slot } = context.createSlot(context.element);
+        const subcontext = context.createSlot(context.element);
+        const slot = subcontext.slot;
 
         if (context.global.stageType === ConverterStageType.STRUCTURE) {
             if (context.clipping != null) {
                 context.clipping.end = slot;
             }
-
             return;
         }
-
-        //-----------------------------------
 
         const imagePath = this.prepareImagesExportPath(context, imageName);
         const attachmentName = this.prepareImagesAttachmentName(context, imageName);
         const attachment = slot.createAttachment(attachmentName, SpineAttachmentType.REGION) as SpineRegionAttachment;
 
-        //-----------------------------------
-
         let spineImage = context.global.imagesCache.get(imagePath);
-
         if (spineImage == null) {
             spineImage = imageExportFactory(context, imagePath);
             context.global.imagesCache.set(imagePath, spineImage);
         }
 
-        //-----------------------------------
-
         attachment.width = spineImage.width;
         attachment.height = spineImage.height;
         attachment.scaleX = 1 / spineImage.scale;
         attachment.scaleY = 1 / spineImage.scale;
-
-        // Attachment x/y in Spine is the offset from the bone to the image center.
-        // Bone is at TP. ImageUtil.exportSelection returns offset from TP to Center.
         attachment.x = spineImage.x;
         attachment.y = spineImage.y;
-
-        Logger.trace(`  Image Offset: (${spineImage.x.toFixed(2)}, ${spineImage.y.toFixed(2)}) Size: ${spineImage.width}x${spineImage.height}`);
-        Logger.trace(`  Attachment Offset: (${attachment.x.toFixed(2)}, ${attachment.y.toFixed(2)})`);
-
-
-        //-----------------------------------
 
         SpineAnimationHelper.applySlotAttachment(
             context.global.animation,
@@ -96,8 +73,6 @@ export class Converter {
             context.time
         );
     }
-
-    //-----------------------------------
 
     private convertBitmapElementSlot(context:ConverterContext):void {
         this.convertElementSlot(
@@ -110,36 +85,23 @@ export class Converter {
 
     private convertShapeMaskElementSlot(context:ConverterContext, matrix:FlashMatrix = null, controlOffset:{x:number, y:number} = null):void {
         let attachmentName = context.global.shapesCache.get(context.element);
-
         if (attachmentName == null) {
             attachmentName = ConvertUtil.createAttachmentName(context.element, context);
             context.global.shapesCache.set(context.element, attachmentName);
         }
 
-        //-----------------------------------
-
-        const { slot } = context.createSlot(context.element);
+        const subcontext = context.createSlot(context.element);
+        const slot = subcontext.slot;
         const attachment = slot.createAttachment(attachmentName, SpineAttachmentType.CLIPPING) as SpineClippingAttachment;
         context.clipping = attachment;
 
-        //-----------------------------------
-
-        attachment.vertices = ShapeUtil.extractVertices(context.element, 32, matrix, controlOffset); // Use 32 segments for resolution
+        attachment.vertices = ShapeUtil.extractVertices(context.element, 32, matrix, controlOffset);
         attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
 
-        if (attachment.vertexCount === 0) {
-            Logger.warning('Mask has no vertices: ' + slot.name);
-        }
-
-        //-----------------------------------
-
         if (context.global.stageType === ConverterStageType.STRUCTURE) {
-            const endSlot = context.global.skeleton.findSlot(slot.name);
-            attachment.end = endSlot;
+            attachment.end = slot;
             return;
         }
-
-        //-----------------------------------
 
         SpineAnimationHelper.applySlotAttachment(
             context.global.animation,
@@ -159,70 +121,37 @@ export class Converter {
         );
     }
 
-    //-----------------------------------
-
     private composeElementMaskLayer(context:ConverterContext, convertLayer:FlashLayer):void {
         this.convertElementLayer(
             context.switchContextLayer(convertLayer), convertLayer,
             (subcontext) => {
                 const type = subcontext.element.elementType;
-                
                 if (type === 'shape') {
-                    // For raw shapes on stage, they are relative to (0,0) of the stage/timeline.
-                    // If the bone uses the shape's transform, we might need to adjust, 
-                    // but usually raw shapes just work if they don't have a matrix.
-                    // However, if the shape has been moved, it has a matrix.
-                    // Vertices are relative to the shape's origin.
-                    this.convertShapeMaskElementSlot(subcontext, subcontext.element.matrix, null);
+                    const m = subcontext.element.matrix;
+                    const offsetMatrix = {
+                        a: m.a, b: m.b, c: m.c, d: m.d,
+                        tx: m.tx - subcontext.element.transformX,
+                        ty: m.ty - subcontext.element.transformY
+                    };
+                    this.convertShapeMaskElementSlot(subcontext, offsetMatrix, null);
                     context.clipping = subcontext.clipping;
                 } else if (type === 'instance') {
                     const innerShape = this.findFirstShapeInSymbol(subcontext.element);
-                    
                     if (innerShape) {
-                        // Temporarily swap the element to the inner shape to extract vertices
-                        const originalElement = subcontext.element;
-                        
-                        // Calculate offset matrix
-                        // Vertices from innerShape are relative to Symbol Origin (Registration Point, 0,0)
-                        // Bone is at Symbol Transformation Point (TP)
-                        // We need Vertices relative to Bone = Vertices - (TP - RegPoint)
-                        // RegPoint is at (matrix.tx, matrix.ty)
-                        // TP is at (element.x, element.y)
-                        // So Offset = RegPoint - TP
-                        // Final Vertex = InnerVertex + Offset
-                        
-                        const maskMatrix = originalElement.matrix;
-                        const tp = originalElement.transformationPoint; // .x, .y same as element.x, element.y
-                        
-                        // Default inner matrix (if raw shape) is identity
-                        const im = innerShape.matrix || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
-                        
-                        // Calculate the delta between RegPoint and TransPoint
-                        const deltaX = maskMatrix.tx - tp.x;
-                        const deltaY = maskMatrix.ty - tp.y;
-                        
-                        // Combined translation relative to bone: InnerShape.tx + (RegPoint - Bone)
+                        const im = innerShape.matrix;
+                        const localAnchorX = subcontext.element.transformationPoint.x;
+                        const localAnchorY = subcontext.element.transformationPoint.y;
                         const offsetMatrix = {
-                            a: im.a,
-                            b: im.b,
-                            c: im.c,
-                            d: im.d,
-                            tx: im.tx + deltaX,
-                            ty: im.ty + deltaY
+                            a: im.a, b: im.b, c: im.c, d: im.d,
+                            tx: im.tx - localAnchorX,
+                            ty: im.ty - localAnchorY
                         };
-
-                        const controlOffset: {x: number, y: number} = null;
-
+                        const originalElement = subcontext.element;
                         subcontext.element = innerShape;
-                        this.convertShapeMaskElementSlot(subcontext, offsetMatrix, controlOffset);
+                        this.convertShapeMaskElementSlot(subcontext, offsetMatrix, null);
                         subcontext.element = originalElement;
-                        
                         context.clipping = subcontext.clipping;
-                    } else {
-                        Logger.warning(`Mask symbol "${subcontext.element.name}" contains no vector shapes! Masking will fail.`);
                     }
-                } else {
-                    Logger.warning(`Mask element is not a shape! Type: ${type}. Masking may fail. Ensure mask layer contains only raw vector shapes or a simple graphic symbol.`);
                 }
             }
         );
@@ -230,17 +159,12 @@ export class Converter {
 
     private findFirstShapeInSymbol(instance: FlashElement): FlashElement | null {
         if (!instance.libraryItem || !instance.libraryItem.timeline) return null;
-        
         const timeline = instance.libraryItem.timeline;
         for (const layer of timeline.layers) {
-            // Only check normal layers
             if (layer.layerType !== 'normal') continue;
-            
             for (const frame of layer.frames) {
                 for (const element of frame.elements) {
-                    if (element.elementType === 'shape') {
-                        return element;
-                    }
+                    if (element.elementType === 'shape') return element;
                 }
             }
         }
@@ -250,8 +174,6 @@ export class Converter {
     private disposeElementMaskLayer(context:ConverterContext):void {
         context.clipping = null;
     }
-
-    //-----------------------------------
 
     private convertPrimitiveElement(context:ConverterContext):void {
         this.convertElementSlot(
@@ -267,120 +189,59 @@ export class Converter {
             context.switchContextLayer(convertLayer), convertLayer,
             (subcontext) => {
                 const { elementType, instanceType } = subcontext.element;
-
-                if (elementType === 'shape') {
-                    this.convertShapeElementSlot(subcontext);
-                }
-
-                if (elementType === 'text') {
-                    if (this._config.exportTextAsShapes) {
-                        this.convertShapeElementSlot(subcontext);
-                    }
-                }
-
+                if (elementType === 'shape') this.convertShapeElementSlot(subcontext);
+                if (elementType === 'text' && this._config.exportTextAsShapes) this.convertShapeElementSlot(subcontext);
                 if (elementType === 'instance') {
-                    if (instanceType === 'bitmap') {
-                        this.convertBitmapElementSlot(subcontext);
-                    }
-
-                    if (instanceType === 'symbol') {
-                        this.convertElement(subcontext);
-                    }
+                    if (instanceType === 'bitmap') this.convertBitmapElementSlot(subcontext);
+                    if (instanceType === 'symbol') this.convertElement(subcontext);
                 }
             }
         );
     }
 
     private convertCompositeElement(context:ConverterContext):void {
-        const timeline = context.element.libraryItem.timeline;
-        const layers = timeline.layers;
-
-        for (let layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
-            const layer = layers[layerIdx];
-
+        const layers = context.element.libraryItem.timeline.layers;
+        for (let i = layers.length - 1; i >= 0; i--) {
+            const layer = layers[i];
             if (layer.layerType === 'normal') {
                 this.convertCompositeElementLayer(context, layer);
-                continue;
-            }
-
-            if (layer.layerType === 'masked') {
-                const maskLayer = LayerMaskUtil.extractTargetMask(layers, layerIdx);
-
-                if (maskLayer == null) {
-                    Logger.warning('No mask layer found for masked layer: ' + layer.name);
-                } else {
-                    this.composeElementMaskLayer(context, maskLayer);
-                }
-
+            } else if (layer.layerType === 'masked') {
+                const mask = LayerMaskUtil.extractTargetMask(layers, i);
+                if (mask) this.composeElementMaskLayer(context, mask);
                 this.convertCompositeElementLayer(context, layer);
-                continue;
-            }
-
-            if (layer.layerType === 'mask') {
+            } else if (layer.layerType === 'mask') {
                 this.disposeElementMaskLayer(context);
             }
         }
     }
 
-    //-----------------------------------
-
-    private convertElementLayer(context:ConverterContext, convertLayer:FlashLayer, layerConvertFactory:LayerConvertFactory):void {
-        const { label, stageType } = context.global;
-        const frames = convertLayer.frames;
-
-        let startFrameIdx = 0;
-        let endFrameIdx = frames.length - 1;
-
+    private convertElementLayer(context:ConverterContext, layer:FlashLayer, factory:LayerConvertFactory):void {
+        const { label, stageType, frameRate } = context.global;
+        let start = 0, end = layer.frames.length - 1;
         if (context.parent == null && label != null && stageType === ConverterStageType.ANIMATION) {
-            startFrameIdx = label.startFrameIdx;
-            endFrameIdx = label.endFrameIdx;
+            start = label.startFrameIdx;
+            end = label.endFrameIdx;
         }
-
-        for (let frameIdx = startFrameIdx; frameIdx <= endFrameIdx; frameIdx++) {
-            const frameTime = (frameIdx - startFrameIdx) / context.global.frameRate;
-            const frame = frames[frameIdx];
-
-            if (frame == null || frame.startFrame !== frameIdx) {
-                continue;
-            }
-
+        for (let i = start; i <= end; i++) {
+            const frame = layer.frames[i];
+            if (!frame || frame.startFrame !== i) continue;
+            const time = (i - start) / frameRate;
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
-
-                if (stageType === ConverterStageType.ANIMATION) {
-                    SpineAnimationHelper.applyEventAnimation(
-                        context.global.animation,
-                        frame.name,
-                        frameTime
-                    );
-                }
+                if (stageType === ConverterStageType.ANIMATION) SpineAnimationHelper.applyEventAnimation(context.global.animation, frame.name, time);
             }
-
             if (frame.elements.length === 0) {
-                const layerSlots = context.global.layersCache.get(context.layer);
-
-                if (layerSlots != null && stageType === ConverterStageType.ANIMATION) {
-                    const subcontext = context.switchContextFrame(frame);
-
-                    for (const slot of layerSlots) {
-                        SpineAnimationHelper.applySlotAttachment(
-                            subcontext.global.animation,
-                            slot,
-                            subcontext,
-                            null,
-                            frameTime
-                        );
-                    }
+                const slots = context.global.layersCache.get(context.layer);
+                if (slots && stageType === ConverterStageType.ANIMATION) {
+                    for (const s of slots) SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context.switchContextFrame(frame), null, time);
                 }
-
                 continue;
             }
-
-            for (const element of frame.elements) {
-                const subcontext = context.switchContextFrame(frame).createBone(element, frameTime);
+            for (const el of frame.elements) {
+                const sub = context.switchContextFrame(frame).createBone(el, time);
                 this._document.library.editItem(context.element.libraryItem.name);
                 this._document.getTimeline().currentFrame = frame.startFrame;
-                layerConvertFactory(subcontext);
+                factory(sub);
             }
         }
     }
@@ -393,25 +254,14 @@ export class Converter {
         }
     }
 
-    //-----------------------------------
-
     public prepareImagesExportPath(context:ConverterContext, image:string):string {
-        const imagesFolder = this.resolveWorkingPath(context.global.skeleton.imagesPath);
-        const imagePath = PathUtil.joinPath(imagesFolder, image + '.png');
-
-        if (FLfile.exists(imagesFolder) === false) {
-            FLfile.createFolder(imagesFolder);
-        }
-
-        return imagePath;
+        const folder = this.resolveWorkingPath(context.global.skeleton.imagesPath);
+        if (!FLfile.exists(folder)) FLfile.createFolder(folder);
+        return PathUtil.joinPath(folder, image + '.png');
     }
 
     public prepareImagesAttachmentName(context:ConverterContext, image:string):string {
-        if (this._config.appendSkeletonToImagesPath && this._config.mergeSkeletons) {
-            return PathUtil.joinPath(context.global.skeleton.name, image);
-        }
-
-        return image;
+        return (this._config.appendSkeletonToImagesPath && this._config.mergeSkeletons) ? PathUtil.joinPath(context.global.skeleton.name, image) : image;
     }
 
     public resolveWorkingPath(path:string):string {
@@ -423,58 +273,30 @@ export class Converter {
             try {
                 context.global.stageType = ConverterStageType.STRUCTURE;
                 this.convertElement(context);
-
-                for (const label of context.global.labels) {
-                    const subcontext = context.switchContextAnimation(label);
-                    subcontext.global.stageType = ConverterStageType.ANIMATION;
-                    this.convertElement(subcontext);
+                for (const l of context.global.labels) {
+                    const sub = context.switchContextAnimation(l);
+                    sub.global.stageType = ConverterStageType.ANIMATION;
+                    this.convertElement(sub);
                 }
-
                 return true;
-            } catch (error) {
-                Logger.error(JsonEncoder.stringify(error));
-            }
+            } catch (e) { Logger.error(JsonEncoder.stringify(e)); }
         }
-
         return false;
     }
 
     public convertSelection():SpineSkeleton[] {
         const skeleton = (this._config.mergeSkeletons ? new SpineSkeleton() : null);
-        const cache = ((this._config.mergeSkeletons && this._config.mergeSkeletonsRootBone) ? ConverterContextGlobal.initializeCache() : null);
-        const selection = this._document.selection;
+        const cache = (this._config.mergeSkeletons && this._config.mergeSkeletonsRootBone) ? ConverterContextGlobal.initializeCache() : null;
         const output:SpineSkeleton[] = [];
-
-        //-----------------------------------
-
-        if (cache != null) {
-            if (this._config.appendSkeletonToImagesPath) {
-                Logger.trace('Option "appendSkeletonToImagesPath" has been disabled to convert with "mergeSkeletonsRootBone" mode.');
-                this._config.appendSkeletonToImagesPath = false;
-            }
+        for (const el of this._document.selection) {
+            const context = ConverterContextGlobal.initializeGlobal(el, this._config, this._document.frameRate, skeleton, cache);
+            if (this.convertSymbolInstance(el, context) && skeleton == null) output.push(context.skeleton);
         }
-
-        //-----------------------------------
-
-        for (const element of selection) {
-            const context = ConverterContextGlobal.initializeGlobal(element, this._config, this._document.frameRate, skeleton, cache);
-            const result = this.convertSymbolInstance(element, context);
-
-            if (result && skeleton == null) {
-                output.push(context.skeleton);
-            }
-        }
-
-        //-----------------------------------
-
-        if (skeleton != null) {
+        if (skeleton) {
             skeleton.imagesPath = this._config.imagesExportPath;
             skeleton.name = StringUtil.simplify(PathUtil.fileBaseName(this._document.name));
             output.push(skeleton);
         }
-
-        //-----------------------------------
-
         return output;
     }
 }

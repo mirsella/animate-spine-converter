@@ -1,7 +1,10 @@
-export interface SpineImage {
-    x:number;
-    y:number;
-    width:number;
-    height:number;
-    scale:number;
+export class SpineImage {
+    public constructor(
+        public path: string,
+        public width: number,
+        public height: number,
+        public scale: number,
+        public x: number,
+        public y: number
+    ) {}
 }

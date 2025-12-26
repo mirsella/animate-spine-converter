@@ -1,139 +1,96 @@
-import { SpineImage } from '../spine/SpineImage';
 import { Logger } from '../logger/Logger';
+import { SpineImage } from '../spine/SpineImage';
 
 export class ImageUtil {
-    /**
-     * Exports the current selection in the document as a PNG.
-     * Calculates the offset from the reference element's Anchor Point (Transformation Point)
-     * to the center of the bounding box of the entire selection.
-     */
-    public static exportSelection(path:string, document:FlashDocument, scale:number, autoExport:boolean, autoClose:boolean = false):SpineImage {
-        if (document.selection.length === 0) {
-            throw new Error('ImageUtil.exportSelection: Nothing selected!');
+    public static exportBitmap(imagePath:string, element:FlashElement, exportImages:boolean):SpineImage {
+        const item = element.libraryItem;
+        const w = (item as any).hPixels || (item as any).width;
+        const h = (item as any).vPixels || (item as any).height;
+
+        if (exportImages) {
+            (item as any).exportToFile(imagePath);
         }
 
-        const [ firstElement ] = document.selection;
+        return new SpineImage(imagePath, w, h, 1, 0, 0);
+    }
+
+    public static exportLibraryItem(imagePath:string, element:FlashElement, scale:number, exportImages:boolean):SpineImage {
+        const dom = fl.getDocumentDOM();
+        const item = element.libraryItem;
         
-        // Flash element.transformX/Y represent the position of the Anchor Point (Circle)
-        // In the exporter document, after resetTransform, these are the local coordinates of the anchor.
-        const originX = firstElement.transformX;
-        const originY = firstElement.transformY;
+        dom.library.addItemToStage({x: 0, y: 0}, item.name);
+        
+        const result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
+        dom.deleteSelection();
+        
+        return result;
+    }
 
-        Logger.trace(`[ImageUtil] firstElement: x=${firstElement.x}, y=${firstElement.y}, transformX=${firstElement.transformX}, transformY=${firstElement.transformY}`);
+    public static exportInstance(imagePath:string, element:FlashElement, document:FlashDocument, scale:number, exportImages:boolean):SpineImage {
+        const dom = fl.getDocumentDOM();
+        
+        document.library.editItem(element.libraryItem.name);
+        dom.selectAll();
+        
+        const result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
+        
+        dom.selectNone();
+        document.library.editItem(document.name);
+        
+        return result;
+    }
 
-        // Get bounding box in original Flash coordinates.
-        const rect = document.getSelectionRect(); 
+    public static exportSelection(imagePath:string, dom:any, scale:number, exportImages:boolean):SpineImage {
+        if (dom.selection.length === 0) {
+            return new SpineImage(imagePath, 0, 0, scale, 0, 0);
+        }
+
+        const element = dom.selection[0];
+        
+        // Use transformationPoint for local Anchor Point relative to Registration Point (0,0)
+        const localAnchorX = element.transformationPoint.x;
+        const localAnchorY = element.transformationPoint.y;
+        
+        dom.resetTransform();
+        const rect = dom.getSelectionRect();
+        
+        const w = Math.ceil((rect.right - rect.left) * scale);
+        const h = Math.ceil((rect.bottom - rect.top) * scale);
         const centerX = (rect.left + rect.right) / 2;
         const centerY = (rect.top + rect.bottom) / 2;
 
-        // Relative offset from Anchor to Center (in original pixels)
-        const offsetX = centerX - originX;
-        const offsetY = centerY - originY;
+        // Offset from Anchor Point to Center Point
+        const offsetX = centerX - localAnchorX;
+        const offsetY = centerY - localAnchorY;
 
-        // Group everything to scale and move it safely.
-        document.group();
-        
-        const [ group ] = document.selection;
-        
-        // Scale the asset for export
-        group.scaleX = scale;
-        group.scaleY = scale;
-        
-        // Get scaled bounding box
-        const scaledRect = document.getSelectionRect();
-        const width = scaledRect.right - scaledRect.left;
-        const height = scaledRect.bottom - scaledRect.top;
-        
-        // Prepare document size with margin.
-        const margin = 10;
-        const docWidth = Math.ceil(width) + margin * 2;
-        const docHeight = Math.ceil(height) + margin * 2;
+        Logger.trace(`[ImageUtil] element: tp=(${localAnchorX.toFixed(2)}, ${localAnchorY.toFixed(2)}) rect=(${rect.left.toFixed(2)}, ${rect.top.toFixed(2)}, ${rect.right.toFixed(2)}, ${rect.bottom.toFixed(2)})`);
+        Logger.trace(`[ImageUtil] exportSelection: w=${w}, h=${h}, offset=(${offsetX.toFixed(2)}, ${offsetY.toFixed(2)})`);
 
-        document.width = docWidth;
-        document.height = docHeight;
-        
-        // Move selection so its bounding box center is exactly at the document center.
-        document.moveSelectionBy({
-            x: (docWidth / 2) - (scaledRect.left + scaledRect.right) / 2,
-            y: (docHeight / 2) - (scaledRect.top + scaledRect.bottom) / 2
-        });
-
-        if (autoExport) {
-            document.exportPNG(path, false, true);
+        if (exportImages) {
+            dom.group();
+            
+            // Center the group in an oversized doc to avoid clipping
+            const tempDoc = fl.createDocument();
+            tempDoc.width = w + 100;
+            tempDoc.height = h + 100;
+            
+            fl.selectActiveWindow(dom);
+            dom.clipCopy();
+            
+            fl.selectActiveWindow(tempDoc);
+            tempDoc.clipPaste();
+            
+            const pasted = tempDoc.selection[0];
+            pasted.x = (tempDoc.width - pasted.width) / 2;
+            pasted.y = (tempDoc.height - pasted.height) / 2;
+            
+            tempDoc.exportPNG(imagePath, true, true);
+            tempDoc.close(false);
+            
+            fl.selectActiveWindow(dom);
+            dom.unGroup();
         }
 
-        if (autoClose) {
-            document.close(false);
-        }
-
-        Logger.trace(`[ImageUtil] exportSelection: w=${docWidth}, h=${docHeight}, scale=${scale}, offset=(${offsetX.toFixed(2)}, ${(-offsetY).toFixed(2)})`);
-
-        return {
-            width: docWidth,
-            height: docHeight,
-            scale: scale,
-            x: offsetX, // Attachment x in Spine is in original bone-relative pixels
-            y: -offsetY // Flip Y for Spine
-        };
-    }
-
-    public static exportInstance(path:string, instance:FlashElement, document:FlashDocument, scale:number, autoExport:boolean):SpineImage {
-        const exporter = fl.createDocument('timeline');
-
-        instance.layer.visible = true;
-        instance.layer.locked = false;
-
-        document.selectNone();
-        document.selection = [ instance ];
-        document.clipCopy();
-        exporter.clipPaste();
-
-        const [ element ] = exporter.selection;
-        ImageUtil.resetTransform(element);
-        exporter.selectAll();
-
-        return ImageUtil.exportSelection(
-            path, exporter,
-            scale, autoExport,
-            true
-        );
-    }
-
-    public static exportLibraryItem(path:string, instance:FlashElement, scale:number, autoExport:boolean):SpineImage {
-        const exporter = fl.createDocument('timeline');
-
-        // addItem places registration point at (0,0)
-        exporter.addItem({ x: 0, y: 0 }, instance.libraryItem);
-        exporter.selectAll();
-
-        return ImageUtil.exportSelection(
-            path, exporter,
-            scale, autoExport,
-            true
-        );
-    }
-
-    public static exportBitmap(path:string, instance:FlashElement, autoExport:boolean):SpineImage {
-        if (autoExport) {
-            instance.libraryItem.exportToFile(path);
-        }
-
-        return {
-            width: instance.libraryItem.hPixels,
-            height: instance.libraryItem.vPixels,
-            x: instance.libraryItem.hPixels / 2,
-            y: -instance.libraryItem.vPixels / 2,
-            scale: 1
-        };
-    }
-
-    public static resetTransform(element:FlashElement):void {
-        element.rotation = 0;
-        element.scaleX = 1;
-        element.scaleY = 1;
-        element.skewX = 0;
-        element.skewY = 0;
-        element.x = 0;
-        element.y = 0;
+        return new SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
     }
 }

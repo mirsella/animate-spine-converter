@@ -5,6 +5,7 @@ import { SpineSlot } from '../spine/SpineSlot';
 import { SpineTransformMatrix } from '../spine/transform/SpineTransformMatrix';
 import { SpineBlendMode } from '../spine/types/SpineBlendMode';
 import { ConvertUtil } from '../utils/ConvertUtil';
+import { Logger } from '../logger/Logger';
 import { ConverterColor } from './ConverterColor';
 import { ConverterContextGlobal } from './ConverterContextGlobal';
 import { ConverterFrameLabel } from './ConverterFrameLabel';
@@ -26,16 +27,14 @@ export class ConverterContext {
     public time:number;
 
     /**
-     * Offset to reconcile Flash's Registration Point hierarchy with Spine's Anchor Point hierarchy.
-     * parentOffset = parent.RegPoint - parent.AnchorPoint
+     * Offset to shift children from Parent Registration Point to Parent Anchor Point.
+     * Calculated as: -Parent.transformationPoint
      */
     public parentOffset:{ x:number, y:number } = { x: 0, y: 0 };
 
     public constructor() {
         // empty
     }
-
-    //-----------------------------------
 
     public switchContextFrame(frame:FlashFrame):ConverterContext {
         this.frame = frame;
@@ -64,13 +63,9 @@ export class ConverterContext {
         return this;
     }
 
-    //-----------------------------------
-
     public createBone(element:FlashElement, time:number):ConverterContext {
         const transform = new SpineTransformMatrix(element);
         const context = new ConverterContext();
-
-        //-----------------------------------
 
         context.bone = this.global.skeleton.createBone(ConvertUtil.createBoneName(element, this), this.bone);
         context.clipping = this.clipping;
@@ -90,19 +85,17 @@ export class ConverterContext {
             context.blendMode = this.blendMode;
         }
 
-        //-----------------------------------
-
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
 
-            // Bone position in Spine must be relative to the parent bone (Anchor).
-            // Flash element.x/y are relative to the parent Registration Point.
-            // localX = element.x + (parent.RegPoint.x - parent.Anchor.x)
+            // Shift element position to be relative to the parent bone anchor
             const boneTransform = {
                 ...transform,
                 x: transform.x + this.parentOffset.x,
                 y: transform.y + this.parentOffset.y
             };
+
+            Logger.trace(`[Bone] ${context.bone.name} at (${boneTransform.x.toFixed(2)}, ${boneTransform.y.toFixed(2)}) (parentOffset: ${this.parentOffset.x.toFixed(2)}, ${this.parentOffset.y.toFixed(2)})`);
 
             SpineAnimationHelper.applyBoneTransform(
                 context.bone,
@@ -110,13 +103,11 @@ export class ConverterContext {
             );
         }
 
-        // Calculate the offset for children: delta between Registration Point and Anchor Point
+        // Set parentOffset for children of this bone
         context.parentOffset = {
-            x: element.x - element.transformX,
-            y: (element.y - element.transformY) * SpineTransformMatrix.Y_DIRECTION
+            x: -element.transformationPoint.x,
+            y: element.transformationPoint.y
         };
-
-        //-----------------------------------
 
         if (context.global.stageType === ConverterStageType.ANIMATION) {
             const boneTransform = {
@@ -134,15 +125,11 @@ export class ConverterContext {
             );
         }
 
-        //-----------------------------------
-
         return context;
     }
 
     public createSlot(element:FlashElement):ConverterContext {
         const context = new ConverterContext();
-
-        //-----------------------------------
 
         context.bone = this.bone;
         context.clipping = this.clipping;
@@ -162,11 +149,8 @@ export class ConverterContext {
             context.blendMode = this.blendMode;
         }
 
-        //-----------------------------------
-
         if (context.slot.initialized === false) {
             context.slot.initialized = true;
-
             context.slot.color = context.color.merge();
             context.slot.blend = context.blendMode;
 
@@ -175,8 +159,6 @@ export class ConverterContext {
                 layerSlots.push(context.slot);
             }
         }
-
-        //-----------------------------------
 
         if (context.global.stageType === ConverterStageType.ANIMATION) {
             SpineAnimationHelper.applySlotAnimation(
@@ -187,8 +169,6 @@ export class ConverterContext {
                 context.time
             );
         }
-
-        //-----------------------------------
 
         return context;
     }

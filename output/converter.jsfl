@@ -29,47 +29,36 @@ var Converter = /** @class */ (function () {
         this._workingPath = PathUtil_1.PathUtil.parentPath(document.pathURI);
         this._config = config;
     }
-    //-----------------------------------
     Converter.prototype.convertElementSlot = function (context, exportTarget, imageExportFactory) {
         var imageName = context.global.shapesCache.get(exportTarget);
-        Logger_1.Logger.trace("[Slot] Converting slot for ".concat(context.element.name || '<anon>', " (Image: ").concat(imageName || 'new', ")"));
         if (imageName == null) {
             imageName = ConvertUtil_1.ConvertUtil.createAttachmentName(context.element, context);
             context.global.shapesCache.set(exportTarget, imageName);
         }
-        //-----------------------------------
-        var slot = context.createSlot(context.element).slot;
+        var subcontext = context.createSlot(context.element);
+        var slot = subcontext.slot;
         if (context.global.stageType === "structure" /* ConverterStageType.STRUCTURE */) {
             if (context.clipping != null) {
                 context.clipping.end = slot;
             }
             return;
         }
-        //-----------------------------------
         var imagePath = this.prepareImagesExportPath(context, imageName);
         var attachmentName = this.prepareImagesAttachmentName(context, imageName);
         var attachment = slot.createAttachment(attachmentName, "region" /* SpineAttachmentType.REGION */);
-        //-----------------------------------
         var spineImage = context.global.imagesCache.get(imagePath);
         if (spineImage == null) {
             spineImage = imageExportFactory(context, imagePath);
             context.global.imagesCache.set(imagePath, spineImage);
         }
-        //-----------------------------------
         attachment.width = spineImage.width;
         attachment.height = spineImage.height;
         attachment.scaleX = 1 / spineImage.scale;
         attachment.scaleY = 1 / spineImage.scale;
-        // Attachment x/y in Spine is the offset from the bone to the image center.
-        // Bone is at TP. ImageUtil.exportSelection returns offset from TP to Center.
         attachment.x = spineImage.x;
         attachment.y = spineImage.y;
-        Logger_1.Logger.trace("  Image Offset: (".concat(spineImage.x.toFixed(2), ", ").concat(spineImage.y.toFixed(2), ") Size: ").concat(spineImage.width, "x").concat(spineImage.height));
-        Logger_1.Logger.trace("  Attachment Offset: (".concat(attachment.x.toFixed(2), ", ").concat(attachment.y.toFixed(2), ")"));
-        //-----------------------------------
         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, slot, context, attachment, context.time);
     };
-    //-----------------------------------
     Converter.prototype.convertBitmapElementSlot = function (context) {
         var _this = this;
         this.convertElementSlot(context, context.element.libraryItem, function (context, imagePath) {
@@ -84,23 +73,16 @@ var Converter = /** @class */ (function () {
             attachmentName = ConvertUtil_1.ConvertUtil.createAttachmentName(context.element, context);
             context.global.shapesCache.set(context.element, attachmentName);
         }
-        //-----------------------------------
-        var slot = context.createSlot(context.element).slot;
+        var subcontext = context.createSlot(context.element);
+        var slot = subcontext.slot;
         var attachment = slot.createAttachment(attachmentName, "clipping" /* SpineAttachmentType.CLIPPING */);
         context.clipping = attachment;
-        //-----------------------------------
-        attachment.vertices = ShapeUtil_1.ShapeUtil.extractVertices(context.element, 32, matrix, controlOffset); // Use 32 segments for resolution
+        attachment.vertices = ShapeUtil_1.ShapeUtil.extractVertices(context.element, 32, matrix, controlOffset);
         attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
-        if (attachment.vertexCount === 0) {
-            Logger_1.Logger.warning('Mask has no vertices: ' + slot.name);
-        }
-        //-----------------------------------
         if (context.global.stageType === "structure" /* ConverterStageType.STRUCTURE */) {
-            var endSlot = context.global.skeleton.findSlot(slot.name);
-            attachment.end = endSlot;
+            attachment.end = slot;
             return;
         }
-        //-----------------------------------
         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, slot, context, attachment, context.time);
     };
     Converter.prototype.convertShapeElementSlot = function (context) {
@@ -109,61 +91,37 @@ var Converter = /** @class */ (function () {
             return ImageUtil_1.ImageUtil.exportInstance(imagePath, context.element, _this._document, _this._config.shapeExportScale, _this._config.exportShapes);
         });
     };
-    //-----------------------------------
     Converter.prototype.composeElementMaskLayer = function (context, convertLayer) {
         var _this = this;
         this.convertElementLayer(context.switchContextLayer(convertLayer), convertLayer, function (subcontext) {
             var type = subcontext.element.elementType;
             if (type === 'shape') {
-                // For raw shapes on stage, they are relative to (0,0) of the stage/timeline.
-                // If the bone uses the shape's transform, we might need to adjust, 
-                // but usually raw shapes just work if they don't have a matrix.
-                // However, if the shape has been moved, it has a matrix.
-                // Vertices are relative to the shape's origin.
-                _this.convertShapeMaskElementSlot(subcontext, subcontext.element.matrix, null);
+                var m = subcontext.element.matrix;
+                var offsetMatrix = {
+                    a: m.a, b: m.b, c: m.c, d: m.d,
+                    tx: m.tx - subcontext.element.transformX,
+                    ty: m.ty - subcontext.element.transformY
+                };
+                _this.convertShapeMaskElementSlot(subcontext, offsetMatrix, null);
                 context.clipping = subcontext.clipping;
             }
             else if (type === 'instance') {
                 var innerShape = _this.findFirstShapeInSymbol(subcontext.element);
                 if (innerShape) {
-                    // Temporarily swap the element to the inner shape to extract vertices
-                    var originalElement = subcontext.element;
-                    // Calculate offset matrix
-                    // Vertices from innerShape are relative to Symbol Origin (Registration Point, 0,0)
-                    // Bone is at Symbol Transformation Point (TP)
-                    // We need Vertices relative to Bone = Vertices - (TP - RegPoint)
-                    // RegPoint is at (matrix.tx, matrix.ty)
-                    // TP is at (element.x, element.y)
-                    // So Offset = RegPoint - TP
-                    // Final Vertex = InnerVertex + Offset
-                    var maskMatrix = originalElement.matrix;
-                    var tp = originalElement.transformationPoint; // .x, .y same as element.x, element.y
-                    // Default inner matrix (if raw shape) is identity
-                    var im = innerShape.matrix || { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
-                    // Calculate the delta between RegPoint and TransPoint
-                    var deltaX = maskMatrix.tx - tp.x;
-                    var deltaY = maskMatrix.ty - tp.y;
-                    // Combined translation relative to bone: InnerShape.tx + (RegPoint - Bone)
+                    var im = innerShape.matrix;
+                    var localAnchorX = subcontext.element.transformationPoint.x;
+                    var localAnchorY = subcontext.element.transformationPoint.y;
                     var offsetMatrix = {
-                        a: im.a,
-                        b: im.b,
-                        c: im.c,
-                        d: im.d,
-                        tx: im.tx + deltaX,
-                        ty: im.ty + deltaY
+                        a: im.a, b: im.b, c: im.c, d: im.d,
+                        tx: im.tx - localAnchorX,
+                        ty: im.ty - localAnchorY
                     };
-                    var controlOffset = null;
+                    var originalElement = subcontext.element;
                     subcontext.element = innerShape;
-                    _this.convertShapeMaskElementSlot(subcontext, offsetMatrix, controlOffset);
+                    _this.convertShapeMaskElementSlot(subcontext, offsetMatrix, null);
                     subcontext.element = originalElement;
                     context.clipping = subcontext.clipping;
                 }
-                else {
-                    Logger_1.Logger.warning("Mask symbol \"".concat(subcontext.element.name, "\" contains no vector shapes! Masking will fail."));
-                }
-            }
-            else {
-                Logger_1.Logger.warning("Mask element is not a shape! Type: ".concat(type, ". Masking may fail. Ensure mask layer contains only raw vector shapes or a simple graphic symbol."));
             }
         });
     };
@@ -173,16 +131,14 @@ var Converter = /** @class */ (function () {
         var timeline = instance.libraryItem.timeline;
         for (var _i = 0, _a = timeline.layers; _i < _a.length; _i++) {
             var layer = _a[_i];
-            // Only check normal layers
             if (layer.layerType !== 'normal')
                 continue;
             for (var _b = 0, _c = layer.frames; _b < _c.length; _b++) {
                 var frame = _c[_b];
                 for (var _d = 0, _e = frame.elements; _d < _e.length; _d++) {
                     var element = _e[_d];
-                    if (element.elementType === 'shape') {
+                    if (element.elementType === 'shape')
                         return element;
-                    }
                 }
             }
         }
@@ -191,7 +147,6 @@ var Converter = /** @class */ (function () {
     Converter.prototype.disposeElementMaskLayer = function (context) {
         context.clipping = null;
     };
-    //-----------------------------------
     Converter.prototype.convertPrimitiveElement = function (context) {
         var _this = this;
         this.convertElementSlot(context, context.element.libraryItem, function (context, imagePath) {
@@ -202,88 +157,69 @@ var Converter = /** @class */ (function () {
         var _this = this;
         this.convertElementLayer(context.switchContextLayer(convertLayer), convertLayer, function (subcontext) {
             var _a = subcontext.element, elementType = _a.elementType, instanceType = _a.instanceType;
-            if (elementType === 'shape') {
+            if (elementType === 'shape')
                 _this.convertShapeElementSlot(subcontext);
-            }
-            if (elementType === 'text') {
-                if (_this._config.exportTextAsShapes) {
-                    _this.convertShapeElementSlot(subcontext);
-                }
-            }
+            if (elementType === 'text' && _this._config.exportTextAsShapes)
+                _this.convertShapeElementSlot(subcontext);
             if (elementType === 'instance') {
-                if (instanceType === 'bitmap') {
+                if (instanceType === 'bitmap')
                     _this.convertBitmapElementSlot(subcontext);
-                }
-                if (instanceType === 'symbol') {
+                if (instanceType === 'symbol')
                     _this.convertElement(subcontext);
-                }
             }
         });
     };
     Converter.prototype.convertCompositeElement = function (context) {
-        var timeline = context.element.libraryItem.timeline;
-        var layers = timeline.layers;
-        for (var layerIdx = layers.length - 1; layerIdx >= 0; layerIdx--) {
-            var layer = layers[layerIdx];
+        var layers = context.element.libraryItem.timeline.layers;
+        for (var i = layers.length - 1; i >= 0; i--) {
+            var layer = layers[i];
             if (layer.layerType === 'normal') {
                 this.convertCompositeElementLayer(context, layer);
-                continue;
             }
-            if (layer.layerType === 'masked') {
-                var maskLayer = LayerMaskUtil_1.LayerMaskUtil.extractTargetMask(layers, layerIdx);
-                if (maskLayer == null) {
-                    Logger_1.Logger.warning('No mask layer found for masked layer: ' + layer.name);
-                }
-                else {
-                    this.composeElementMaskLayer(context, maskLayer);
-                }
+            else if (layer.layerType === 'masked') {
+                var mask = LayerMaskUtil_1.LayerMaskUtil.extractTargetMask(layers, i);
+                if (mask)
+                    this.composeElementMaskLayer(context, mask);
                 this.convertCompositeElementLayer(context, layer);
-                continue;
             }
-            if (layer.layerType === 'mask') {
+            else if (layer.layerType === 'mask') {
                 this.disposeElementMaskLayer(context);
             }
         }
     };
-    //-----------------------------------
-    Converter.prototype.convertElementLayer = function (context, convertLayer, layerConvertFactory) {
-        var _a = context.global, label = _a.label, stageType = _a.stageType;
-        var frames = convertLayer.frames;
-        var startFrameIdx = 0;
-        var endFrameIdx = frames.length - 1;
+    Converter.prototype.convertElementLayer = function (context, layer, factory) {
+        var _a = context.global, label = _a.label, stageType = _a.stageType, frameRate = _a.frameRate;
+        var start = 0, end = layer.frames.length - 1;
         if (context.parent == null && label != null && stageType === "animation" /* ConverterStageType.ANIMATION */) {
-            startFrameIdx = label.startFrameIdx;
-            endFrameIdx = label.endFrameIdx;
+            start = label.startFrameIdx;
+            end = label.endFrameIdx;
         }
-        for (var frameIdx = startFrameIdx; frameIdx <= endFrameIdx; frameIdx++) {
-            var frameTime = (frameIdx - startFrameIdx) / context.global.frameRate;
-            var frame = frames[frameIdx];
-            if (frame == null || frame.startFrame !== frameIdx) {
+        for (var i = start; i <= end; i++) {
+            var frame = layer.frames[i];
+            if (!frame || frame.startFrame !== i)
                 continue;
-            }
+            var time = (i - start) / frameRate;
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
-                if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
-                    SpineAnimationHelper_1.SpineAnimationHelper.applyEventAnimation(context.global.animation, frame.name, frameTime);
-                }
+                if (stageType === "animation" /* ConverterStageType.ANIMATION */)
+                    SpineAnimationHelper_1.SpineAnimationHelper.applyEventAnimation(context.global.animation, frame.name, time);
             }
             if (frame.elements.length === 0) {
-                var layerSlots = context.global.layersCache.get(context.layer);
-                if (layerSlots != null && stageType === "animation" /* ConverterStageType.ANIMATION */) {
-                    var subcontext = context.switchContextFrame(frame);
-                    for (var _i = 0, layerSlots_1 = layerSlots; _i < layerSlots_1.length; _i++) {
-                        var slot = layerSlots_1[_i];
-                        SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(subcontext.global.animation, slot, subcontext, null, frameTime);
+                var slots = context.global.layersCache.get(context.layer);
+                if (slots && stageType === "animation" /* ConverterStageType.ANIMATION */) {
+                    for (var _i = 0, slots_1 = slots; _i < slots_1.length; _i++) {
+                        var s = slots_1[_i];
+                        SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context.switchContextFrame(frame), null, time);
                     }
                 }
                 continue;
             }
             for (var _b = 0, _c = frame.elements; _b < _c.length; _b++) {
-                var element = _c[_b];
-                var subcontext = context.switchContextFrame(frame).createBone(element, frameTime);
+                var el = _c[_b];
+                var sub = context.switchContextFrame(frame).createBone(el, time);
                 this._document.library.editItem(context.element.libraryItem.name);
                 this._document.getTimeline().currentFrame = frame.startFrame;
-                layerConvertFactory(subcontext);
+                factory(sub);
             }
         }
     };
@@ -295,20 +231,14 @@ var Converter = /** @class */ (function () {
             this.convertCompositeElement(context);
         }
     };
-    //-----------------------------------
     Converter.prototype.prepareImagesExportPath = function (context, image) {
-        var imagesFolder = this.resolveWorkingPath(context.global.skeleton.imagesPath);
-        var imagePath = PathUtil_1.PathUtil.joinPath(imagesFolder, image + '.png');
-        if (FLfile.exists(imagesFolder) === false) {
-            FLfile.createFolder(imagesFolder);
-        }
-        return imagePath;
+        var folder = this.resolveWorkingPath(context.global.skeleton.imagesPath);
+        if (!FLfile.exists(folder))
+            FLfile.createFolder(folder);
+        return PathUtil_1.PathUtil.joinPath(folder, image + '.png');
     };
     Converter.prototype.prepareImagesAttachmentName = function (context, image) {
-        if (this._config.appendSkeletonToImagesPath && this._config.mergeSkeletons) {
-            return PathUtil_1.PathUtil.joinPath(context.global.skeleton.name, image);
-        }
-        return image;
+        return (this._config.appendSkeletonToImagesPath && this._config.mergeSkeletons) ? PathUtil_1.PathUtil.joinPath(context.global.skeleton.name, image) : image;
     };
     Converter.prototype.resolveWorkingPath = function (path) {
         return PathUtil_1.PathUtil.joinPath(this._workingPath, path);
@@ -319,47 +249,34 @@ var Converter = /** @class */ (function () {
                 context.global.stageType = "structure" /* ConverterStageType.STRUCTURE */;
                 this.convertElement(context);
                 for (var _i = 0, _a = context.global.labels; _i < _a.length; _i++) {
-                    var label = _a[_i];
-                    var subcontext = context.switchContextAnimation(label);
-                    subcontext.global.stageType = "animation" /* ConverterStageType.ANIMATION */;
-                    this.convertElement(subcontext);
+                    var l = _a[_i];
+                    var sub = context.switchContextAnimation(l);
+                    sub.global.stageType = "animation" /* ConverterStageType.ANIMATION */;
+                    this.convertElement(sub);
                 }
                 return true;
             }
-            catch (error) {
-                Logger_1.Logger.error(JsonEncoder_1.JsonEncoder.stringify(error));
+            catch (e) {
+                Logger_1.Logger.error(JsonEncoder_1.JsonEncoder.stringify(e));
             }
         }
         return false;
     };
     Converter.prototype.convertSelection = function () {
         var skeleton = (this._config.mergeSkeletons ? new SpineSkeleton_1.SpineSkeleton() : null);
-        var cache = ((this._config.mergeSkeletons && this._config.mergeSkeletonsRootBone) ? ConverterContextGlobal_1.ConverterContextGlobal.initializeCache() : null);
-        var selection = this._document.selection;
+        var cache = (this._config.mergeSkeletons && this._config.mergeSkeletonsRootBone) ? ConverterContextGlobal_1.ConverterContextGlobal.initializeCache() : null;
         var output = [];
-        //-----------------------------------
-        if (cache != null) {
-            if (this._config.appendSkeletonToImagesPath) {
-                Logger_1.Logger.trace('Option "appendSkeletonToImagesPath" has been disabled to convert with "mergeSkeletonsRootBone" mode.');
-                this._config.appendSkeletonToImagesPath = false;
-            }
-        }
-        //-----------------------------------
-        for (var _i = 0, selection_1 = selection; _i < selection_1.length; _i++) {
-            var element = selection_1[_i];
-            var context = ConverterContextGlobal_1.ConverterContextGlobal.initializeGlobal(element, this._config, this._document.frameRate, skeleton, cache);
-            var result = this.convertSymbolInstance(element, context);
-            if (result && skeleton == null) {
+        for (var _i = 0, _a = this._document.selection; _i < _a.length; _i++) {
+            var el = _a[_i];
+            var context = ConverterContextGlobal_1.ConverterContextGlobal.initializeGlobal(el, this._config, this._document.frameRate, skeleton, cache);
+            if (this.convertSymbolInstance(el, context) && skeleton == null)
                 output.push(context.skeleton);
-            }
         }
-        //-----------------------------------
-        if (skeleton != null) {
+        if (skeleton) {
             skeleton.imagesPath = this._config.imagesExportPath;
             skeleton.name = StringUtil_1.StringUtil.simplify(PathUtil_1.PathUtil.fileBaseName(this._document.name));
             output.push(skeleton);
         }
-        //-----------------------------------
         return output;
     };
     return Converter;
@@ -445,16 +362,16 @@ exports.ConverterContext = void 0;
 var SpineAnimationHelper_1 = __webpack_require__(/*! ../spine/SpineAnimationHelper */ "./source/spine/SpineAnimationHelper.ts");
 var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTransformMatrix */ "./source/spine/transform/SpineTransformMatrix.ts");
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
+var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var ConverterContext = /** @class */ (function () {
     function ConverterContext() {
         /**
-         * Offset to reconcile Flash's Registration Point hierarchy with Spine's Anchor Point hierarchy.
-         * parentOffset = parent.RegPoint - parent.AnchorPoint
+         * Offset to shift children from Parent Registration Point to Parent Anchor Point.
+         * Calculated as: -Parent.transformationPoint
          */
         this.parentOffset = { x: 0, y: 0 };
         // empty
     }
-    //-----------------------------------
     ConverterContext.prototype.switchContextFrame = function (frame) {
         this.frame = frame;
         return this;
@@ -474,11 +391,9 @@ var ConverterContext = /** @class */ (function () {
         }
         return this;
     };
-    //-----------------------------------
     ConverterContext.prototype.createBone = function (element, time) {
         var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
         var context = new ConverterContext();
-        //-----------------------------------
         context.bone = this.global.skeleton.createBone(ConvertUtil_1.ConvertUtil.createBoneName(element, this), this.bone);
         context.clipping = this.clipping;
         context.slot = null;
@@ -493,31 +408,26 @@ var ConverterContext = /** @class */ (function () {
         if (this.blendMode !== "normal" /* SpineBlendMode.NORMAL */ && context.blendMode === "normal" /* SpineBlendMode.NORMAL */) {
             context.blendMode = this.blendMode;
         }
-        //-----------------------------------
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
-            // Bone position in Spine must be relative to the parent bone (Anchor).
-            // Flash element.x/y are relative to the parent Registration Point.
-            // localX = element.x + (parent.RegPoint.x - parent.Anchor.x)
+            // Shift element position to be relative to the parent bone anchor
             var boneTransform = __assign(__assign({}, transform), { x: transform.x + this.parentOffset.x, y: transform.y + this.parentOffset.y });
+            Logger_1.Logger.trace("[Bone] ".concat(context.bone.name, " at (").concat(boneTransform.x.toFixed(2), ", ").concat(boneTransform.y.toFixed(2), ") (parentOffset: ").concat(this.parentOffset.x.toFixed(2), ", ").concat(this.parentOffset.y.toFixed(2), ")"));
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, boneTransform);
         }
-        // Calculate the offset for children: delta between Registration Point and Anchor Point
+        // Set parentOffset for children of this bone
         context.parentOffset = {
-            x: element.x - element.transformX,
-            y: (element.y - element.transformY) * SpineTransformMatrix_1.SpineTransformMatrix.Y_DIRECTION
+            x: -element.transformationPoint.x,
+            y: element.transformationPoint.y
         };
-        //-----------------------------------
         if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */) {
             var boneTransform = __assign(__assign({}, transform), { x: transform.x + this.parentOffset.x, y: transform.y + this.parentOffset.y });
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneAnimation(context.global.animation, context.bone, context, boneTransform, context.time);
         }
-        //-----------------------------------
         return context;
     };
     ConverterContext.prototype.createSlot = function (element) {
         var context = new ConverterContext();
-        //-----------------------------------
         context.bone = this.bone;
         context.clipping = this.clipping;
         context.slot = this.global.skeleton.createSlot(ConvertUtil_1.ConvertUtil.createSlotName(this), this.bone);
@@ -532,7 +442,6 @@ var ConverterContext = /** @class */ (function () {
         if (this.blendMode !== "normal" /* SpineBlendMode.NORMAL */ && context.blendMode === "normal" /* SpineBlendMode.NORMAL */) {
             context.blendMode = this.blendMode;
         }
-        //-----------------------------------
         if (context.slot.initialized === false) {
             context.slot.initialized = true;
             context.slot.color = context.color.merge();
@@ -542,11 +451,9 @@ var ConverterContext = /** @class */ (function () {
                 layerSlots.push(context.slot);
             }
         }
-        //-----------------------------------
         if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */) {
             SpineAnimationHelper_1.SpineAnimationHelper.applySlotAnimation(context.global.animation, context.slot, context, context.color.merge(), context.time);
         }
-        //-----------------------------------
         return context;
     };
     return ConverterContext;
@@ -601,7 +508,6 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
         var name = StringUtil_1.StringUtil.simplify(element.libraryItem.name);
         var context = (cache == null) ? ConverterContextGlobal.initializeCache() : cache;
-        //-----------------------------------
         context.global = context;
         context.stageType = "animation" /* ConverterStageType.ANIMATION */;
         context.parent = null;
@@ -610,7 +516,6 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.frameRate = frameRate;
         context.label = null;
         context.config = config;
-        //-----------------------------------
         context.skeleton = (skeleton == null) ? new SpineSkeleton_1.SpineSkeleton() : skeleton;
         context.skeleton.imagesPath = (config.appendSkeletonToImagesPath ? PathUtil_1.PathUtil.joinPath(config.imagesExportPath, name) : config.imagesExportPath);
         context.skeleton.name = name;
@@ -623,31 +528,29 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.element = element;
         context.frame = null;
         context.time = 0;
-        //-----------------------------------
         if (config.mergeSkeletons && config.mergeSkeletonsRootBone !== true) {
             context.bone = context.skeleton.createBone(context.skeleton.name, context.bone);
         }
-        //-----------------------------------
+        // For the root element, we want its children to be relative to its own anchor.
+        // Since we are about to enter the symbol, origin (0,0) is its Registration Point.
+        // The Root Bone is at its anchor point.
+        // So children (at localX) should be at (localX - anchorX) relative to the bone.
+        context.parentOffset = {
+            x: -element.transformationPoint.x,
+            y: element.transformationPoint.y
+        };
+        Logger_1.Logger.trace("[Global] Root: ".concat(context.skeleton.name, " anchor=(").concat(element.transformationPoint.x.toFixed(2), ", ").concat(element.transformationPoint.y.toFixed(2), ")"));
         if (config.transformRootBone) {
-            Logger_1.Logger.trace('[ConverterContextGlobal] Transforming Root Bone');
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, transform);
-            // Set the offset for the first layer of children
-            context.parentOffset = {
-                x: element.x - element.transformX,
-                y: (element.y - element.transformY) * SpineTransformMatrix_1.SpineTransformMatrix.Y_DIRECTION
-            };
         }
-        //-----------------------------------
         return context;
     };
     ConverterContextGlobal.initializeCache = function () {
         var context = new ConverterContextGlobal();
-        //-----------------------------------
         context.imagesCache = new ConverterMap_1.ConverterMap();
         context.shapesCache = new ConverterMap_1.ConverterMap();
         context.layersCache = new ConverterMap_1.ConverterMap();
         context.assetTransforms = new ConverterMap_1.ConverterMap();
-        //-----------------------------------
         return context;
     };
     return ConverterContextGlobal;
@@ -958,6 +861,31 @@ var SpineEvent = /** @class */ (function () {
     return SpineEvent;
 }());
 exports.SpineEvent = SpineEvent;
+
+
+/***/ }),
+
+/***/ "./source/spine/SpineImage.ts":
+/*!************************************!*\
+  !*** ./source/spine/SpineImage.ts ***!
+  \************************************/
+/***/ (function(__unused_webpack_module, exports) {
+
+
+
+exports.SpineImage = void 0;
+var SpineImage = /** @class */ (function () {
+    function SpineImage(path, width, height, scale, x, y) {
+        this.path = path;
+        this.width = width;
+        this.height = height;
+        this.scale = scale;
+        this.x = x;
+        this.y = y;
+    }
+    return SpineImage;
+}());
+exports.SpineImage = SpineImage;
 
 
 /***/ }),
@@ -2201,108 +2129,74 @@ exports.ConvertUtil = ConvertUtil;
 
 exports.ImageUtil = void 0;
 var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
+var SpineImage_1 = __webpack_require__(/*! ../spine/SpineImage */ "./source/spine/SpineImage.ts");
 var ImageUtil = /** @class */ (function () {
     function ImageUtil() {
     }
-    /**
-     * Exports the current selection in the document as a PNG.
-     * Calculates the offset from the reference element's Anchor Point (Transformation Point)
-     * to the center of the bounding box of the entire selection.
-     */
-    ImageUtil.exportSelection = function (path, document, scale, autoExport, autoClose) {
-        if (autoClose === void 0) { autoClose = false; }
-        if (document.selection.length === 0) {
-            throw new Error('ImageUtil.exportSelection: Nothing selected!');
+    ImageUtil.exportBitmap = function (imagePath, element, exportImages) {
+        var item = element.libraryItem;
+        var w = item.hPixels || item.width;
+        var h = item.vPixels || item.height;
+        if (exportImages) {
+            item.exportToFile(imagePath);
         }
-        var firstElement = document.selection[0];
-        // Flash element.transformX/Y represent the position of the Anchor Point (Circle)
-        // In the exporter document, after resetTransform, these are the local coordinates of the anchor.
-        var originX = firstElement.transformX;
-        var originY = firstElement.transformY;
-        Logger_1.Logger.trace("[ImageUtil] firstElement: x=".concat(firstElement.x, ", y=").concat(firstElement.y, ", transformX=").concat(firstElement.transformX, ", transformY=").concat(firstElement.transformY));
-        // Get bounding box in original Flash coordinates.
-        var rect = document.getSelectionRect();
+        return new SpineImage_1.SpineImage(imagePath, w, h, 1, 0, 0);
+    };
+    ImageUtil.exportLibraryItem = function (imagePath, element, scale, exportImages) {
+        var dom = fl.getDocumentDOM();
+        var item = element.libraryItem;
+        dom.library.addItemToStage({ x: 0, y: 0 }, item.name);
+        var result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
+        dom.deleteSelection();
+        return result;
+    };
+    ImageUtil.exportInstance = function (imagePath, element, document, scale, exportImages) {
+        var dom = fl.getDocumentDOM();
+        document.library.editItem(element.libraryItem.name);
+        dom.selectAll();
+        var result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
+        dom.selectNone();
+        document.library.editItem(document.name);
+        return result;
+    };
+    ImageUtil.exportSelection = function (imagePath, dom, scale, exportImages) {
+        if (dom.selection.length === 0) {
+            return new SpineImage_1.SpineImage(imagePath, 0, 0, scale, 0, 0);
+        }
+        var element = dom.selection[0];
+        // Use transformationPoint for local Anchor Point relative to Registration Point (0,0)
+        var localAnchorX = element.transformationPoint.x;
+        var localAnchorY = element.transformationPoint.y;
+        dom.resetTransform();
+        var rect = dom.getSelectionRect();
+        var w = Math.ceil((rect.right - rect.left) * scale);
+        var h = Math.ceil((rect.bottom - rect.top) * scale);
         var centerX = (rect.left + rect.right) / 2;
         var centerY = (rect.top + rect.bottom) / 2;
-        // Relative offset from Anchor to Center (in original pixels)
-        var offsetX = centerX - originX;
-        var offsetY = centerY - originY;
-        // Group everything to scale and move it safely.
-        document.group();
-        var group = document.selection[0];
-        // Scale the asset for export
-        group.scaleX = scale;
-        group.scaleY = scale;
-        // Get scaled bounding box
-        var scaledRect = document.getSelectionRect();
-        var width = scaledRect.right - scaledRect.left;
-        var height = scaledRect.bottom - scaledRect.top;
-        // Prepare document size with margin.
-        var margin = 10;
-        var docWidth = Math.ceil(width) + margin * 2;
-        var docHeight = Math.ceil(height) + margin * 2;
-        document.width = docWidth;
-        document.height = docHeight;
-        // Move selection so its bounding box center is exactly at the document center.
-        document.moveSelectionBy({
-            x: (docWidth / 2) - (scaledRect.left + scaledRect.right) / 2,
-            y: (docHeight / 2) - (scaledRect.top + scaledRect.bottom) / 2
-        });
-        if (autoExport) {
-            document.exportPNG(path, false, true);
+        // Offset from Anchor Point to Center Point
+        var offsetX = centerX - localAnchorX;
+        var offsetY = centerY - localAnchorY;
+        Logger_1.Logger.trace("[ImageUtil] element: tp=(".concat(localAnchorX.toFixed(2), ", ").concat(localAnchorY.toFixed(2), ") rect=(").concat(rect.left.toFixed(2), ", ").concat(rect.top.toFixed(2), ", ").concat(rect.right.toFixed(2), ", ").concat(rect.bottom.toFixed(2), ")"));
+        Logger_1.Logger.trace("[ImageUtil] exportSelection: w=".concat(w, ", h=").concat(h, ", offset=(").concat(offsetX.toFixed(2), ", ").concat(offsetY.toFixed(2), ")"));
+        if (exportImages) {
+            dom.group();
+            // Center the group in an oversized doc to avoid clipping
+            var tempDoc = fl.createDocument();
+            tempDoc.width = w + 100;
+            tempDoc.height = h + 100;
+            fl.selectActiveWindow(dom);
+            dom.clipCopy();
+            fl.selectActiveWindow(tempDoc);
+            tempDoc.clipPaste();
+            var pasted = tempDoc.selection[0];
+            pasted.x = (tempDoc.width - pasted.width) / 2;
+            pasted.y = (tempDoc.height - pasted.height) / 2;
+            tempDoc.exportPNG(imagePath, true, true);
+            tempDoc.close(false);
+            fl.selectActiveWindow(dom);
+            dom.unGroup();
         }
-        if (autoClose) {
-            document.close(false);
-        }
-        Logger_1.Logger.trace("[ImageUtil] exportSelection: w=".concat(docWidth, ", h=").concat(docHeight, ", scale=").concat(scale, ", offset=(").concat(offsetX.toFixed(2), ", ").concat((-offsetY).toFixed(2), ")"));
-        return {
-            width: docWidth,
-            height: docHeight,
-            scale: scale,
-            x: offsetX,
-            y: -offsetY // Flip Y for Spine
-        };
-    };
-    ImageUtil.exportInstance = function (path, instance, document, scale, autoExport) {
-        var exporter = fl.createDocument('timeline');
-        instance.layer.visible = true;
-        instance.layer.locked = false;
-        document.selectNone();
-        document.selection = [instance];
-        document.clipCopy();
-        exporter.clipPaste();
-        var element = exporter.selection[0];
-        ImageUtil.resetTransform(element);
-        exporter.selectAll();
-        return ImageUtil.exportSelection(path, exporter, scale, autoExport, true);
-    };
-    ImageUtil.exportLibraryItem = function (path, instance, scale, autoExport) {
-        var exporter = fl.createDocument('timeline');
-        // addItem places registration point at (0,0)
-        exporter.addItem({ x: 0, y: 0 }, instance.libraryItem);
-        exporter.selectAll();
-        return ImageUtil.exportSelection(path, exporter, scale, autoExport, true);
-    };
-    ImageUtil.exportBitmap = function (path, instance, autoExport) {
-        if (autoExport) {
-            instance.libraryItem.exportToFile(path);
-        }
-        return {
-            width: instance.libraryItem.hPixels,
-            height: instance.libraryItem.vPixels,
-            x: instance.libraryItem.hPixels / 2,
-            y: -instance.libraryItem.vPixels / 2,
-            scale: 1
-        };
-    };
-    ImageUtil.resetTransform = function (element) {
-        element.rotation = 0;
-        element.scaleX = 1;
-        element.scaleY = 1;
-        element.skewX = 0;
-        element.skewY = 0;
-        element.x = 0;
-        element.y = 0;
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
     };
     return ImageUtil;
 }());

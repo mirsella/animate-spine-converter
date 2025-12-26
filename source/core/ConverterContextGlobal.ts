@@ -35,8 +35,6 @@ export class ConverterContextGlobal extends ConverterContext {
         const name = StringUtil.simplify(element.libraryItem.name);
         const context = (cache == null) ? ConverterContextGlobal.initializeCache() : cache;
 
-        //-----------------------------------
-
         context.global = context;
         context.stageType = ConverterStageType.ANIMATION;
         context.parent = null;
@@ -46,8 +44,6 @@ export class ConverterContextGlobal extends ConverterContext {
         context.frameRate = frameRate;
         context.label = null;
         context.config = config;
-
-        //-----------------------------------
 
         context.skeleton = (skeleton == null) ? new SpineSkeleton() : skeleton;
         context.skeleton.imagesPath = (config.appendSkeletonToImagesPath ? PathUtil.joinPath(config.imagesExportPath, name) : config.imagesExportPath);
@@ -64,45 +60,37 @@ export class ConverterContextGlobal extends ConverterContext {
         context.frame = null;
         context.time = 0;
 
-        //-----------------------------------
-
         if (config.mergeSkeletons && config.mergeSkeletonsRootBone !== true) {
             context.bone = context.skeleton.createBone(context.skeleton.name, context.bone);
         }
 
-        //-----------------------------------
+        // For the root element, we want its children to be relative to its own anchor.
+        // Since we are about to enter the symbol, origin (0,0) is its Registration Point.
+        // The Root Bone is at its anchor point.
+        // So children (at localX) should be at (localX - anchorX) relative to the bone.
+        context.parentOffset = {
+            x: -element.transformationPoint.x,
+            y: element.transformationPoint.y
+        };
+
+        Logger.trace(`[Global] Root: ${context.skeleton.name} anchor=(${element.transformationPoint.x.toFixed(2)}, ${element.transformationPoint.y.toFixed(2)})`);
 
         if (config.transformRootBone) {
-            Logger.trace('[ConverterContextGlobal] Transforming Root Bone');
             SpineAnimationHelper.applyBoneTransform(
                 context.bone,
                 transform
             );
-
-            // Set the offset for the first layer of children
-            context.parentOffset = {
-                x: element.x - element.transformX,
-                y: (element.y - element.transformY) * SpineTransformMatrix.Y_DIRECTION
-            };
         }
-
-        //-----------------------------------
 
         return context;
     }
 
     public static initializeCache():ConverterContextGlobal {
         const context = new ConverterContextGlobal();
-
-        //-----------------------------------
-
         context.imagesCache = new ConverterMap<string, SpineImage>();
         context.shapesCache = new ConverterMap<FlashElement | FlashItem, string>();
         context.layersCache = new ConverterMap<FlashLayer, SpineSlot[]>();
         context.assetTransforms = new ConverterMap<string, SpineTransformMatrix>();
-
-        //-----------------------------------
-
         return context;
     }
 
