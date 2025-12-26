@@ -3,12 +3,12 @@ import { SpineImage } from '../spine/SpineImage';
 
 export class ImageUtil {
     public static exportBitmap(imagePath:string, element:FlashElement, exportImages:boolean):SpineImage {
-        const item = element.libraryItem;
-        const w = (item as any).hPixels || (item as any).width;
-        const h = (item as any).vPixels || (item as any).height;
+        const item = element.libraryItem as any;
+        const w = item.hPixels || item.width || 0;
+        const h = item.vPixels || item.height || 0;
 
         if (exportImages) {
-            (item as any).exportToFile(imagePath);
+            item.exportToFile(imagePath);
         }
 
         return new SpineImage(imagePath, w, h, 1, 0, 0);
@@ -18,7 +18,8 @@ export class ImageUtil {
         const dom = fl.getDocumentDOM();
         const item = element.libraryItem;
         
-        dom.library.addItemToStage({x: 0, y: 0}, item.name);
+        // Corrected: addItemToStage is a method of Document, not Library
+        dom.addItemToStage({x: 0, y: 0}, item);
         
         const result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
         dom.deleteSelection();
@@ -40,7 +41,7 @@ export class ImageUtil {
         return result;
     }
 
-    public static exportSelection(imagePath:string, dom:any, scale:number, exportImages:boolean):SpineImage {
+    public static exportSelection(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean):SpineImage {
         if (dom.selection.length === 0) {
             return new SpineImage(imagePath, 0, 0, scale, 0, 0);
         }
@@ -54,22 +55,21 @@ export class ImageUtil {
         dom.resetTransform();
         const rect = dom.getSelectionRect();
         
-        const w = Math.ceil((rect.right - rect.left) * scale);
-        const h = Math.ceil((rect.bottom - rect.top) * scale);
-        const centerX = (rect.left + rect.right) / 2;
-        const centerY = (rect.top + rect.bottom) / 2;
+        const width = rect.right - rect.left;
+        const height = rect.bottom - rect.top;
+        const w = Math.ceil(width * scale);
+        const h = Math.ceil(height * scale);
+        
+        const centerX = rect.left + width / 2;
+        const centerY = rect.top + height / 2;
 
         // Offset from Anchor Point to Center Point
         const offsetX = centerX - localAnchorX;
         const offsetY = centerY - localAnchorY;
 
-        Logger.trace(`[ImageUtil] element: tp=(${localAnchorX.toFixed(2)}, ${localAnchorY.toFixed(2)}) rect=(${rect.left.toFixed(2)}, ${rect.top.toFixed(2)}, ${rect.right.toFixed(2)}, ${rect.bottom.toFixed(2)})`);
-        Logger.trace(`[ImageUtil] exportSelection: w=${w}, h=${h}, offset=(${offsetX.toFixed(2)}, ${offsetY.toFixed(2)})`);
-
         if (exportImages) {
             dom.group();
             
-            // Center the group in an oversized doc to avoid clipping
             const tempDoc = fl.createDocument();
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;

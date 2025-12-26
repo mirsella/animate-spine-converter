@@ -128,10 +128,12 @@ export class Converter {
                 const type = subcontext.element.elementType;
                 if (type === 'shape') {
                     const m = subcontext.element.matrix;
+                    const localAnchorX = subcontext.element.transformationPoint.x;
+                    const localAnchorY = subcontext.element.transformationPoint.y;
                     const offsetMatrix = {
                         a: m.a, b: m.b, c: m.c, d: m.d,
-                        tx: m.tx - subcontext.element.transformX,
-                        ty: m.ty - subcontext.element.transformY
+                        tx: m.tx - localAnchorX,
+                        ty: m.ty - localAnchorY
                     };
                     this.convertShapeMaskElementSlot(subcontext, offsetMatrix, null);
                     context.clipping = subcontext.clipping;

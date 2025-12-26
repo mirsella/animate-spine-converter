@@ -97,10 +97,12 @@ var Converter = /** @class */ (function () {
             var type = subcontext.element.elementType;
             if (type === 'shape') {
                 var m = subcontext.element.matrix;
+                var localAnchorX = subcontext.element.transformationPoint.x;
+                var localAnchorY = subcontext.element.transformationPoint.y;
                 var offsetMatrix = {
                     a: m.a, b: m.b, c: m.c, d: m.d,
-                    tx: m.tx - subcontext.element.transformX,
-                    ty: m.ty - subcontext.element.transformY
+                    tx: m.tx - localAnchorX,
+                    ty: m.ty - localAnchorY
                 };
                 _this.convertShapeMaskElementSlot(subcontext, offsetMatrix, null);
                 context.clipping = subcontext.clipping;
@@ -410,12 +412,12 @@ var ConverterContext = /** @class */ (function () {
         }
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
-            // Shift element position to be relative to the parent bone anchor
+            // Shift position from Parent Registration Point to Parent Anchor Point
             var boneTransform = __assign(__assign({}, transform), { x: transform.x + this.parentOffset.x, y: transform.y + this.parentOffset.y });
             Logger_1.Logger.trace("[Bone] ".concat(context.bone.name, " at (").concat(boneTransform.x.toFixed(2), ", ").concat(boneTransform.y.toFixed(2), ") (parentOffset: ").concat(this.parentOffset.x.toFixed(2), ", ").concat(this.parentOffset.y.toFixed(2), ")"));
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, boneTransform);
         }
-        // Set parentOffset for children of this bone
+        // Set parentOffset for children of this bone: shift from this bone's RP to this bone's Anchor
         context.parentOffset = {
             x: -element.transformationPoint.x,
             y: element.transformationPoint.y
@@ -531,10 +533,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         if (config.mergeSkeletons && config.mergeSkeletonsRootBone !== true) {
             context.bone = context.skeleton.createBone(context.skeleton.name, context.bone);
         }
-        // For the root element, we want its children to be relative to its own anchor.
-        // Since we are about to enter the symbol, origin (0,0) is its Registration Point.
-        // The Root Bone is at its anchor point.
-        // So children (at localX) should be at (localX - anchorX) relative to the bone.
+        // To center the skeleton at (0,0), shift children by the ASSET's local anchor
         context.parentOffset = {
             x: -element.transformationPoint.x,
             y: element.transformationPoint.y
@@ -2128,15 +2127,14 @@ exports.ConvertUtil = ConvertUtil;
 
 
 exports.ImageUtil = void 0;
-var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineImage_1 = __webpack_require__(/*! ../spine/SpineImage */ "./source/spine/SpineImage.ts");
 var ImageUtil = /** @class */ (function () {
     function ImageUtil() {
     }
     ImageUtil.exportBitmap = function (imagePath, element, exportImages) {
         var item = element.libraryItem;
-        var w = item.hPixels || item.width;
-        var h = item.vPixels || item.height;
+        var w = item.hPixels || item.width || 0;
+        var h = item.vPixels || item.height || 0;
         if (exportImages) {
             item.exportToFile(imagePath);
         }
@@ -2145,7 +2143,8 @@ var ImageUtil = /** @class */ (function () {
     ImageUtil.exportLibraryItem = function (imagePath, element, scale, exportImages) {
         var dom = fl.getDocumentDOM();
         var item = element.libraryItem;
-        dom.library.addItemToStage({ x: 0, y: 0 }, item.name);
+        // Corrected: addItemToStage is a method of Document, not Library
+        dom.addItemToStage({ x: 0, y: 0 }, item);
         var result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
         dom.deleteSelection();
         return result;
@@ -2169,18 +2168,17 @@ var ImageUtil = /** @class */ (function () {
         var localAnchorY = element.transformationPoint.y;
         dom.resetTransform();
         var rect = dom.getSelectionRect();
-        var w = Math.ceil((rect.right - rect.left) * scale);
-        var h = Math.ceil((rect.bottom - rect.top) * scale);
-        var centerX = (rect.left + rect.right) / 2;
-        var centerY = (rect.top + rect.bottom) / 2;
+        var width = rect.right - rect.left;
+        var height = rect.bottom - rect.top;
+        var w = Math.ceil(width * scale);
+        var h = Math.ceil(height * scale);
+        var centerX = rect.left + width / 2;
+        var centerY = rect.top + height / 2;
         // Offset from Anchor Point to Center Point
         var offsetX = centerX - localAnchorX;
         var offsetY = centerY - localAnchorY;
-        Logger_1.Logger.trace("[ImageUtil] element: tp=(".concat(localAnchorX.toFixed(2), ", ").concat(localAnchorY.toFixed(2), ") rect=(").concat(rect.left.toFixed(2), ", ").concat(rect.top.toFixed(2), ", ").concat(rect.right.toFixed(2), ", ").concat(rect.bottom.toFixed(2), ")"));
-        Logger_1.Logger.trace("[ImageUtil] exportSelection: w=".concat(w, ", h=").concat(h, ", offset=(").concat(offsetX.toFixed(2), ", ").concat(offsetY.toFixed(2), ")"));
         if (exportImages) {
             dom.group();
-            // Center the group in an oversized doc to avoid clipping
             var tempDoc = fl.createDocument();
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;

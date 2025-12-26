@@ -1,24 +1,47 @@
+interface FlashMatrix {
+    a: number;
+    b: number;
+    c: number;
+    d: number;
+    tx: number;
+    ty: number;
+}
+
+interface FlashPoint {
+    x: number;
+    y: number;
+}
+
+interface FlashRect {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+}
+
 interface FlashDocument {
     pathURI: string;
     name: string;
     frameRate: number;
+    width: number;
+    height: number;
     selection: FlashElement[];
     library: FlashLibrary;
     getTimeline(): FlashTimeline;
-    getTransformationPoint(): { x: number, y: number };
-    setTransformationPoint(pt: { x: number, y: number }): void;
+    getTransformationPoint(): FlashPoint;
+    setTransformationPoint(pt: FlashPoint): void;
     selectAll(): void;
     selectNone(): void;
     resetTransform(): void;
-    getSelectionRect(): { left: number, top: number, right: number, bottom: number };
+    getSelectionRect(): FlashRect;
     group(): void;
     unGroup(): void;
     clipCopy(): void;
     clipPaste(): void;
     exportPNG(path: string, b1?: boolean, b2?: boolean): void;
     close(b: boolean): void;
-    width: number;
-    height: number;
+    addItemToStage(pt: FlashPoint, item: FlashItem): void;
+    deleteSelection(): void;
 }
 
 interface FlashFL {
@@ -30,22 +53,17 @@ interface FlashFL {
 }
 
 interface FlashLibrary {
+    items: FlashItem[];
     editItem(name?: string): void;
-    addItemToStage(pt: { x: number, y: number }, name: string): void;
+    getSelectedItems(): FlashItem[];
 }
 
 interface FlashItem {
     name: string;
-    timeline: FlashTimeline;
+    itemType: string;
+    timeline?: FlashTimeline;
     exportToFile(path: string): boolean;
 }
-
-interface FlashBitmapItem extends FlashItem {
-    hPixels: number;
-    vPixels: number;
-}
-
-interface FlashSoundItem extends FlashItem {}
 
 interface FlashTimeline {
     name: string;
@@ -78,23 +96,16 @@ interface FlashElement {
     y: number;
     transformX: number;
     transformY: number;
-    transformationPoint: { x: number, y: number };
+    transformationPoint: FlashPoint;
     rotation: number;
     scaleX: number;
     scaleY: number;
     skewX: number;
     skewY: number;
-    getTransformationPoint(): { x: number, y: number };
-    setTransformationPoint(pt: { x: number, y: number }): void;
-}
-
-interface FlashMatrix {
-    a: number;
-    b: number;
-    c: number;
-    d: number;
-    tx: number;
-    ty: number;
+    width: number;
+    height: number;
+    getTransformationPoint(): FlashPoint;
+    setTransformationPoint(pt: FlashPoint): void;
 }
 
 declare const fl: FlashFL;

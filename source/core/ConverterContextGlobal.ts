@@ -64,10 +64,7 @@ export class ConverterContextGlobal extends ConverterContext {
             context.bone = context.skeleton.createBone(context.skeleton.name, context.bone);
         }
 
-        // For the root element, we want its children to be relative to its own anchor.
-        // Since we are about to enter the symbol, origin (0,0) is its Registration Point.
-        // The Root Bone is at its anchor point.
-        // So children (at localX) should be at (localX - anchorX) relative to the bone.
+        // To center the skeleton at (0,0), shift children by the ASSET's local anchor
         context.parentOffset = {
             x: -element.transformationPoint.x,
             y: element.transformationPoint.y
@@ -76,10 +73,7 @@ export class ConverterContextGlobal extends ConverterContext {
         Logger.trace(`[Global] Root: ${context.skeleton.name} anchor=(${element.transformationPoint.x.toFixed(2)}, ${element.transformationPoint.y.toFixed(2)})`);
 
         if (config.transformRootBone) {
-            SpineAnimationHelper.applyBoneTransform(
-                context.bone,
-                transform
-            );
+            SpineAnimationHelper.applyBoneTransform(context.bone, transform);
         }
 
         return context;

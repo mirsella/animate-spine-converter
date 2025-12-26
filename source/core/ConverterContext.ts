@@ -38,28 +38,23 @@ export class ConverterContext {
 
     public switchContextFrame(frame:FlashFrame):ConverterContext {
         this.frame = frame;
-
         return this;
     }
 
     public switchContextAnimation(label:ConverterFrameLabel):ConverterContext {
         const { skeleton, labels } = this.global;
-
         if (labels.indexOf(label) !== -1) {
             this.global.animation = skeleton.createAnimation(label.name);
             this.global.label = label;
         }
-
         return this;
     }
 
     public switchContextLayer(layer:FlashLayer):ConverterContext {
         this.layer = layer;
-
         if (this.global.layersCache.get(layer) == null) {
             this.global.layersCache.set(layer, []);
         }
-
         return this;
     }
 
@@ -88,7 +83,7 @@ export class ConverterContext {
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
 
-            // Shift element position to be relative to the parent bone anchor
+            // Shift position from Parent Registration Point to Parent Anchor Point
             const boneTransform = {
                 ...transform,
                 x: transform.x + this.parentOffset.x,
@@ -97,13 +92,10 @@ export class ConverterContext {
 
             Logger.trace(`[Bone] ${context.bone.name} at (${boneTransform.x.toFixed(2)}, ${boneTransform.y.toFixed(2)}) (parentOffset: ${this.parentOffset.x.toFixed(2)}, ${this.parentOffset.y.toFixed(2)})`);
 
-            SpineAnimationHelper.applyBoneTransform(
-                context.bone,
-                boneTransform
-            );
+            SpineAnimationHelper.applyBoneTransform(context.bone, boneTransform);
         }
 
-        // Set parentOffset for children of this bone
+        // Set parentOffset for children of this bone: shift from this bone's RP to this bone's Anchor
         context.parentOffset = {
             x: -element.transformationPoint.x,
             y: element.transformationPoint.y
