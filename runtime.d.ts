@@ -40,7 +40,6 @@ interface FlashDocument {
     clipPaste(): void;
     exportPNG(path: string, b1?: boolean, b2?: boolean): void;
     close(b: boolean): void;
-    addItemToStage(pt: FlashPoint, item: FlashItem): void;
     deleteSelection(): void;
 }
 
@@ -56,6 +55,7 @@ interface FlashLibrary {
     items: FlashItem[];
     editItem(name?: string): void;
     getSelectedItems(): FlashItem[];
+    addItemToDocument(position: FlashPoint, namePath?: string): boolean;
 }
 
 interface FlashItem {

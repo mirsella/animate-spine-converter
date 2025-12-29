@@ -18,8 +18,7 @@ export class ImageUtil {
         const dom = fl.getDocumentDOM();
         const item = element.libraryItem;
         
-        // Corrected: addItemToStage is a method of Document, not Library
-        dom.addItemToStage({x: 0, y: 0}, item);
+        dom.library.addItemToDocument({x: 0, y: 0}, item.name);
         
         const result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
         dom.deleteSelection();

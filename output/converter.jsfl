@@ -610,7 +610,7 @@ exports.ConverterMap = ConverterMap;
 
 
 exports.Logger = void 0;
-var Logger = exports.Logger = /** @class */ (function () {
+var Logger = /** @class */ (function () {
     function Logger() {
         this._output = [];
     }
@@ -651,6 +651,7 @@ var Logger = exports.Logger = /** @class */ (function () {
     Logger._instance = new Logger();
     return Logger;
 }());
+exports.Logger = Logger;
 
 
 /***/ }),
@@ -1968,7 +1969,7 @@ exports.SpineTimelineGroupSlot = SpineTimelineGroupSlot;
 exports.SpineTransformMatrix = void 0;
 var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/Logger.ts");
 var NumberUtil_1 = __webpack_require__(/*! ../../utils/NumberUtil */ "./source/utils/NumberUtil.ts");
-var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (function () {
+var SpineTransformMatrix = /** @class */ (function () {
     function SpineTransformMatrix(element) {
         var _a, _b;
         // We use the Transformation Point (Anchor) for the bone position.
@@ -1993,6 +1994,7 @@ var SpineTransformMatrix = exports.SpineTransformMatrix = /** @class */ (functio
     SpineTransformMatrix.Y_DIRECTION = -1;
     return SpineTransformMatrix;
 }());
+exports.SpineTransformMatrix = SpineTransformMatrix;
 
 
 /***/ }),
@@ -2143,8 +2145,7 @@ var ImageUtil = /** @class */ (function () {
     ImageUtil.exportLibraryItem = function (imagePath, element, scale, exportImages) {
         var dom = fl.getDocumentDOM();
         var item = element.libraryItem;
-        // Corrected: addItemToStage is a method of Document, not Library
-        dom.addItemToStage({ x: 0, y: 0 }, item);
+        dom.library.addItemToDocument({ x: 0, y: 0 }, item.name);
         var result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
         dom.deleteSelection();
         return result;
@@ -2867,6 +2868,12 @@ exports.StringUtil = StringUtil;
 /******/ 		if (cachedModule !== undefined) {
 /******/ 			return cachedModule.exports;
 /******/ 		}
+/******/ 		// Check if module exists (development only)
+/******/ 		if (__webpack_modules__[moduleId] === undefined) {
+/******/ 			var e = new Error("Cannot find module '" + moduleId + "'");
+/******/ 			e.code = 'MODULE_NOT_FOUND';
+/******/ 			throw e;
+/******/ 		}
 /******/ 		// Create a new module (and put it into the cache)
 /******/ 		var module = __webpack_module_cache__[moduleId] = {
 /******/ 			// no module.id needed
@@ -2883,7 +2890,7 @@ exports.StringUtil = StringUtil;
 /******/ 	
 /************************************************************************/
 var __webpack_exports__ = {};
-// This entry need to be wrapped in an IIFE because it need to be isolated against other modules in the chunk.
+// This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
 !function() {
 var exports = __webpack_exports__;
 /*!*************************!*\
