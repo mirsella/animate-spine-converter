@@ -2171,15 +2171,22 @@ var ImageUtil = /** @class */ (function () {
         var dom = fl.getDocumentDOM();
         Logger_1.Logger.assert(dom != null, 'exportLibraryItem: fl.getDocumentDOM() returned null');
         var item = element.libraryItem;
+        // Deselect everything first to ensure clean state
+        dom.selectNone();
         // Place item at origin - the registration point (0,0) is where the bone will be
         dom.library.addItemToDocument({ x: 0, y: 0 }, item.name);
         Logger_1.Logger.assert(dom.selection.length > 0, "exportLibraryItem: selection empty after addItemToDocument (item: ".concat(item.name, ")"));
+        // Store reference to the added element before any other operations
+        var addedElement = dom.selection[0];
         // The bone is at the registration point (0,0), so anchor for offset calculation is (0,0)
         // The attachment offset = imageCenter - anchor = imageCenter - (0,0) = imageCenter
         var anchorX = 0;
         var anchorY = 0;
         Logger_1.Logger.trace("[exportLibraryItem] ".concat(item.name, ": anchor at registration point (0, 0)"));
-        var result = ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
+        var result = ImageUtil.exportSelectionOnly(imagePath, dom, scale, exportImages, anchorX, anchorY, addedElement);
+        // Delete only the element we added
+        dom.selectNone();
+        addedElement.selected = true;
         dom.deleteSelection();
         return result;
     };
@@ -2196,15 +2203,59 @@ var ImageUtil = /** @class */ (function () {
         var anchorX = 0;
         var anchorY = 0;
         Logger_1.Logger.trace("[exportInstance] ".concat(item.name, ": anchor at registration point (0, 0)"));
-        var result = ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
+        // Use exportInstanceContents which doesn't modify the symbol contents
+        var result = ImageUtil.exportInstanceContents(imagePath, dom, scale, exportImages, anchorX, anchorY);
         dom.selectNone();
         document.library.editItem(document.name);
         return result;
     };
     /**
+     * Export the contents of a symbol without modifying them (no group/ungroup).
+     * Used when editing inside a library item.
+     */
+    ImageUtil.exportInstanceContents = function (imagePath, dom, scale, exportImages, anchorX, anchorY) {
+        Logger_1.Logger.assert(dom.selection.length > 0, "exportInstanceContents: no selection available for export (imagePath: ".concat(imagePath, ")"));
+        dom.resetTransformation();
+        var rect = dom.getSelectionRect();
+        var width = rect.right - rect.left;
+        var height = rect.bottom - rect.top;
+        var w = Math.ceil(width * scale);
+        var h = Math.ceil(height * scale);
+        // Image center in local coordinates (relative to registration point at 0,0)
+        var centerX = rect.left + width / 2;
+        var centerY = rect.top + height / 2;
+        // Offset from Anchor Point (bone position) to Image Center
+        var offsetX = centerX - anchorX;
+        var offsetY = centerY - anchorY;
+        // Debug: trace attachment offset calculation
+        var pathParts = imagePath.split('/');
+        var imageName = pathParts[pathParts.length - 1];
+        Logger_1.Logger.trace("[Attachment] ".concat(imageName, ":"));
+        Logger_1.Logger.trace("  rect: left=".concat(rect.left.toFixed(2), " top=").concat(rect.top.toFixed(2), " right=").concat(rect.right.toFixed(2), " bottom=").concat(rect.bottom.toFixed(2)));
+        Logger_1.Logger.trace("  size: ".concat(width.toFixed(2), " x ").concat(height.toFixed(2)));
+        Logger_1.Logger.trace("  imageCenter: (".concat(centerX.toFixed(2), ", ").concat(centerY.toFixed(2), ")"));
+        Logger_1.Logger.trace("  anchorPoint: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ")"));
+        Logger_1.Logger.trace("  offset: (".concat(offsetX.toFixed(2), ", ").concat(offsetY.toFixed(2), ") -> spine: (").concat(offsetX.toFixed(2), ", ").concat((-offsetY).toFixed(2), ")"));
+        if (exportImages) {
+            var tempDoc = fl.createDocument();
+            Logger_1.Logger.assert(tempDoc != null, "exportInstanceContents: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
+            tempDoc.width = w + 100;
+            tempDoc.height = h + 100;
+            dom.clipCopy();
+            tempDoc.clipPaste();
+            var pasted = tempDoc.selection[0];
+            pasted.x = (tempDoc.width - pasted.width) / 2;
+            pasted.y = (tempDoc.height - pasted.height) / 2;
+            tempDoc.exportPNG(imagePath, true, true);
+            tempDoc.close(false);
+        }
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
+    };
+    /**
      * Export selection using the provided anchor point for offset calculation.
      * The anchor point is where the bone is positioned, so the attachment offset
      * should be from anchor to image center.
+     * NOTE: This method copies the current selection without modifying the source document.
      */
     ImageUtil.exportSelectionWithAnchor = function (imagePath, dom, scale, exportImages, anchorX, anchorY) {
         Logger_1.Logger.assert(dom.selection.length > 0, "exportSelectionWithAnchor: no selection available for export (imagePath: ".concat(imagePath, ")"));
@@ -2230,10 +2281,55 @@ var ImageUtil = /** @class */ (function () {
         Logger_1.Logger.trace("  anchorPoint: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ")"));
         Logger_1.Logger.trace("  offset: (".concat(offsetX.toFixed(2), ", ").concat(offsetY.toFixed(2), ") -> spine: (").concat(offsetX.toFixed(2), ", ").concat((-offsetY).toFixed(2), ")"));
         if (exportImages) {
-            dom.selectAll();
-            dom.group();
+            // Copy the current selection (don't use selectAll/group which modifies the document)
+            dom.clipCopy();
             var tempDoc = fl.createDocument();
             Logger_1.Logger.assert(tempDoc != null, "exportSelectionWithAnchor: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
+            tempDoc.width = w + 100;
+            tempDoc.height = h + 100;
+            tempDoc.clipPaste();
+            // Center the pasted content
+            if (tempDoc.selection.length > 0) {
+                var pasted = tempDoc.selection[0];
+                pasted.x = (tempDoc.width - pasted.width) / 2;
+                pasted.y = (tempDoc.height - pasted.height) / 2;
+            }
+            tempDoc.exportPNG(imagePath, true, true);
+            tempDoc.close(false);
+        }
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
+    };
+    /**
+     * Export a specific element without affecting other elements on the stage.
+     * Used for library item exports where we need to isolate the added element.
+     */
+    ImageUtil.exportSelectionOnly = function (imagePath, dom, scale, exportImages, anchorX, anchorY, element) {
+        dom.selectNone();
+        element.selected = true;
+        dom.resetTransformation();
+        var rect = dom.getSelectionRect();
+        var width = rect.right - rect.left;
+        var height = rect.bottom - rect.top;
+        var w = Math.ceil(width * scale);
+        var h = Math.ceil(height * scale);
+        // Image center in local coordinates (relative to registration point at 0,0)
+        var centerX = rect.left + width / 2;
+        var centerY = rect.top + height / 2;
+        // Offset from Anchor Point (bone position) to Image Center
+        var offsetX = centerX - anchorX;
+        var offsetY = centerY - anchorY;
+        // Debug: trace attachment offset calculation
+        var pathParts = imagePath.split('/');
+        var imageName = pathParts[pathParts.length - 1];
+        Logger_1.Logger.trace("[Attachment] ".concat(imageName, ":"));
+        Logger_1.Logger.trace("  rect: left=".concat(rect.left.toFixed(2), " top=").concat(rect.top.toFixed(2), " right=").concat(rect.right.toFixed(2), " bottom=").concat(rect.bottom.toFixed(2)));
+        Logger_1.Logger.trace("  size: ".concat(width.toFixed(2), " x ").concat(height.toFixed(2)));
+        Logger_1.Logger.trace("  imageCenter: (".concat(centerX.toFixed(2), ", ").concat(centerY.toFixed(2), ")"));
+        Logger_1.Logger.trace("  anchorPoint: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ")"));
+        Logger_1.Logger.trace("  offset: (".concat(offsetX.toFixed(2), ", ").concat(offsetY.toFixed(2), ") -> spine: (").concat(offsetX.toFixed(2), ", ").concat((-offsetY).toFixed(2), ")"));
+        if (exportImages) {
+            var tempDoc = fl.createDocument();
+            Logger_1.Logger.assert(tempDoc != null, "exportSelectionOnly: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
             dom.clipCopy();
@@ -2243,7 +2339,6 @@ var ImageUtil = /** @class */ (function () {
             pasted.y = (tempDoc.height - pasted.height) / 2;
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
-            dom.unGroup();
         }
         return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
     };

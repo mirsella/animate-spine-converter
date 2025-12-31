@@ -21,9 +21,15 @@ export class ImageUtil {
         Logger.assert(dom != null, 'exportLibraryItem: fl.getDocumentDOM() returned null');
         const item = element.libraryItem;
         
+        // Deselect everything first to ensure clean state
+        dom.selectNone();
+        
         // Place item at origin - the registration point (0,0) is where the bone will be
         dom.library.addItemToDocument({x: 0, y: 0}, item.name);
         Logger.assert(dom.selection.length > 0, `exportLibraryItem: selection empty after addItemToDocument (item: ${item.name})`);
+        
+        // Store reference to the added element before any other operations
+        const addedElement = dom.selection[0];
         
         // The bone is at the registration point (0,0), so anchor for offset calculation is (0,0)
         // The attachment offset = imageCenter - anchor = imageCenter - (0,0) = imageCenter
@@ -32,7 +38,11 @@ export class ImageUtil {
         
         Logger.trace(`[exportLibraryItem] ${item.name}: anchor at registration point (0, 0)`);
         
-        const result = ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
+        const result = ImageUtil.exportSelectionOnly(imagePath, dom, scale, exportImages, anchorX, anchorY, addedElement);
+        
+        // Delete only the element we added
+        dom.selectNone();
+        addedElement.selected = true;
         dom.deleteSelection();
         
         return result;
@@ -54,18 +64,73 @@ export class ImageUtil {
         
         Logger.trace(`[exportInstance] ${item.name}: anchor at registration point (0, 0)`);
         
-        const result = ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
+        // Use exportInstanceContents which doesn't modify the symbol contents
+        const result = ImageUtil.exportInstanceContents(imagePath, dom, scale, exportImages, anchorX, anchorY);
         
         dom.selectNone();
         document.library.editItem(document.name);
         
         return result;
     }
+    
+    /**
+     * Export the contents of a symbol without modifying them (no group/ungroup).
+     * Used when editing inside a library item.
+     */
+    public static exportInstanceContents(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean, anchorX:number, anchorY:number):SpineImage {
+        Logger.assert(dom.selection.length > 0, `exportInstanceContents: no selection available for export (imagePath: ${imagePath})`);
+
+        dom.resetTransformation();
+        const rect = dom.getSelectionRect();
+        
+        const width = rect.right - rect.left;
+        const height = rect.bottom - rect.top;
+        const w = Math.ceil(width * scale);
+        const h = Math.ceil(height * scale);
+        
+        // Image center in local coordinates (relative to registration point at 0,0)
+        const centerX = rect.left + width / 2;
+        const centerY = rect.top + height / 2;
+
+        // Offset from Anchor Point (bone position) to Image Center
+        const offsetX = centerX - anchorX;
+        const offsetY = centerY - anchorY;
+        
+        // Debug: trace attachment offset calculation
+        const pathParts = imagePath.split('/');
+        const imageName = pathParts[pathParts.length - 1];
+        Logger.trace(`[Attachment] ${imageName}:`);
+        Logger.trace(`  rect: left=${rect.left.toFixed(2)} top=${rect.top.toFixed(2)} right=${rect.right.toFixed(2)} bottom=${rect.bottom.toFixed(2)}`);
+        Logger.trace(`  size: ${width.toFixed(2)} x ${height.toFixed(2)}`);
+        Logger.trace(`  imageCenter: (${centerX.toFixed(2)}, ${centerY.toFixed(2)})`);
+        Logger.trace(`  anchorPoint: (${anchorX.toFixed(2)}, ${anchorY.toFixed(2)})`);
+        Logger.trace(`  offset: (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) -> spine: (${offsetX.toFixed(2)}, ${(-offsetY).toFixed(2)})`);
+
+        if (exportImages) {
+            const tempDoc = fl.createDocument();
+            Logger.assert(tempDoc != null, `exportInstanceContents: fl.createDocument() returned null (imagePath: ${imagePath})`);
+            tempDoc.width = w + 100;
+            tempDoc.height = h + 100;
+            
+            dom.clipCopy();
+            tempDoc.clipPaste();
+            
+            const pasted = tempDoc.selection[0];
+            pasted.x = (tempDoc.width - pasted.width) / 2;
+            pasted.y = (tempDoc.height - pasted.height) / 2;
+            
+            tempDoc.exportPNG(imagePath, true, true);
+            tempDoc.close(false);
+        }
+
+        return new SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
+    }
 
     /**
      * Export selection using the provided anchor point for offset calculation.
      * The anchor point is where the bone is positioned, so the attachment offset
      * should be from anchor to image center.
+     * NOTE: This method copies the current selection without modifying the source document.
      */
     public static exportSelectionWithAnchor(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean, anchorX:number, anchorY:number):SpineImage {
         Logger.assert(dom.selection.length > 0, `exportSelectionWithAnchor: no selection available for export (imagePath: ${imagePath})`);
@@ -97,11 +162,67 @@ export class ImageUtil {
         Logger.trace(`  offset: (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) -> spine: (${offsetX.toFixed(2)}, ${(-offsetY).toFixed(2)})`);
 
         if (exportImages) {
-            dom.selectAll();
-            dom.group();
+            // Copy the current selection (don't use selectAll/group which modifies the document)
+            dom.clipCopy();
             
             const tempDoc = fl.createDocument();
             Logger.assert(tempDoc != null, `exportSelectionWithAnchor: fl.createDocument() returned null (imagePath: ${imagePath})`);
+            tempDoc.width = w + 100;
+            tempDoc.height = h + 100;
+            
+            tempDoc.clipPaste();
+            
+            // Center the pasted content
+            if (tempDoc.selection.length > 0) {
+                const pasted = tempDoc.selection[0];
+                pasted.x = (tempDoc.width - pasted.width) / 2;
+                pasted.y = (tempDoc.height - pasted.height) / 2;
+            }
+            
+            tempDoc.exportPNG(imagePath, true, true);
+            tempDoc.close(false);
+        }
+
+        return new SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
+    }
+
+    /**
+     * Export a specific element without affecting other elements on the stage.
+     * Used for library item exports where we need to isolate the added element.
+     */
+    public static exportSelectionOnly(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean, anchorX:number, anchorY:number, element:FlashElement):SpineImage {
+        dom.selectNone();
+        element.selected = true;
+        
+        dom.resetTransformation();
+        const rect = dom.getSelectionRect();
+        
+        const width = rect.right - rect.left;
+        const height = rect.bottom - rect.top;
+        const w = Math.ceil(width * scale);
+        const h = Math.ceil(height * scale);
+        
+        // Image center in local coordinates (relative to registration point at 0,0)
+        const centerX = rect.left + width / 2;
+        const centerY = rect.top + height / 2;
+
+        // Offset from Anchor Point (bone position) to Image Center
+        const offsetX = centerX - anchorX;
+        const offsetY = centerY - anchorY;
+        
+        // Debug: trace attachment offset calculation
+        const pathParts = imagePath.split('/');
+        const imageName = pathParts[pathParts.length - 1];
+        Logger.trace(`[Attachment] ${imageName}:`);
+        Logger.trace(`  rect: left=${rect.left.toFixed(2)} top=${rect.top.toFixed(2)} right=${rect.right.toFixed(2)} bottom=${rect.bottom.toFixed(2)}`);
+        Logger.trace(`  size: ${width.toFixed(2)} x ${height.toFixed(2)}`);
+        Logger.trace(`  imageCenter: (${centerX.toFixed(2)}, ${centerY.toFixed(2)})`);
+        Logger.trace(`  anchorPoint: (${anchorX.toFixed(2)}, ${anchorY.toFixed(2)})`);
+        Logger.trace(`  offset: (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) -> spine: (${offsetX.toFixed(2)}, ${(-offsetY).toFixed(2)})`);
+
+        if (exportImages) {
+            const tempDoc = fl.createDocument();
+            Logger.assert(tempDoc != null, `exportSelectionOnly: fl.createDocument() returned null (imagePath: ${imagePath})`);
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
             
@@ -114,8 +235,6 @@ export class ImageUtil {
             
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
-            
-            dom.unGroup();
         }
 
         return new SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
