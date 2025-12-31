@@ -43,7 +43,18 @@ export class ConvertUtil {
 
     public static obtainElementLabels(element:FlashElement):ConverterFrameLabel[] {
         const labels:ConverterFrameLabel[] = [];
-        const timeline = element.libraryItem.timeline;
+        const item = (element as any).libraryItem;
+
+        if (!item || !item.timeline) {
+            labels.push({
+                endFrameIdx: 0,
+                startFrameIdx: 0,
+                name: 'default'
+            });
+            return labels;
+        }
+
+        const timeline = item.timeline;
         const layers = timeline.layers;
 
         for (const layer of layers) {
@@ -68,7 +79,7 @@ export class ConvertUtil {
 
         if (labels.length === 0) {
             labels.push({
-                endFrameIdx: element.libraryItem.timeline.frameCount - 1,
+                endFrameIdx: item.timeline.frameCount - 1,
                 startFrameIdx: 0,
                 name: 'default'
             });
@@ -81,7 +92,9 @@ export class ConvertUtil {
         let result = '';
 
         if (element.instanceType === 'bitmap' || element.instanceType === 'symbol') {
-            result = element.libraryItem.name;
+            if ((element as any).libraryItem) {
+                result = (element as any).libraryItem.name;
+            }
         }
 
         if (result === '' || result == null) {

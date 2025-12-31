@@ -30,14 +30,22 @@ export class ImageUtil {
 
     public static exportInstance(imagePath:string, element:FlashElement, document:FlashDocument, scale:number, exportImages:boolean):SpineImage {
         const dom = fl.getDocumentDOM();
+        const item = (element as any).libraryItem;
         
-        document.library.editItem(element.libraryItem.name);
-        dom.selectAll();
+        if (item) {
+            document.library.editItem(item.name);
+            dom.selectAll();
+        } else {
+            dom.selectNone();
+            element.selected = true;
+        }
         
         const result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
         
-        dom.selectNone();
-        document.library.editItem(document.name);
+        if (item) {
+            dom.selectNone();
+            document.library.editItem(document.name);
+        }
         
         return result;
     }

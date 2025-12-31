@@ -32,7 +32,7 @@ export class ConverterContextGlobal extends ConverterContext {
 
     public static initializeGlobal(element:FlashElement, config:ConverterConfig, frameRate:number, skeleton:SpineSkeleton = null, cache:ConverterContextGlobal = null):ConverterContextGlobal {
         const transform = new SpineTransformMatrix(element);
-        const name = StringUtil.simplify(element.libraryItem.name);
+        const name = (element as any).libraryItem ? StringUtil.simplify((element as any).libraryItem.name) : (element.name ? StringUtil.simplify(element.name) : StringUtil.simplify(element.layer.name));
         const context = (cache == null) ? ConverterContextGlobal.initializeCache() : cache;
 
         context.global = context;
