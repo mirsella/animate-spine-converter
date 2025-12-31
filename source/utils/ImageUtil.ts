@@ -51,7 +51,7 @@ export class ImageUtil {
         const localAnchorX = element.transformationPoint.x;
         const localAnchorY = element.transformationPoint.y;
         
-        dom.resetTransform();
+        dom.resetTransformation();
         const rect = dom.getSelectionRect();
         
         const width = rect.right - rect.left;

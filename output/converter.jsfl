@@ -2167,7 +2167,7 @@ var ImageUtil = /** @class */ (function () {
         // Use transformationPoint for local Anchor Point relative to Registration Point (0,0)
         var localAnchorX = element.transformationPoint.x;
         var localAnchorY = element.transformationPoint.y;
-        dom.resetTransform();
+        dom.resetTransformation();
         var rect = dom.getSelectionRect();
         var width = rect.right - rect.left;
         var height = rect.bottom - rect.top;

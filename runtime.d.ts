@@ -32,7 +32,7 @@ interface FlashDocument {
     setTransformationPoint(pt: FlashPoint): void;
     selectAll(): void;
     selectNone(): void;
-    resetTransform(): void;
+    resetTransformation(): void;
     getSelectionRect(): FlashRect;
     group(): void;
     unGroup(): void;
