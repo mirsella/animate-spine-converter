@@ -2171,9 +2171,13 @@ var ImageUtil = /** @class */ (function () {
         var dom = fl.getDocumentDOM();
         Logger_1.Logger.assert(dom != null, 'exportLibraryItem: fl.getDocumentDOM() returned null');
         var item = element.libraryItem;
+        // Place item at origin to measure its bounds relative to registration point
         dom.library.addItemToDocument({ x: 0, y: 0 }, item.name);
-        var result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
         Logger_1.Logger.assert(dom.selection.length > 0, "exportLibraryItem: selection empty after addItemToDocument (item: ".concat(item.name, ")"));
+        // Get the element's anchor point (transformationPoint) - this is where the bone will be
+        var anchorX = element.transformationPoint.x;
+        var anchorY = element.transformationPoint.y;
+        var result = ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
         dom.deleteSelection();
         return result;
     };
@@ -2183,35 +2187,40 @@ var ImageUtil = /** @class */ (function () {
         var dom = fl.getDocumentDOM();
         Logger_1.Logger.assert(dom != null, 'exportInstance: fl.getDocumentDOM() returned null');
         var item = element.libraryItem;
+        // Get the element's anchor point - this is where the bone will be positioned
+        var anchorX = element.transformationPoint.x;
+        var anchorY = element.transformationPoint.y;
         document.library.editItem(item.name);
         dom.selectAll();
-        var result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
+        var result = ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
         dom.selectNone();
         document.library.editItem(document.name);
         return result;
     };
-    ImageUtil.exportSelection = function (imagePath, dom, scale, exportImages) {
-        Logger_1.Logger.assert(dom.selection.length > 0, "exportSelection: no selection available for export (imagePath: ".concat(imagePath, ")"));
-        Logger_1.Logger.assert(dom.selection[0] != null, "exportSelection: selection[0] is null (imagePath: ".concat(imagePath, ")"));
-        var element = dom.selection[0];
-        // Use transformationPoint for local Anchor Point relative to Registration Point (0,0)
-        var localAnchorX = element.transformationPoint.x;
-        var localAnchorY = element.transformationPoint.y;
+    /**
+     * Export selection using the provided anchor point for offset calculation.
+     * The anchor point is where the bone is positioned, so the attachment offset
+     * should be from anchor to image center.
+     */
+    ImageUtil.exportSelectionWithAnchor = function (imagePath, dom, scale, exportImages, anchorX, anchorY) {
+        Logger_1.Logger.assert(dom.selection.length > 0, "exportSelectionWithAnchor: no selection available for export (imagePath: ".concat(imagePath, ")"));
         dom.resetTransformation();
         var rect = dom.getSelectionRect();
         var width = rect.right - rect.left;
         var height = rect.bottom - rect.top;
         var w = Math.ceil(width * scale);
         var h = Math.ceil(height * scale);
+        // Image center in local coordinates (relative to registration point at 0,0)
         var centerX = rect.left + width / 2;
         var centerY = rect.top + height / 2;
-        // Offset from Anchor Point to Center Point
-        var offsetX = centerX - localAnchorX;
-        var offsetY = centerY - localAnchorY;
+        // Offset from Anchor Point (bone position) to Image Center
+        var offsetX = centerX - anchorX;
+        var offsetY = centerY - anchorY;
         if (exportImages) {
+            dom.selectAll();
             dom.group();
             var tempDoc = fl.createDocument();
-            Logger_1.Logger.assert(tempDoc != null, "exportSelection: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
+            Logger_1.Logger.assert(tempDoc != null, "exportSelectionWithAnchor: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
             dom.clipCopy();
@@ -2224,6 +2233,18 @@ var ImageUtil = /** @class */ (function () {
             dom.unGroup();
         }
         return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
+    };
+    /**
+     * Export selection using the first selected element's transformationPoint as anchor.
+     * Used for shape exports where we don't have a separate anchor reference.
+     */
+    ImageUtil.exportSelection = function (imagePath, dom, scale, exportImages) {
+        Logger_1.Logger.assert(dom.selection.length > 0, "exportSelection: no selection available for export (imagePath: ".concat(imagePath, ")"));
+        Logger_1.Logger.assert(dom.selection[0] != null, "exportSelection: selection[0] is null (imagePath: ".concat(imagePath, ")"));
+        var element = dom.selection[0];
+        var anchorX = element.transformationPoint.x;
+        var anchorY = element.transformationPoint.y;
+        return ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
     };
     return ImageUtil;
 }());

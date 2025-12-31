@@ -21,10 +21,15 @@ export class ImageUtil {
         Logger.assert(dom != null, 'exportLibraryItem: fl.getDocumentDOM() returned null');
         const item = element.libraryItem;
         
+        // Place item at origin to measure its bounds relative to registration point
         dom.library.addItemToDocument({x: 0, y: 0}, item.name);
-        
-        const result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
         Logger.assert(dom.selection.length > 0, `exportLibraryItem: selection empty after addItemToDocument (item: ${item.name})`);
+        
+        // Get the element's anchor point (transformationPoint) - this is where the bone will be
+        const anchorX = element.transformationPoint.x;
+        const anchorY = element.transformationPoint.y;
+        
+        const result = ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
         dom.deleteSelection();
         
         return result;
@@ -36,10 +41,14 @@ export class ImageUtil {
         Logger.assert(dom != null, 'exportInstance: fl.getDocumentDOM() returned null');
         const item = element.libraryItem;
         
+        // Get the element's anchor point - this is where the bone will be positioned
+        const anchorX = element.transformationPoint.x;
+        const anchorY = element.transformationPoint.y;
+        
         document.library.editItem(item.name);
         dom.selectAll();
         
-        const result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
+        const result = ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
         
         dom.selectNone();
         document.library.editItem(document.name);
@@ -47,16 +56,14 @@ export class ImageUtil {
         return result;
     }
 
-    public static exportSelection(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean):SpineImage {
-        Logger.assert(dom.selection.length > 0, `exportSelection: no selection available for export (imagePath: ${imagePath})`);
-        Logger.assert(dom.selection[0] != null, `exportSelection: selection[0] is null (imagePath: ${imagePath})`);
+    /**
+     * Export selection using the provided anchor point for offset calculation.
+     * The anchor point is where the bone is positioned, so the attachment offset
+     * should be from anchor to image center.
+     */
+    public static exportSelectionWithAnchor(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean, anchorX:number, anchorY:number):SpineImage {
+        Logger.assert(dom.selection.length > 0, `exportSelectionWithAnchor: no selection available for export (imagePath: ${imagePath})`);
 
-        const element = dom.selection[0];
-        
-        // Use transformationPoint for local Anchor Point relative to Registration Point (0,0)
-        const localAnchorX = element.transformationPoint.x;
-        const localAnchorY = element.transformationPoint.y;
-        
         dom.resetTransformation();
         const rect = dom.getSelectionRect();
         
@@ -65,18 +72,20 @@ export class ImageUtil {
         const w = Math.ceil(width * scale);
         const h = Math.ceil(height * scale);
         
+        // Image center in local coordinates (relative to registration point at 0,0)
         const centerX = rect.left + width / 2;
         const centerY = rect.top + height / 2;
 
-        // Offset from Anchor Point to Center Point
-        const offsetX = centerX - localAnchorX;
-        const offsetY = centerY - localAnchorY;
+        // Offset from Anchor Point (bone position) to Image Center
+        const offsetX = centerX - anchorX;
+        const offsetY = centerY - anchorY;
 
         if (exportImages) {
+            dom.selectAll();
             dom.group();
             
             const tempDoc = fl.createDocument();
-            Logger.assert(tempDoc != null, `exportSelection: fl.createDocument() returned null (imagePath: ${imagePath})`);
+            Logger.assert(tempDoc != null, `exportSelectionWithAnchor: fl.createDocument() returned null (imagePath: ${imagePath})`);
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
             
@@ -94,5 +103,20 @@ export class ImageUtil {
         }
 
         return new SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
+    }
+
+    /**
+     * Export selection using the first selected element's transformationPoint as anchor.
+     * Used for shape exports where we don't have a separate anchor reference.
+     */
+    public static exportSelection(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean):SpineImage {
+        Logger.assert(dom.selection.length > 0, `exportSelection: no selection available for export (imagePath: ${imagePath})`);
+        Logger.assert(dom.selection[0] != null, `exportSelection: selection[0] is null (imagePath: ${imagePath})`);
+
+        const element = dom.selection[0];
+        const anchorX = element.transformationPoint.x;
+        const anchorY = element.transformationPoint.y;
+        
+        return ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
     }
 }
