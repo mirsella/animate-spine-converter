@@ -21,13 +21,16 @@ export class ImageUtil {
         Logger.assert(dom != null, 'exportLibraryItem: fl.getDocumentDOM() returned null');
         const item = element.libraryItem;
         
-        // Place item at origin to measure its bounds relative to registration point
+        // Place item at origin - the registration point (0,0) is where the bone will be
         dom.library.addItemToDocument({x: 0, y: 0}, item.name);
         Logger.assert(dom.selection.length > 0, `exportLibraryItem: selection empty after addItemToDocument (item: ${item.name})`);
         
-        // Get the element's anchor point (transformationPoint) - this is where the bone will be
-        const anchorX = element.transformationPoint.x;
-        const anchorY = element.transformationPoint.y;
+        // The bone is at the registration point (0,0), so anchor for offset calculation is (0,0)
+        // The attachment offset = imageCenter - anchor = imageCenter - (0,0) = imageCenter
+        const anchorX = 0;
+        const anchorY = 0;
+        
+        Logger.trace(`[exportLibraryItem] ${item.name}: anchor at registration point (0, 0)`);
         
         const result = ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
         dom.deleteSelection();
@@ -41,12 +44,15 @@ export class ImageUtil {
         Logger.assert(dom != null, 'exportInstance: fl.getDocumentDOM() returned null');
         const item = element.libraryItem;
         
-        // Get the element's anchor point - this is where the bone will be positioned
-        const anchorX = element.transformationPoint.x;
-        const anchorY = element.transformationPoint.y;
-        
+        // Enter the symbol to export its contents
         document.library.editItem(item.name);
         dom.selectAll();
+        
+        // The bone is at the symbol's registration point (0,0), so anchor is (0,0)
+        const anchorX = 0;
+        const anchorY = 0;
+        
+        Logger.trace(`[exportInstance] ${item.name}: anchor at registration point (0, 0)`);
         
         const result = ImageUtil.exportSelectionWithAnchor(imagePath, dom, scale, exportImages, anchorX, anchorY);
         
@@ -79,6 +85,16 @@ export class ImageUtil {
         // Offset from Anchor Point (bone position) to Image Center
         const offsetX = centerX - anchorX;
         const offsetY = centerY - anchorY;
+        
+        // Debug: trace attachment offset calculation
+        const pathParts = imagePath.split('/');
+        const imageName = pathParts[pathParts.length - 1];
+        Logger.trace(`[Attachment] ${imageName}:`);
+        Logger.trace(`  rect: left=${rect.left.toFixed(2)} top=${rect.top.toFixed(2)} right=${rect.right.toFixed(2)} bottom=${rect.bottom.toFixed(2)}`);
+        Logger.trace(`  size: ${width.toFixed(2)} x ${height.toFixed(2)}`);
+        Logger.trace(`  imageCenter: (${centerX.toFixed(2)}, ${centerY.toFixed(2)})`);
+        Logger.trace(`  anchorPoint: (${anchorX.toFixed(2)}, ${anchorY.toFixed(2)})`);
+        Logger.trace(`  offset: (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) -> spine: (${offsetX.toFixed(2)}, ${(-offsetY).toFixed(2)})`);
 
         if (exportImages) {
             dom.selectAll();
