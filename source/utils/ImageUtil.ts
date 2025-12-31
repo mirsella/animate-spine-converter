@@ -107,17 +107,21 @@ export class ImageUtil {
         Logger.trace(`  offset: (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) -> spine: (${offsetX.toFixed(2)}, ${(-offsetY).toFixed(2)})`);
 
         if (exportImages) {
+            // Copy BEFORE creating temp doc to ensure we copy from correct context
+            dom.clipCopy();
+            
             const tempDoc = fl.createDocument();
             Logger.assert(tempDoc != null, `exportInstanceContents: fl.createDocument() returned null (imagePath: ${imagePath})`);
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
             
-            dom.clipCopy();
             tempDoc.clipPaste();
             
-            const pasted = tempDoc.selection[0];
-            pasted.x = (tempDoc.width - pasted.width) / 2;
-            pasted.y = (tempDoc.height - pasted.height) / 2;
+            if (tempDoc.selection.length > 0) {
+                const pasted = tempDoc.selection[0];
+                pasted.x = (tempDoc.width - pasted.width) / 2;
+                pasted.y = (tempDoc.height - pasted.height) / 2;
+            }
             
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
@@ -162,7 +166,7 @@ export class ImageUtil {
         Logger.trace(`  offset: (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) -> spine: (${offsetX.toFixed(2)}, ${(-offsetY).toFixed(2)})`);
 
         if (exportImages) {
-            // Copy the current selection (don't use selectAll/group which modifies the document)
+            // Copy BEFORE creating temp doc to ensure we copy from correct context
             dom.clipCopy();
             
             const tempDoc = fl.createDocument();
@@ -221,17 +225,22 @@ export class ImageUtil {
         Logger.trace(`  offset: (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) -> spine: (${offsetX.toFixed(2)}, ${(-offsetY).toFixed(2)})`);
 
         if (exportImages) {
+            // Copy BEFORE creating temp doc to ensure we copy from correct context
+            dom.clipCopy();
+            
             const tempDoc = fl.createDocument();
             Logger.assert(tempDoc != null, `exportSelectionOnly: fl.createDocument() returned null (imagePath: ${imagePath})`);
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
             
-            dom.clipCopy();
+            // Paste into the new document (fl.createDocument makes it active)
             tempDoc.clipPaste();
             
-            const pasted = tempDoc.selection[0];
-            pasted.x = (tempDoc.width - pasted.width) / 2;
-            pasted.y = (tempDoc.height - pasted.height) / 2;
+            if (tempDoc.selection.length > 0) {
+                const pasted = tempDoc.selection[0];
+                pasted.x = (tempDoc.width - pasted.width) / 2;
+                pasted.y = (tempDoc.height - pasted.height) / 2;
+            }
             
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);

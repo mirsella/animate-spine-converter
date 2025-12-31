@@ -2237,15 +2237,18 @@ var ImageUtil = /** @class */ (function () {
         Logger_1.Logger.trace("  anchorPoint: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ")"));
         Logger_1.Logger.trace("  offset: (".concat(offsetX.toFixed(2), ", ").concat(offsetY.toFixed(2), ") -> spine: (").concat(offsetX.toFixed(2), ", ").concat((-offsetY).toFixed(2), ")"));
         if (exportImages) {
+            // Copy BEFORE creating temp doc to ensure we copy from correct context
+            dom.clipCopy();
             var tempDoc = fl.createDocument();
             Logger_1.Logger.assert(tempDoc != null, "exportInstanceContents: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
-            dom.clipCopy();
             tempDoc.clipPaste();
-            var pasted = tempDoc.selection[0];
-            pasted.x = (tempDoc.width - pasted.width) / 2;
-            pasted.y = (tempDoc.height - pasted.height) / 2;
+            if (tempDoc.selection.length > 0) {
+                var pasted = tempDoc.selection[0];
+                pasted.x = (tempDoc.width - pasted.width) / 2;
+                pasted.y = (tempDoc.height - pasted.height) / 2;
+            }
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
         }
@@ -2281,7 +2284,7 @@ var ImageUtil = /** @class */ (function () {
         Logger_1.Logger.trace("  anchorPoint: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ")"));
         Logger_1.Logger.trace("  offset: (".concat(offsetX.toFixed(2), ", ").concat(offsetY.toFixed(2), ") -> spine: (").concat(offsetX.toFixed(2), ", ").concat((-offsetY).toFixed(2), ")"));
         if (exportImages) {
-            // Copy the current selection (don't use selectAll/group which modifies the document)
+            // Copy BEFORE creating temp doc to ensure we copy from correct context
             dom.clipCopy();
             var tempDoc = fl.createDocument();
             Logger_1.Logger.assert(tempDoc != null, "exportSelectionWithAnchor: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
@@ -2328,15 +2331,19 @@ var ImageUtil = /** @class */ (function () {
         Logger_1.Logger.trace("  anchorPoint: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ")"));
         Logger_1.Logger.trace("  offset: (".concat(offsetX.toFixed(2), ", ").concat(offsetY.toFixed(2), ") -> spine: (").concat(offsetX.toFixed(2), ", ").concat((-offsetY).toFixed(2), ")"));
         if (exportImages) {
+            // Copy BEFORE creating temp doc to ensure we copy from correct context
+            dom.clipCopy();
             var tempDoc = fl.createDocument();
             Logger_1.Logger.assert(tempDoc != null, "exportSelectionOnly: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
-            dom.clipCopy();
+            // Paste into the new document (fl.createDocument makes it active)
             tempDoc.clipPaste();
-            var pasted = tempDoc.selection[0];
-            pasted.x = (tempDoc.width - pasted.width) / 2;
-            pasted.y = (tempDoc.height - pasted.height) / 2;
+            if (tempDoc.selection.length > 0) {
+                var pasted = tempDoc.selection[0];
+                pasted.x = (tempDoc.width - pasted.width) / 2;
+                pasted.y = (tempDoc.height - pasted.height) / 2;
+            }
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
         }
