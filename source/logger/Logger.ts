@@ -20,6 +20,15 @@ export class Logger {
         Logger._instance.trace('[ERROR] ' + params.join(' '));
     }
 
+    public static assert(condition:boolean, message:string):void {
+        if (!condition) {
+            const errorMsg = '[ASSERT FAILED] ' + message;
+            Logger._instance.trace(errorMsg);
+            Logger._instance.flush();
+            throw new Error(errorMsg);
+        }
+    }
+
     public static flush():void {
         Logger._instance.flush();
     }

@@ -1,5 +1,6 @@
 import { ConverterContext } from '../core/ConverterContext';
 import { ConverterFrameLabel } from '../core/ConverterFrameLabel';
+import { Logger } from '../logger/Logger';
 import { SpineBlendMode } from '../spine/types/SpineBlendMode';
 import { JsonUtil } from './JsonUtil';
 import { StringUtil } from './StringUtil';
@@ -14,6 +15,7 @@ export class ConvertUtil {
             } else if (JsonUtil.validString(element.layer.name)) {
                 result = element.layer.name;
             } else {
+                Logger.assert(element.libraryItem != null, `createElementName: instance element has no libraryItem and no valid name/layer.name (layer: ${element.layer?.name || 'unknown'})`);
                 result = element.libraryItem.name;
             }
         } else {
@@ -45,14 +47,9 @@ export class ConvertUtil {
         const labels:ConverterFrameLabel[] = [];
         const item = (element as any).libraryItem;
 
-        if (!item || !item.timeline) {
-            labels.push({
-                endFrameIdx: 0,
-                startFrameIdx: 0,
-                name: 'default'
-            });
-            return labels;
-        }
+        Logger.assert(item != null, `obtainElementLabels: element has no libraryItem. Only symbol instances can have frame labels. (element: ${element.name || element.layer?.name || 'unknown'}, elementType: ${element.elementType})`);
+        Logger.assert(item.timeline != null, `obtainElementLabels: libraryItem has no timeline. (item: ${item.name})`);
+
 
         const timeline = item.timeline;
         const layers = timeline.layers;
@@ -92,9 +89,8 @@ export class ConvertUtil {
         let result = '';
 
         if (element.instanceType === 'bitmap' || element.instanceType === 'symbol') {
-            if ((element as any).libraryItem) {
-                result = (element as any).libraryItem.name;
-            }
+            Logger.assert((element as any).libraryItem != null, `createAttachmentName: bitmap/symbol instance has no libraryItem (element: ${element.name || element.layer?.name || 'unknown'}, instanceType: ${element.instanceType})`);
+            result = (element as any).libraryItem.name;
         }
 
         if (result === '' || result == null) {

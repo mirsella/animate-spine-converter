@@ -3,6 +3,7 @@ import { SpineImage } from '../spine/SpineImage';
 
 export class ImageUtil {
     public static exportBitmap(imagePath:string, element:FlashElement, exportImages:boolean):SpineImage {
+        Logger.assert(element.libraryItem != null, `exportBitmap: element has no libraryItem (element: ${element.name || element.layer?.name || 'unknown'})`);
         const item = element.libraryItem as any;
         const w = item.hPixels || item.width || 0;
         const h = item.vPixels || item.height || 0;
@@ -15,45 +16,40 @@ export class ImageUtil {
     }
 
     public static exportLibraryItem(imagePath:string, element:FlashElement, scale:number, exportImages:boolean):SpineImage {
+        Logger.assert(element.libraryItem != null, `exportLibraryItem: element has no libraryItem (element: ${element.name || element.layer?.name || 'unknown'})`);
         const dom = fl.getDocumentDOM();
+        Logger.assert(dom != null, 'exportLibraryItem: fl.getDocumentDOM() returned null');
         const item = element.libraryItem;
         
         dom.library.addItemToDocument({x: 0, y: 0}, item.name);
         
         const result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
-        if (dom.selection.length > 0) {
-            dom.deleteSelection();
-        }
+        Logger.assert(dom.selection.length > 0, `exportLibraryItem: selection empty after addItemToDocument (item: ${item.name})`);
+        dom.deleteSelection();
         
         return result;
     }
 
     public static exportInstance(imagePath:string, element:FlashElement, document:FlashDocument, scale:number, exportImages:boolean):SpineImage {
+        Logger.assert(element.libraryItem != null, `exportInstance: element has no libraryItem. Raw shapes must be converted to symbols first. (element: ${element.name || element.layer?.name || 'unknown'}, elementType: ${element.elementType}, instanceType: ${(element as any).instanceType || 'none'})`);
         const dom = fl.getDocumentDOM();
-        const item = (element as any).libraryItem;
+        Logger.assert(dom != null, 'exportInstance: fl.getDocumentDOM() returned null');
+        const item = element.libraryItem;
         
-        if (item) {
-            document.library.editItem(item.name);
-            dom.selectAll();
-        } else {
-            dom.selectNone();
-            element.selected = true;
-        }
+        document.library.editItem(item.name);
+        dom.selectAll();
         
         const result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
         
-        if (item) {
-            dom.selectNone();
-            document.library.editItem(document.name);
-        }
+        dom.selectNone();
+        document.library.editItem(document.name);
         
         return result;
     }
 
     public static exportSelection(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean):SpineImage {
-        if (dom.selection.length === 0) {
-            return new SpineImage(imagePath, 0, 0, scale, 0, 0);
-        }
+        Logger.assert(dom.selection.length > 0, `exportSelection: no selection available for export (imagePath: ${imagePath})`);
+        Logger.assert(dom.selection[0] != null, `exportSelection: selection[0] is null (imagePath: ${imagePath})`);
 
         const element = dom.selection[0];
         
@@ -80,13 +76,11 @@ export class ImageUtil {
             dom.group();
             
             const tempDoc = fl.createDocument();
+            Logger.assert(tempDoc != null, `exportSelection: fl.createDocument() returned null (imagePath: ${imagePath})`);
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
             
-            if ((fl as any).selectActiveWindow) (fl as any).selectActiveWindow(dom);
             dom.clipCopy();
-            
-            if ((fl as any).selectActiveWindow) (fl as any).selectActiveWindow(tempDoc);
             tempDoc.clipPaste();
             
             const pasted = tempDoc.selection[0];
@@ -96,7 +90,6 @@ export class ImageUtil {
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
             
-            if ((fl as any).selectActiveWindow) (fl as any).selectActiveWindow(dom);
             dom.unGroup();
         }
 

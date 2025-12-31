@@ -505,10 +505,13 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         return _super.call(this) || this;
     }
     ConverterContextGlobal.initializeGlobal = function (element, config, frameRate, skeleton, cache) {
+        var _a;
         if (skeleton === void 0) { skeleton = null; }
         if (cache === void 0) { cache = null; }
         var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
-        var name = StringUtil_1.StringUtil.simplify(element.libraryItem.name);
+        var libraryItem = element.libraryItem;
+        Logger_1.Logger.assert(libraryItem || element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name), "Root element must have a libraryItem, name, or layer name. Got elementType=".concat(element.elementType));
+        var name = libraryItem ? StringUtil_1.StringUtil.simplify(libraryItem.name) : (element.name ? StringUtil_1.StringUtil.simplify(element.name) : StringUtil_1.StringUtil.simplify(element.layer.name));
         var context = (cache == null) ? ConverterContextGlobal.initializeCache() : cache;
         context.global = context;
         context.stageType = "animation" /* ConverterStageType.ANIMATION */;
@@ -635,6 +638,14 @@ var Logger = /** @class */ (function () {
             params[_i] = arguments[_i];
         }
         Logger._instance.trace('[ERROR] ' + params.join(' '));
+    };
+    Logger.assert = function (condition, message) {
+        if (!condition) {
+            var errorMsg = '[ASSERT FAILED] ' + message;
+            Logger._instance.trace(errorMsg);
+            Logger._instance.flush();
+            throw new Error(errorMsg);
+        }
     };
     Logger.flush = function () {
         Logger._instance.flush();
@@ -2008,12 +2019,14 @@ exports.SpineTransformMatrix = SpineTransformMatrix;
 
 
 exports.ConvertUtil = void 0;
+var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var JsonUtil_1 = __webpack_require__(/*! ./JsonUtil */ "./source/utils/JsonUtil.ts");
 var StringUtil_1 = __webpack_require__(/*! ./StringUtil */ "./source/utils/StringUtil.ts");
 var ConvertUtil = /** @class */ (function () {
     function ConvertUtil() {
     }
     ConvertUtil.createElementName = function (element, context) {
+        var _a;
         var result = element.layer.name;
         if (element.elementType === 'instance') {
             if (JsonUtil_1.JsonUtil.validString(element.name)) {
@@ -2023,6 +2036,7 @@ var ConvertUtil = /** @class */ (function () {
                 result = element.layer.name;
             }
             else {
+                Logger_1.Logger.assert(element.libraryItem != null, "createElementName: instance element has no libraryItem and no valid name/layer.name (layer: ".concat(((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ")"));
                 result = element.libraryItem.name;
             }
         }
@@ -2053,8 +2067,12 @@ var ConvertUtil = /** @class */ (function () {
         }
     };
     ConvertUtil.obtainElementLabels = function (element) {
+        var _a;
         var labels = [];
-        var timeline = element.libraryItem.timeline;
+        var item = element.libraryItem;
+        Logger_1.Logger.assert(item != null, "obtainElementLabels: element has no libraryItem. Only symbol instances can have frame labels. (element: ".concat(element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ", elementType: ").concat(element.elementType, ")"));
+        Logger_1.Logger.assert(item.timeline != null, "obtainElementLabels: libraryItem has no timeline. (item: ".concat(item.name, ")"));
+        var timeline = item.timeline;
         var layers = timeline.layers;
         for (var _i = 0, layers_1 = layers; _i < layers_1.length; _i++) {
             var layer = layers_1[_i];
@@ -2075,7 +2093,7 @@ var ConvertUtil = /** @class */ (function () {
         }
         if (labels.length === 0) {
             labels.push({
-                endFrameIdx: element.libraryItem.timeline.frameCount - 1,
+                endFrameIdx: item.timeline.frameCount - 1,
                 startFrameIdx: 0,
                 name: 'default'
             });
@@ -2083,8 +2101,10 @@ var ConvertUtil = /** @class */ (function () {
         return labels;
     };
     ConvertUtil.createAttachmentName = function (element, context) {
+        var _a;
         var result = '';
         if (element.instanceType === 'bitmap' || element.instanceType === 'symbol') {
+            Logger_1.Logger.assert(element.libraryItem != null, "createAttachmentName: bitmap/symbol instance has no libraryItem (element: ".concat(element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ", instanceType: ").concat(element.instanceType, ")"));
             result = element.libraryItem.name;
         }
         if (result === '' || result == null) {
@@ -2129,11 +2149,14 @@ exports.ConvertUtil = ConvertUtil;
 
 
 exports.ImageUtil = void 0;
+var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineImage_1 = __webpack_require__(/*! ../spine/SpineImage */ "./source/spine/SpineImage.ts");
 var ImageUtil = /** @class */ (function () {
     function ImageUtil() {
     }
     ImageUtil.exportBitmap = function (imagePath, element, exportImages) {
+        var _a;
+        Logger_1.Logger.assert(element.libraryItem != null, "exportBitmap: element has no libraryItem (element: ".concat(element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ")"));
         var item = element.libraryItem;
         var w = item.hPixels || item.width || 0;
         var h = item.vPixels || item.height || 0;
@@ -2143,18 +2166,24 @@ var ImageUtil = /** @class */ (function () {
         return new SpineImage_1.SpineImage(imagePath, w, h, 1, 0, 0);
     };
     ImageUtil.exportLibraryItem = function (imagePath, element, scale, exportImages) {
+        var _a;
+        Logger_1.Logger.assert(element.libraryItem != null, "exportLibraryItem: element has no libraryItem (element: ".concat(element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ")"));
         var dom = fl.getDocumentDOM();
+        Logger_1.Logger.assert(dom != null, 'exportLibraryItem: fl.getDocumentDOM() returned null');
         var item = element.libraryItem;
         dom.library.addItemToDocument({ x: 0, y: 0 }, item.name);
         var result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
-        if (dom.selection.length > 0) {
-            dom.deleteSelection();
-        }
+        Logger_1.Logger.assert(dom.selection.length > 0, "exportLibraryItem: selection empty after addItemToDocument (item: ".concat(item.name, ")"));
+        dom.deleteSelection();
         return result;
     };
     ImageUtil.exportInstance = function (imagePath, element, document, scale, exportImages) {
+        var _a;
+        Logger_1.Logger.assert(element.libraryItem != null, "exportInstance: element has no libraryItem. Raw shapes must be converted to symbols first. (element: ".concat(element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ", elementType: ").concat(element.elementType, ", instanceType: ").concat(element.instanceType || 'none', ")"));
         var dom = fl.getDocumentDOM();
-        document.library.editItem(element.libraryItem.name);
+        Logger_1.Logger.assert(dom != null, 'exportInstance: fl.getDocumentDOM() returned null');
+        var item = element.libraryItem;
+        document.library.editItem(item.name);
         dom.selectAll();
         var result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
         dom.selectNone();
@@ -2162,9 +2191,8 @@ var ImageUtil = /** @class */ (function () {
         return result;
     };
     ImageUtil.exportSelection = function (imagePath, dom, scale, exportImages) {
-        if (dom.selection.length === 0) {
-            return new SpineImage_1.SpineImage(imagePath, 0, 0, scale, 0, 0);
-        }
+        Logger_1.Logger.assert(dom.selection.length > 0, "exportSelection: no selection available for export (imagePath: ".concat(imagePath, ")"));
+        Logger_1.Logger.assert(dom.selection[0] != null, "exportSelection: selection[0] is null (imagePath: ".concat(imagePath, ")"));
         var element = dom.selection[0];
         // Use transformationPoint for local Anchor Point relative to Registration Point (0,0)
         var localAnchorX = element.transformationPoint.x;
@@ -2183,21 +2211,16 @@ var ImageUtil = /** @class */ (function () {
         if (exportImages) {
             dom.group();
             var tempDoc = fl.createDocument();
+            Logger_1.Logger.assert(tempDoc != null, "exportSelection: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
-            if (fl.selectActiveWindow)
-                fl.selectActiveWindow(dom);
             dom.clipCopy();
-            if (fl.selectActiveWindow)
-                fl.selectActiveWindow(tempDoc);
             tempDoc.clipPaste();
             var pasted = tempDoc.selection[0];
             pasted.x = (tempDoc.width - pasted.width) / 2;
             pasted.y = (tempDoc.height - pasted.height) / 2;
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
-            if (fl.selectActiveWindow)
-                fl.selectActiveWindow(dom);
             dom.unGroup();
         }
         return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
