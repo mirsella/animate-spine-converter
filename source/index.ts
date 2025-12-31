@@ -9,7 +9,7 @@ import { SpineSkeletonHelper } from './spine/SpineSkeletonHelper';
 const config:ConverterConfig = {
     outputFormat: new SpineFormatV4_2_00(),
     imagesExportPath: './images/',
-    appendSkeletonToImagesPath: true,
+    appendSkeletonToImagesPath: false,
     mergeSkeletons: false,
     mergeSkeletonsRootBone: false,
     transformRootBone: false,

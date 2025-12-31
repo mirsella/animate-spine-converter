@@ -21,7 +21,9 @@ export class ImageUtil {
         dom.library.addItemToDocument({x: 0, y: 0}, item.name);
         
         const result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
-        dom.deleteSelection();
+        if (dom.selection.length > 0) {
+            dom.deleteSelection();
+        }
         
         return result;
     }
@@ -73,10 +75,10 @@ export class ImageUtil {
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
             
-            fl.selectActiveWindow(dom);
+            if ((fl as any).selectActiveWindow) (fl as any).selectActiveWindow(dom);
             dom.clipCopy();
             
-            fl.selectActiveWindow(tempDoc);
+            if ((fl as any).selectActiveWindow) (fl as any).selectActiveWindow(tempDoc);
             tempDoc.clipPaste();
             
             const pasted = tempDoc.selection[0];
@@ -86,7 +88,7 @@ export class ImageUtil {
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
             
-            fl.selectActiveWindow(dom);
+            if ((fl as any).selectActiveWindow) (fl as any).selectActiveWindow(dom);
             dom.unGroup();
         }
 

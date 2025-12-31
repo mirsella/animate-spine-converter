@@ -2147,7 +2147,9 @@ var ImageUtil = /** @class */ (function () {
         var item = element.libraryItem;
         dom.library.addItemToDocument({ x: 0, y: 0 }, item.name);
         var result = ImageUtil.exportSelection(imagePath, dom, scale, exportImages);
-        dom.deleteSelection();
+        if (dom.selection.length > 0) {
+            dom.deleteSelection();
+        }
         return result;
     };
     ImageUtil.exportInstance = function (imagePath, element, document, scale, exportImages) {
@@ -2183,16 +2185,19 @@ var ImageUtil = /** @class */ (function () {
             var tempDoc = fl.createDocument();
             tempDoc.width = w + 100;
             tempDoc.height = h + 100;
-            fl.selectActiveWindow(dom);
+            if (fl.selectActiveWindow)
+                fl.selectActiveWindow(dom);
             dom.clipCopy();
-            fl.selectActiveWindow(tempDoc);
+            if (fl.selectActiveWindow)
+                fl.selectActiveWindow(tempDoc);
             tempDoc.clipPaste();
             var pasted = tempDoc.selection[0];
             pasted.x = (tempDoc.width - pasted.width) / 2;
             pasted.y = (tempDoc.height - pasted.height) / 2;
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
-            fl.selectActiveWindow(dom);
+            if (fl.selectActiveWindow)
+                fl.selectActiveWindow(dom);
             dom.unGroup();
         }
         return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
@@ -2907,7 +2912,7 @@ var SpineSkeletonHelper_1 = __webpack_require__(/*! ./spine/SpineSkeletonHelper 
 var config = {
     outputFormat: new SpineFormatV4_2_00_1.SpineFormatV4_2_00(),
     imagesExportPath: './images/',
-    appendSkeletonToImagesPath: true,
+    appendSkeletonToImagesPath: false,
     mergeSkeletons: false,
     mergeSkeletonsRootBone: false,
     transformRootBone: false,
