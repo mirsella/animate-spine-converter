@@ -119,6 +119,9 @@ export class ImageUtil {
             
             if (tempDoc.selection.length > 0) {
                 const pasted = tempDoc.selection[0];
+                // Scale the pasted content to match the export scale
+                pasted.scaleX *= scale;
+                pasted.scaleY *= scale;
                 pasted.x = (tempDoc.width - pasted.width) / 2;
                 pasted.y = (tempDoc.height - pasted.height) / 2;
             }
@@ -179,6 +182,9 @@ export class ImageUtil {
             // Center the pasted content
             if (tempDoc.selection.length > 0) {
                 const pasted = tempDoc.selection[0];
+                // Scale the pasted content to match the export scale
+                pasted.scaleX *= scale;
+                pasted.scaleY *= scale;
                 pasted.x = (tempDoc.width - pasted.width) / 2;
                 pasted.y = (tempDoc.height - pasted.height) / 2;
             }
@@ -238,6 +244,9 @@ export class ImageUtil {
             
             if (tempDoc.selection.length > 0) {
                 const pasted = tempDoc.selection[0];
+                // Scale the pasted content to match the export scale
+                pasted.scaleX *= scale;
+                pasted.scaleY *= scale;
                 pasted.x = (tempDoc.width - pasted.width) / 2;
                 pasted.y = (tempDoc.height - pasted.height) / 2;
             }

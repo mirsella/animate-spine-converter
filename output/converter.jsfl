@@ -2246,6 +2246,9 @@ var ImageUtil = /** @class */ (function () {
             tempDoc.clipPaste();
             if (tempDoc.selection.length > 0) {
                 var pasted = tempDoc.selection[0];
+                // Scale the pasted content to match the export scale
+                pasted.scaleX *= scale;
+                pasted.scaleY *= scale;
                 pasted.x = (tempDoc.width - pasted.width) / 2;
                 pasted.y = (tempDoc.height - pasted.height) / 2;
             }
@@ -2294,6 +2297,9 @@ var ImageUtil = /** @class */ (function () {
             // Center the pasted content
             if (tempDoc.selection.length > 0) {
                 var pasted = tempDoc.selection[0];
+                // Scale the pasted content to match the export scale
+                pasted.scaleX *= scale;
+                pasted.scaleY *= scale;
                 pasted.x = (tempDoc.width - pasted.width) / 2;
                 pasted.y = (tempDoc.height - pasted.height) / 2;
             }
@@ -2341,6 +2347,9 @@ var ImageUtil = /** @class */ (function () {
             tempDoc.clipPaste();
             if (tempDoc.selection.length > 0) {
                 var pasted = tempDoc.selection[0];
+                // Scale the pasted content to match the export scale
+                pasted.scaleX *= scale;
+                pasted.scaleY *= scale;
                 pasted.x = (tempDoc.width - pasted.width) / 2;
                 pasted.y = (tempDoc.height - pasted.height) / 2;
             }
