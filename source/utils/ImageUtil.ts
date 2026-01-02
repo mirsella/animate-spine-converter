@@ -12,7 +12,14 @@ export class ImageUtil {
             item.exportToFile(imagePath);
         }
 
-        return new SpineImage(imagePath, w, h, 1, 0, 0);
+        // Calculate offset from transformation point (bone) to image center
+        // For a raw bitmap, the internal center is (w/2, h/2)
+        const anchorX = element.transformationPoint.x;
+        const anchorY = element.transformationPoint.y;
+        const offsetX = (w / 2) - anchorX;
+        const offsetY = (h / 2) - anchorY;
+
+        return new SpineImage(imagePath, w, h, 1, offsetX, -offsetY);
     }
 
     public static exportLibraryItem(imagePath:string, element:FlashElement, scale:number, exportImages:boolean):SpineImage {
@@ -32,7 +39,6 @@ export class ImageUtil {
         const addedElement = dom.selection[0];
         
         // The bone is at the registration point (0,0), so anchor for offset calculation is (0,0)
-        // The attachment offset = imageCenter - anchor = imageCenter - (0,0) = imageCenter
         const anchorX = 0;
         const anchorY = 0;
         
@@ -80,13 +86,12 @@ export class ImageUtil {
     public static exportInstanceContents(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean, anchorX:number, anchorY:number):SpineImage {
         Logger.assert(dom.selection.length > 0, `exportInstanceContents: no selection available for export (imagePath: ${imagePath})`);
 
-        dom.resetTransformation();
         const rect = dom.getSelectionRect();
         
         const width = rect.right - rect.left;
         const height = rect.bottom - rect.top;
-        const w = Math.ceil(width * scale);
-        const h = Math.ceil(height * scale);
+        const w = Math.max(1, Math.ceil(width * scale));
+        const h = Math.max(1, Math.ceil(height * scale));
         
         // Image center in local coordinates (relative to registration point at 0,0)
         const centerX = rect.left + width / 2;
@@ -112,18 +117,28 @@ export class ImageUtil {
             
             const tempDoc = fl.createDocument();
             Logger.assert(tempDoc != null, `exportInstanceContents: fl.createDocument() returned null (imagePath: ${imagePath})`);
-            tempDoc.width = w + 100;
-            tempDoc.height = h + 100;
+            tempDoc.width = w;
+            tempDoc.height = h;
             
             tempDoc.clipPaste();
             
             if (tempDoc.selection.length > 0) {
-                const pasted = tempDoc.selection[0];
-                // Scale the pasted content to match the export scale
-                pasted.scaleX *= scale;
-                pasted.scaleY *= scale;
-                pasted.x = (tempDoc.width - pasted.width) / 2;
-                pasted.y = (tempDoc.height - pasted.height) / 2;
+                // Group all pasted elements to scale and center them as a single unit
+                tempDoc.selectAll();
+                tempDoc.group();
+                const group = tempDoc.selection[0];
+                
+                group.scaleX *= scale;
+                group.scaleY *= scale;
+
+                const pastedRect = tempDoc.getSelectionRect();
+                const pCenterX = (pastedRect.left + pastedRect.right) / 2;
+                const pCenterY = (pastedRect.top + pastedRect.bottom) / 2;
+
+                tempDoc.moveSelectionBy({
+                    x: (tempDoc.width / 2) - pCenterX,
+                    y: (tempDoc.height / 2) - pCenterY
+                });
             }
             
             tempDoc.exportPNG(imagePath, true, true);
@@ -142,13 +157,12 @@ export class ImageUtil {
     public static exportSelectionWithAnchor(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean, anchorX:number, anchorY:number):SpineImage {
         Logger.assert(dom.selection.length > 0, `exportSelectionWithAnchor: no selection available for export (imagePath: ${imagePath})`);
 
-        dom.resetTransformation();
         const rect = dom.getSelectionRect();
         
         const width = rect.right - rect.left;
         const height = rect.bottom - rect.top;
-        const w = Math.ceil(width * scale);
-        const h = Math.ceil(height * scale);
+        const w = Math.max(1, Math.ceil(width * scale));
+        const h = Math.max(1, Math.ceil(height * scale));
         
         // Image center in local coordinates (relative to registration point at 0,0)
         const centerX = rect.left + width / 2;
@@ -174,19 +188,28 @@ export class ImageUtil {
             
             const tempDoc = fl.createDocument();
             Logger.assert(tempDoc != null, `exportSelectionWithAnchor: fl.createDocument() returned null (imagePath: ${imagePath})`);
-            tempDoc.width = w + 100;
-            tempDoc.height = h + 100;
+            tempDoc.width = w;
+            tempDoc.height = h;
             
             tempDoc.clipPaste();
             
             // Center the pasted content
             if (tempDoc.selection.length > 0) {
-                const pasted = tempDoc.selection[0];
-                // Scale the pasted content to match the export scale
-                pasted.scaleX *= scale;
-                pasted.scaleY *= scale;
-                pasted.x = (tempDoc.width - pasted.width) / 2;
-                pasted.y = (tempDoc.height - pasted.height) / 2;
+                tempDoc.selectAll();
+                tempDoc.group();
+                const group = tempDoc.selection[0];
+                
+                group.scaleX *= scale;
+                group.scaleY *= scale;
+
+                const pastedRect = tempDoc.getSelectionRect();
+                const pCenterX = (pastedRect.left + pastedRect.right) / 2;
+                const pCenterY = (pastedRect.top + pastedRect.bottom) / 2;
+
+                tempDoc.moveSelectionBy({
+                    x: (tempDoc.width / 2) - pCenterX,
+                    y: (tempDoc.height / 2) - pCenterY
+                });
             }
             
             tempDoc.exportPNG(imagePath, true, true);
@@ -204,13 +227,12 @@ export class ImageUtil {
         dom.selectNone();
         element.selected = true;
         
-        dom.resetTransformation();
         const rect = dom.getSelectionRect();
         
         const width = rect.right - rect.left;
         const height = rect.bottom - rect.top;
-        const w = Math.ceil(width * scale);
-        const h = Math.ceil(height * scale);
+        const w = Math.max(1, Math.ceil(width * scale));
+        const h = Math.max(1, Math.ceil(height * scale));
         
         // Image center in local coordinates (relative to registration point at 0,0)
         const centerX = rect.left + width / 2;
@@ -236,19 +258,28 @@ export class ImageUtil {
             
             const tempDoc = fl.createDocument();
             Logger.assert(tempDoc != null, `exportSelectionOnly: fl.createDocument() returned null (imagePath: ${imagePath})`);
-            tempDoc.width = w + 100;
-            tempDoc.height = h + 100;
+            tempDoc.width = w;
+            tempDoc.height = h;
             
             // Paste into the new document (fl.createDocument makes it active)
             tempDoc.clipPaste();
             
             if (tempDoc.selection.length > 0) {
-                const pasted = tempDoc.selection[0];
-                // Scale the pasted content to match the export scale
-                pasted.scaleX *= scale;
-                pasted.scaleY *= scale;
-                pasted.x = (tempDoc.width - pasted.width) / 2;
-                pasted.y = (tempDoc.height - pasted.height) / 2;
+                tempDoc.selectAll();
+                tempDoc.group();
+                const group = tempDoc.selection[0];
+                
+                group.scaleX *= scale;
+                group.scaleY *= scale;
+
+                const pastedRect = tempDoc.getSelectionRect();
+                const pCenterX = (pastedRect.left + pastedRect.right) / 2;
+                const pCenterY = (pastedRect.top + pastedRect.bottom) / 2;
+
+                tempDoc.moveSelectionBy({
+                    x: (tempDoc.width / 2) - pCenterX,
+                    y: (tempDoc.height / 2) - pCenterY
+                });
             }
             
             tempDoc.exportPNG(imagePath, true, true);

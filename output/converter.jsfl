@@ -2163,7 +2163,13 @@ var ImageUtil = /** @class */ (function () {
         if (exportImages) {
             item.exportToFile(imagePath);
         }
-        return new SpineImage_1.SpineImage(imagePath, w, h, 1, 0, 0);
+        // Calculate offset from transformation point (bone) to image center
+        // For a raw bitmap, the internal center is (w/2, h/2)
+        var anchorX = element.transformationPoint.x;
+        var anchorY = element.transformationPoint.y;
+        var offsetX = (w / 2) - anchorX;
+        var offsetY = (h / 2) - anchorY;
+        return new SpineImage_1.SpineImage(imagePath, w, h, 1, offsetX, -offsetY);
     };
     ImageUtil.exportLibraryItem = function (imagePath, element, scale, exportImages) {
         var _a;
@@ -2179,7 +2185,6 @@ var ImageUtil = /** @class */ (function () {
         // Store reference to the added element before any other operations
         var addedElement = dom.selection[0];
         // The bone is at the registration point (0,0), so anchor for offset calculation is (0,0)
-        // The attachment offset = imageCenter - anchor = imageCenter - (0,0) = imageCenter
         var anchorX = 0;
         var anchorY = 0;
         Logger_1.Logger.trace("[exportLibraryItem] ".concat(item.name, ": anchor at registration point (0, 0)"));
@@ -2215,12 +2220,11 @@ var ImageUtil = /** @class */ (function () {
      */
     ImageUtil.exportInstanceContents = function (imagePath, dom, scale, exportImages, anchorX, anchorY) {
         Logger_1.Logger.assert(dom.selection.length > 0, "exportInstanceContents: no selection available for export (imagePath: ".concat(imagePath, ")"));
-        dom.resetTransformation();
         var rect = dom.getSelectionRect();
         var width = rect.right - rect.left;
         var height = rect.bottom - rect.top;
-        var w = Math.ceil(width * scale);
-        var h = Math.ceil(height * scale);
+        var w = Math.max(1, Math.ceil(width * scale));
+        var h = Math.max(1, Math.ceil(height * scale));
         // Image center in local coordinates (relative to registration point at 0,0)
         var centerX = rect.left + width / 2;
         var centerY = rect.top + height / 2;
@@ -2241,16 +2245,23 @@ var ImageUtil = /** @class */ (function () {
             dom.clipCopy();
             var tempDoc = fl.createDocument();
             Logger_1.Logger.assert(tempDoc != null, "exportInstanceContents: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
-            tempDoc.width = w + 100;
-            tempDoc.height = h + 100;
+            tempDoc.width = w;
+            tempDoc.height = h;
             tempDoc.clipPaste();
             if (tempDoc.selection.length > 0) {
-                var pasted = tempDoc.selection[0];
-                // Scale the pasted content to match the export scale
-                pasted.scaleX *= scale;
-                pasted.scaleY *= scale;
-                pasted.x = (tempDoc.width - pasted.width) / 2;
-                pasted.y = (tempDoc.height - pasted.height) / 2;
+                // Group all pasted elements to scale and center them as a single unit
+                tempDoc.selectAll();
+                tempDoc.group();
+                var group = tempDoc.selection[0];
+                group.scaleX *= scale;
+                group.scaleY *= scale;
+                var pastedRect = tempDoc.getSelectionRect();
+                var pCenterX = (pastedRect.left + pastedRect.right) / 2;
+                var pCenterY = (pastedRect.top + pastedRect.bottom) / 2;
+                tempDoc.moveSelectionBy({
+                    x: (tempDoc.width / 2) - pCenterX,
+                    y: (tempDoc.height / 2) - pCenterY
+                });
             }
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
@@ -2265,12 +2276,11 @@ var ImageUtil = /** @class */ (function () {
      */
     ImageUtil.exportSelectionWithAnchor = function (imagePath, dom, scale, exportImages, anchorX, anchorY) {
         Logger_1.Logger.assert(dom.selection.length > 0, "exportSelectionWithAnchor: no selection available for export (imagePath: ".concat(imagePath, ")"));
-        dom.resetTransformation();
         var rect = dom.getSelectionRect();
         var width = rect.right - rect.left;
         var height = rect.bottom - rect.top;
-        var w = Math.ceil(width * scale);
-        var h = Math.ceil(height * scale);
+        var w = Math.max(1, Math.ceil(width * scale));
+        var h = Math.max(1, Math.ceil(height * scale));
         // Image center in local coordinates (relative to registration point at 0,0)
         var centerX = rect.left + width / 2;
         var centerY = rect.top + height / 2;
@@ -2291,17 +2301,23 @@ var ImageUtil = /** @class */ (function () {
             dom.clipCopy();
             var tempDoc = fl.createDocument();
             Logger_1.Logger.assert(tempDoc != null, "exportSelectionWithAnchor: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
-            tempDoc.width = w + 100;
-            tempDoc.height = h + 100;
+            tempDoc.width = w;
+            tempDoc.height = h;
             tempDoc.clipPaste();
             // Center the pasted content
             if (tempDoc.selection.length > 0) {
-                var pasted = tempDoc.selection[0];
-                // Scale the pasted content to match the export scale
-                pasted.scaleX *= scale;
-                pasted.scaleY *= scale;
-                pasted.x = (tempDoc.width - pasted.width) / 2;
-                pasted.y = (tempDoc.height - pasted.height) / 2;
+                tempDoc.selectAll();
+                tempDoc.group();
+                var group = tempDoc.selection[0];
+                group.scaleX *= scale;
+                group.scaleY *= scale;
+                var pastedRect = tempDoc.getSelectionRect();
+                var pCenterX = (pastedRect.left + pastedRect.right) / 2;
+                var pCenterY = (pastedRect.top + pastedRect.bottom) / 2;
+                tempDoc.moveSelectionBy({
+                    x: (tempDoc.width / 2) - pCenterX,
+                    y: (tempDoc.height / 2) - pCenterY
+                });
             }
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
@@ -2315,12 +2331,11 @@ var ImageUtil = /** @class */ (function () {
     ImageUtil.exportSelectionOnly = function (imagePath, dom, scale, exportImages, anchorX, anchorY, element) {
         dom.selectNone();
         element.selected = true;
-        dom.resetTransformation();
         var rect = dom.getSelectionRect();
         var width = rect.right - rect.left;
         var height = rect.bottom - rect.top;
-        var w = Math.ceil(width * scale);
-        var h = Math.ceil(height * scale);
+        var w = Math.max(1, Math.ceil(width * scale));
+        var h = Math.max(1, Math.ceil(height * scale));
         // Image center in local coordinates (relative to registration point at 0,0)
         var centerX = rect.left + width / 2;
         var centerY = rect.top + height / 2;
@@ -2341,17 +2356,23 @@ var ImageUtil = /** @class */ (function () {
             dom.clipCopy();
             var tempDoc = fl.createDocument();
             Logger_1.Logger.assert(tempDoc != null, "exportSelectionOnly: fl.createDocument() returned null (imagePath: ".concat(imagePath, ")"));
-            tempDoc.width = w + 100;
-            tempDoc.height = h + 100;
+            tempDoc.width = w;
+            tempDoc.height = h;
             // Paste into the new document (fl.createDocument makes it active)
             tempDoc.clipPaste();
             if (tempDoc.selection.length > 0) {
-                var pasted = tempDoc.selection[0];
-                // Scale the pasted content to match the export scale
-                pasted.scaleX *= scale;
-                pasted.scaleY *= scale;
-                pasted.x = (tempDoc.width - pasted.width) / 2;
-                pasted.y = (tempDoc.height - pasted.height) / 2;
+                tempDoc.selectAll();
+                tempDoc.group();
+                var group = tempDoc.selection[0];
+                group.scaleX *= scale;
+                group.scaleY *= scale;
+                var pastedRect = tempDoc.getSelectionRect();
+                var pCenterX = (pastedRect.left + pastedRect.right) / 2;
+                var pCenterY = (pastedRect.top + pastedRect.bottom) / 2;
+                tempDoc.moveSelectionBy({
+                    x: (tempDoc.width / 2) - pCenterX,
+                    y: (tempDoc.height / 2) - pCenterY
+                });
             }
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
