@@ -68,9 +68,10 @@ export class ConverterContextGlobal extends ConverterContext {
         }
 
         // To center the skeleton at (0,0), shift children by the ASSET's local anchor
+        // Both axes are negated symmetrically (Y flip happens at Spine output layer)
         context.parentOffset = {
             x: -element.transformationPoint.x,
-            y: element.transformationPoint.y
+            y: -element.transformationPoint.y
         };
 
         Logger.trace(`[Global] Root: ${context.skeleton.name} anchor=(${element.transformationPoint.x.toFixed(2)}, ${element.transformationPoint.y.toFixed(2)})`);

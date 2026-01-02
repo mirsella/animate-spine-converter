@@ -418,9 +418,10 @@ var ConverterContext = /** @class */ (function () {
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, boneTransform);
         }
         // Set parentOffset for children of this bone: shift from this bone's RP to this bone's Anchor
+        // Both axes are negated symmetrically (Y flip happens at Spine output layer)
         context.parentOffset = {
             x: -element.transformationPoint.x,
-            y: element.transformationPoint.y
+            y: -element.transformationPoint.y
         };
         if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */) {
             var boneTransform = __assign(__assign({}, transform), { x: transform.x + this.parentOffset.x, y: transform.y + this.parentOffset.y });
@@ -537,9 +538,10 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
             context.bone = context.skeleton.createBone(context.skeleton.name, context.bone);
         }
         // To center the skeleton at (0,0), shift children by the ASSET's local anchor
+        // Both axes are negated symmetrically (Y flip happens at Spine output layer)
         context.parentOffset = {
             x: -element.transformationPoint.x,
-            y: element.transformationPoint.y
+            y: -element.transformationPoint.y
         };
         Logger_1.Logger.trace("[Global] Root: ".concat(context.skeleton.name, " anchor=(").concat(element.transformationPoint.x.toFixed(2), ", ").concat(element.transformationPoint.y.toFixed(2), ")"));
         if (config.transformRootBone) {
@@ -1390,7 +1392,7 @@ var SpineFormatV3_8_99 = /** @class */ (function () {
             transform: bone.transform,
             skin: bone.skin,
             x: bone.x,
-            y: bone.y,
+            y: bone.y * SpineFormatV3_8_99.Y_FLIP,
             rotation: bone.rotation,
             scaleX: bone.scaleX,
             scaleY: bone.scaleY,
@@ -1423,15 +1425,17 @@ var SpineFormatV3_8_99 = /** @class */ (function () {
         }
         return null;
     };
-    SpineFormatV3_8_99.prototype.convertTimelineFrame = function (frame) {
+    SpineFormatV3_8_99.prototype.convertTimelineFrame = function (frame, flipY) {
+        if (flipY === void 0) { flipY = false; }
         var curve = this.convertTimelineFrameCurve(frame);
-        return JsonFormatUtil_1.JsonFormatUtil.cleanObject(__assign(__assign({}, curve), { time: frame.time, angle: frame.angle, name: frame.name, color: frame.color, x: frame.x, y: frame.y }));
+        return JsonFormatUtil_1.JsonFormatUtil.cleanObject(__assign(__assign({}, curve), { time: frame.time, angle: frame.angle, name: frame.name, color: frame.color, x: frame.x, y: frame.y != null && flipY ? frame.y * SpineFormatV3_8_99.Y_FLIP : frame.y }));
     };
     SpineFormatV3_8_99.prototype.convertTimeline = function (timeline) {
         var length = timeline.frames.length;
         var result = [];
+        var flipY = timeline.type === "translate" /* SpineTimelineType.TRANSLATE */;
         for (var index = 0; index < length; index++) {
-            var frame = this.convertTimelineFrame(timeline.frames[index]);
+            var frame = this.convertTimelineFrame(timeline.frames[index], flipY);
             if (index === (length - 1)) {
                 // last frame cannot contain curve property
                 delete frame.curve;
@@ -1496,7 +1500,7 @@ var SpineFormatV3_8_99 = /** @class */ (function () {
             type: attachment.type,
             name: attachment.name,
             x: attachment.x,
-            y: attachment.y,
+            y: attachment.y != null ? attachment.y * SpineFormatV3_8_99.Y_FLIP : undefined,
             rotation: attachment.rotation,
             color: attachment.color
         });
@@ -1507,7 +1511,7 @@ var SpineFormatV3_8_99 = /** @class */ (function () {
             name: attachment.name,
             path: attachment.path,
             x: attachment.x,
-            y: attachment.y,
+            y: attachment.y != null ? attachment.y * SpineFormatV3_8_99.Y_FLIP : undefined,
             rotation: attachment.rotation,
             scaleX: attachment.scaleX,
             scaleY: attachment.scaleY,
@@ -1597,6 +1601,8 @@ var SpineFormatV3_8_99 = /** @class */ (function () {
             skins: this.convertSkins(skeleton)
         });
     };
+    // Y-axis direction: Animate uses Y-down, Spine uses Y-up
+    SpineFormatV3_8_99.Y_FLIP = -1;
     return SpineFormatV3_8_99;
 }());
 exports.SpineFormatV3_8_99 = SpineFormatV3_8_99;
@@ -1676,7 +1682,11 @@ var SpineFormatV4_0_00 = /** @class */ (function (_super) {
             if (isRotate) {
                 frame.value = frameData.angle;
             }
-            else if (isTranslate || isScale || isShear) {
+            else if (isTranslate) {
+                frame.x = frameData.x;
+                frame.y = frameData.y != null ? frameData.y * SpineFormatV4_0_00.Y_FLIP : undefined;
+            }
+            else if (isScale || isShear) {
                 frame.x = frameData.x;
                 frame.y = frameData.y;
             }
@@ -1985,8 +1995,9 @@ var SpineTransformMatrix = /** @class */ (function () {
         var _a, _b;
         // We use the Transformation Point (Anchor) for the bone position.
         // element.transformX/Y represent the position of the Anchor Point in the parent timeline.
+        // Y stays in Animate coordinate space (Y down); flip happens at Spine output layer.
         this.x = element.transformX;
-        this.y = element.transformY * SpineTransformMatrix.Y_DIRECTION;
+        this.y = element.transformY;
         Logger_1.Logger.trace("[SpineTransformMatrix] ".concat(element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>', ": x=").concat(element.x, ", y=").concat(element.y, ", transformX=").concat(element.transformX, ", transformY=").concat(element.transformY));
         this.rotation = 0;
         this.scaleX = element.scaleX;

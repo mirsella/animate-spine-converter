@@ -16,8 +16,9 @@ export class SpineTransformMatrix implements SpineTransform {
     public constructor(element:FlashElement) {
         // We use the Transformation Point (Anchor) for the bone position.
         // element.transformX/Y represent the position of the Anchor Point in the parent timeline.
+        // Y stays in Animate coordinate space (Y down); flip happens at Spine output layer.
         this.x = element.transformX;
-        this.y = element.transformY * SpineTransformMatrix.Y_DIRECTION;
+        this.y = element.transformY;
 
         Logger.trace(`[SpineTransformMatrix] ${element.name || element.libraryItem?.name || '<anon>'}: x=${element.x}, y=${element.y}, transformX=${element.transformX}, transformY=${element.transformY}`);
 

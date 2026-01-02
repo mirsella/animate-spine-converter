@@ -96,9 +96,10 @@ export class ConverterContext {
         }
 
         // Set parentOffset for children of this bone: shift from this bone's RP to this bone's Anchor
+        // Both axes are negated symmetrically (Y flip happens at Spine output layer)
         context.parentOffset = {
             x: -element.transformationPoint.x,
-            y: element.transformationPoint.y
+            y: -element.transformationPoint.y
         };
 
         if (context.global.stageType === ConverterStageType.ANIMATION) {

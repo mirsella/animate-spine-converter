@@ -12,12 +12,16 @@ import { SpineTimeline } from '../timeline/SpineTimeline';
 import { SpineTimelineFrame } from '../timeline/SpineTimelineFrame';
 import { SpineTimelineGroup } from '../timeline/SpineTimelineGroup';
 import { SpineAttachmentType } from '../types/SpineAttachmentType';
+import { SpineTimelineType } from '../types/SpineTimelineType';
 import { SpineFormat } from './SpineFormat';
 import { SpineFormatOptimizer } from './SpineFormatOptimizer';
 
 export class SpineFormatV3_8_99 implements SpineFormat {
     public readonly optimizer:SpineFormatOptimizer;
     public readonly version:string = '3.8.99';
+
+    // Y-axis direction: Animate uses Y-down, Spine uses Y-up
+    protected static readonly Y_FLIP:number = -1;
 
     public constructor() {
         this.optimizer = new SpineFormatOptimizer();
@@ -41,7 +45,7 @@ export class SpineFormatV3_8_99 implements SpineFormat {
             transform: bone.transform,
             skin: bone.skin,
             x: bone.x,
-            y: bone.y,
+            y: bone.y * SpineFormatV3_8_99.Y_FLIP,
             rotation: bone.rotation,
             scaleX: bone.scaleX,
             scaleY: bone.scaleY,
@@ -82,7 +86,7 @@ export class SpineFormatV3_8_99 implements SpineFormat {
         return null;
     }
 
-    public convertTimelineFrame(frame:SpineTimelineFrame):any {
+    public convertTimelineFrame(frame:SpineTimelineFrame, flipY:boolean = false):any {
         const curve = this.convertTimelineFrameCurve(frame);
 
         return JsonFormatUtil.cleanObject({
@@ -93,16 +97,17 @@ export class SpineFormatV3_8_99 implements SpineFormat {
             name: frame.name,
             color: frame.color,
             x: frame.x,
-            y: frame.y
+            y: frame.y != null && flipY ? frame.y * SpineFormatV3_8_99.Y_FLIP : frame.y
         });
     }
 
     public convertTimeline(timeline:SpineTimeline):any[] {
         const length = timeline.frames.length;
         const result:any[] = [];
+        const flipY = timeline.type === SpineTimelineType.TRANSLATE;
 
         for (let index = 0; index < length; index++) {
-            const frame = this.convertTimelineFrame(timeline.frames[index]);
+            const frame = this.convertTimelineFrame(timeline.frames[index], flipY);
 
             if (index === (length - 1)) {
                 // last frame cannot contain curve property
@@ -183,7 +188,7 @@ export class SpineFormatV3_8_99 implements SpineFormat {
             type: attachment.type,
             name: attachment.name,
             x: attachment.x,
-            y: attachment.y,
+            y: attachment.y != null ? attachment.y * SpineFormatV3_8_99.Y_FLIP : undefined,
             rotation: attachment.rotation,
             color: attachment.color
         });
@@ -195,7 +200,7 @@ export class SpineFormatV3_8_99 implements SpineFormat {
             name: attachment.name,
             path: attachment.path,
             x: attachment.x,
-            y: attachment.y,
+            y: attachment.y != null ? attachment.y * SpineFormatV3_8_99.Y_FLIP : undefined,
             rotation: attachment.rotation,
             scaleX: attachment.scaleX,
             scaleY: attachment.scaleY,
