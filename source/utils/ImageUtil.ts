@@ -38,11 +38,11 @@ export class ImageUtil {
         // Store reference to the added element before any other operations
         const addedElement = dom.selection[0];
         
-        // The bone is at the registration point (0,0), so anchor for offset calculation is (0,0)
-        const anchorX = 0;
-        const anchorY = 0;
+        // The bone is at the element's transformationPoint (where the anchor is in local space)
+        const anchorX = element.transformationPoint.x;
+        const anchorY = element.transformationPoint.y;
         
-        Logger.trace(`[exportLibraryItem] ${item.name}: anchor at registration point (0, 0)`);
+        Logger.trace(`[exportLibraryItem] ${item.name}: anchor at transformationPoint (${anchorX}, ${anchorY})`);
         
         const result = ImageUtil.exportSelectionOnly(imagePath, dom, scale, exportImages, anchorX, anchorY, addedElement);
         
@@ -64,11 +64,11 @@ export class ImageUtil {
         document.library.editItem(item.name);
         dom.selectAll();
         
-        // The bone is at the symbol's registration point (0,0), so anchor is (0,0)
-        const anchorX = 0;
-        const anchorY = 0;
+        // The bone is at the element's transformationPoint (where the anchor is in local space)
+        const anchorX = element.transformationPoint.x;
+        const anchorY = element.transformationPoint.y;
         
-        Logger.trace(`[exportInstance] ${item.name}: anchor at registration point (0, 0)`);
+        Logger.trace(`[exportInstance] ${item.name}: anchor at transformationPoint (${anchorX}, ${anchorY})`);
         
         // Use exportInstanceContents which doesn't modify the symbol contents
         const result = ImageUtil.exportInstanceContents(imagePath, dom, scale, exportImages, anchorX, anchorY);

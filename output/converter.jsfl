@@ -2184,10 +2184,10 @@ var ImageUtil = /** @class */ (function () {
         Logger_1.Logger.assert(dom.selection.length > 0, "exportLibraryItem: selection empty after addItemToDocument (item: ".concat(item.name, ")"));
         // Store reference to the added element before any other operations
         var addedElement = dom.selection[0];
-        // The bone is at the registration point (0,0), so anchor for offset calculation is (0,0)
-        var anchorX = 0;
-        var anchorY = 0;
-        Logger_1.Logger.trace("[exportLibraryItem] ".concat(item.name, ": anchor at registration point (0, 0)"));
+        // The bone is at the element's transformationPoint (where the anchor is in local space)
+        var anchorX = element.transformationPoint.x;
+        var anchorY = element.transformationPoint.y;
+        Logger_1.Logger.trace("[exportLibraryItem] ".concat(item.name, ": anchor at transformationPoint (").concat(anchorX, ", ").concat(anchorY, ")"));
         var result = ImageUtil.exportSelectionOnly(imagePath, dom, scale, exportImages, anchorX, anchorY, addedElement);
         // Delete only the element we added
         dom.selectNone();
@@ -2204,10 +2204,10 @@ var ImageUtil = /** @class */ (function () {
         // Enter the symbol to export its contents
         document.library.editItem(item.name);
         dom.selectAll();
-        // The bone is at the symbol's registration point (0,0), so anchor is (0,0)
-        var anchorX = 0;
-        var anchorY = 0;
-        Logger_1.Logger.trace("[exportInstance] ".concat(item.name, ": anchor at registration point (0, 0)"));
+        // The bone is at the element's transformationPoint (where the anchor is in local space)
+        var anchorX = element.transformationPoint.x;
+        var anchorY = element.transformationPoint.y;
+        Logger_1.Logger.trace("[exportInstance] ".concat(item.name, ": anchor at transformationPoint (").concat(anchorX, ", ").concat(anchorY, ")"));
         // Use exportInstanceContents which doesn't modify the symbol contents
         var result = ImageUtil.exportInstanceContents(imagePath, dom, scale, exportImages, anchorX, anchorY);
         dom.selectNone();
