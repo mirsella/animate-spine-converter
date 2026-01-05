@@ -35,6 +35,10 @@ export class SpineTransformMatrix implements SpineTransform {
             this.shearY = -element.skewX;
         }
 
-        Logger.trace(`[SpineTransformMatrix] ${element.name || element.libraryItem?.name || '<anon>'}: pos=(${this.x.toFixed(2)}, ${this.y.toFixed(2)}) rot=${this.rotation.toFixed(2)}`);
+        // Debug extended transform info
+        const name = element.name || element.libraryItem?.name || '<anon>';
+        Logger.trace(`[SpineTransformMatrix] ${name}: skewX=${element.skewX?.toFixed(2)} skewY=${element.skewY?.toFixed(2)} rot=${element.rotation?.toFixed(2)}`);
+
+        Logger.trace(`[SpineTransformMatrix] ${name}: pos=(${this.x.toFixed(2)}, ${this.y.toFixed(2)}) rot=${this.rotation.toFixed(2)}`);
     }
 }

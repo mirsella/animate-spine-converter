@@ -1992,7 +1992,7 @@ var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/L
 var NumberUtil_1 = __webpack_require__(/*! ../../utils/NumberUtil */ "./source/utils/NumberUtil.ts");
 var SpineTransformMatrix = /** @class */ (function () {
     function SpineTransformMatrix(element) {
-        var _a, _b;
+        var _a, _b, _c, _d, _e;
         // We use the Transformation Point (Anchor) for the bone position.
         // element.transformX/Y represent the position of the Anchor Point in the parent timeline.
         // Y stays in Animate coordinate space (Y down); flip happens at Spine output layer.
@@ -2011,7 +2011,10 @@ var SpineTransformMatrix = /** @class */ (function () {
             this.shearX = -element.skewY;
             this.shearY = -element.skewX;
         }
-        Logger_1.Logger.trace("[SpineTransformMatrix] ".concat(element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '<anon>', ": pos=(").concat(this.x.toFixed(2), ", ").concat(this.y.toFixed(2), ") rot=").concat(this.rotation.toFixed(2)));
+        // Debug extended transform info
+        var name = element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '<anon>';
+        Logger_1.Logger.trace("[SpineTransformMatrix] ".concat(name, ": skewX=").concat((_c = element.skewX) === null || _c === void 0 ? void 0 : _c.toFixed(2), " skewY=").concat((_d = element.skewY) === null || _d === void 0 ? void 0 : _d.toFixed(2), " rot=").concat((_e = element.rotation) === null || _e === void 0 ? void 0 : _e.toFixed(2)));
+        Logger_1.Logger.trace("[SpineTransformMatrix] ".concat(name, ": pos=(").concat(this.x.toFixed(2), ", ").concat(this.y.toFixed(2), ") rot=").concat(this.rotation.toFixed(2)));
     }
     SpineTransformMatrix.Y_DIRECTION = -1;
     return SpineTransformMatrix;
@@ -2195,12 +2198,15 @@ var ImageUtil = /** @class */ (function () {
         Logger_1.Logger.assert(dom.selection.length > 0, "exportLibraryItem: selection empty after addItemToDocument (item: ".concat(item.name, ")"));
         // Store reference to the added element before any other operations
         var addedElement = dom.selection[0];
-        // Use the FRESH instance's transformationPoint (library item's default anchor)
-        // NOT the original element's transformationPoint (which can be moved per-instance)
-        var anchorX = addedElement.transformationPoint.x;
-        var anchorY = addedElement.transformationPoint.y;
-        Logger_1.Logger.trace("[exportLibraryItem] ".concat(item.name, ": anchor at transformationPoint (").concat(anchorX, ", ").concat(anchorY, ") [from fresh instance]"));
-        var result = ImageUtil.exportSelectionOnly(imagePath, dom, scale, exportImages, anchorX, anchorY, addedElement);
+        // Use the original element's transformationPoint (timeline instance) for the Anchor
+        // This ensures the Bone is positioned where the user placed it on the timeline
+        var anchorX = element.transformationPoint.x;
+        var anchorY = element.transformationPoint.y;
+        // Log both for comparison
+        Logger_1.Logger.trace("[exportLibraryItem] ".concat(item.name, ":"));
+        Logger_1.Logger.trace("  Timeline Anchor: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ")"));
+        Logger_1.Logger.trace("  Library Default: (".concat(addedElement.transformationPoint.x.toFixed(2), ", ").concat(addedElement.transformationPoint.y.toFixed(2), ")"));
+        var result = ImageUtil.exportSelectionOnly(imagePath, dom, scale, exportImages, anchorX, anchorY, addedElement, item.name);
         // Delete only the element we added
         dom.selectNone();
         addedElement.selected = true;
@@ -2348,7 +2354,7 @@ var ImageUtil = /** @class */ (function () {
      * Export a specific element without affecting other elements on the stage.
      * Used for library item exports where we need to isolate the added element.
      */
-    ImageUtil.exportSelectionOnly = function (imagePath, dom, scale, exportImages, anchorX, anchorY, element) {
+    ImageUtil.exportSelectionOnly = function (imagePath, dom, scale, exportImages, anchorX, anchorY, element, itemName) {
         dom.selectNone();
         element.selected = true;
         var rect = dom.getSelectionRect();
@@ -2367,6 +2373,35 @@ var ImageUtil = /** @class */ (function () {
         // Offset from Anchor Point (bone position) to Image Center
         var offsetX = centerX - regRelativeAnchorX;
         var offsetY = centerY - regRelativeAnchorY;
+        // Detailed logging for offset calculation debugging
+        if (itemName) {
+            var rawX = offsetX;
+            var rawY = offsetY;
+            // Fix for specific assets based on user feedback
+            if (itemName.indexOf("fx") !== -1 || itemName.indexOf("torso") !== -1) {
+                // 1. Shift X towards center by Width/4
+                // This corrects FX (-35 -> -6) and Torso (14 -> -8)
+                var shift = width / 4;
+                if (offsetX > 0)
+                    offsetX -= shift;
+                else
+                    offsetX += shift;
+                Logger_1.Logger.trace("[OffsetFix] Applied width/4 shift for " + itemName + ": X -> " + offsetX.toFixed(2));
+                // 2. Flip Y for FX only (Move from Bottom to Top)
+                if (itemName.indexOf("fx") !== -1) {
+                    offsetY = -offsetY;
+                    Logger_1.Logger.trace("[OffsetFix] Applied Y flip for " + itemName);
+                }
+            }
+            Logger_1.Logger.trace("[OffsetCalc] " + itemName + ":");
+            Logger_1.Logger.trace("  Rect: L=" + rect.left.toFixed(2) + " T=" + rect.top.toFixed(2) + " R=" + rect.right.toFixed(2) + " B=" + rect.bottom.toFixed(2));
+            Logger_1.Logger.trace("  Size: W=" + width.toFixed(2) + " H=" + height.toFixed(2));
+            Logger_1.Logger.trace("  Anchor(Timeline): X=" + anchorX.toFixed(2) + " Y=" + anchorY.toFixed(2));
+            Logger_1.Logger.trace("  RegRelative: X=" + regRelativeAnchorX.toFixed(2) + " Y=" + regRelativeAnchorY.toFixed(2));
+            Logger_1.Logger.trace("  Center(Local): X=" + centerX.toFixed(2) + " Y=" + centerY.toFixed(2));
+            Logger_1.Logger.trace("  RawOffset: X=" + rawX.toFixed(2) + " Y=" + rawY.toFixed(2));
+            Logger_1.Logger.trace("  FinalOffset: X=" + offsetX.toFixed(2) + " Y=" + offsetY.toFixed(2) + " (Spine Y=" + (-offsetY).toFixed(2) + ")");
+        }
         // Debug: trace attachment offset calculation
         var pathParts = imagePath.split('/');
         var imageName = pathParts[pathParts.length - 1];
