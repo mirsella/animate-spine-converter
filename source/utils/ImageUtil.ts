@@ -43,12 +43,37 @@ export class ImageUtil {
         let anchorX = element.transformationPoint.x;
         let anchorY = element.transformationPoint.y;
         
-        // Log both for comparison
-        Logger.trace(`[exportLibraryItem] ${item.name}:`);
-        Logger.trace(`  Timeline Anchor: (${anchorX.toFixed(2)}, ${anchorY.toFixed(2)})`);
-        Logger.trace(`  Library Default: (${addedElement.transformationPoint.x.toFixed(2)}, ${addedElement.transformationPoint.y.toFixed(2)})`);
+        // Calculate fix options based on anchor difference
+        const defX = addedElement.transformationPoint.x;
+        const defY = addedElement.transformationPoint.y;
+        const isCustom = Math.abs(anchorX - defX) > 2.0 || Math.abs(anchorY - defY) > 2.0;
         
-        const result = ImageUtil.exportSelectionOnly(imagePath, dom, scale, exportImages, anchorX, anchorY, addedElement, item.name);
+        const fixOptions = {
+            name: item.name,
+            applyShift: isCustom,
+            flipY: isCustom && (anchorY > defY)
+        };
+        
+        // Log both for comparison
+        Logger.trace(`[exportLibraryItem] ${item.name} (Type: ${element.elementType}):`);
+        Logger.trace(`  Timeline Anchor: (${anchorX.toFixed(2)}, ${anchorY.toFixed(2)})`);
+        Logger.trace(`  Library Default: (${defX.toFixed(2)}, ${defY.toFixed(2)})`);
+
+        // Log Matrix data for debugging
+        const tMat = element.matrix;
+        const lMat = addedElement.matrix;
+        Logger.trace(`[OffsetDebug] ${item.name} Matrices:`);
+        Logger.trace(`  Timeline: a=${tMat.a.toFixed(4)} b=${tMat.b.toFixed(4)} c=${tMat.c.toFixed(4)} d=${tMat.d.toFixed(4)} tx=${tMat.tx.toFixed(2)} ty=${tMat.ty.toFixed(2)}`);
+        Logger.trace(`  Library : a=${lMat.a.toFixed(4)} b=${lMat.b.toFixed(4)} c=${lMat.c.toFixed(4)} d=${lMat.d.toFixed(4)} tx=${lMat.tx.toFixed(2)} ty=${lMat.ty.toFixed(2)}`);
+        
+        // Log basic transform props
+        Logger.trace(`[OffsetDebug] ${item.name} Props:`);
+        Logger.trace(`  Timeline: x=${element.x.toFixed(2)} y=${element.y.toFixed(2)} w=${element.width.toFixed(2)} h=${element.height.toFixed(2)} rot=${element.rotation.toFixed(2)} skewX=${element.skewX.toFixed(2)} skewY=${element.skewY.toFixed(2)}`);
+        Logger.trace(`  Library : x=${addedElement.x.toFixed(2)} y=${addedElement.y.toFixed(2)} w=${addedElement.width.toFixed(2)} h=${addedElement.height.toFixed(2)} skewX=${addedElement.skewX.toFixed(2)} skewY=${addedElement.skewY.toFixed(2)}`);
+        
+        if (isCustom) Logger.trace(`  [OffsetFix] Custom Anchor Detected. Shift: YES, FlipY: ${fixOptions.flipY}`);
+        
+        const result = ImageUtil.exportSelectionOnly(imagePath, dom, scale, exportImages, anchorX, anchorY, addedElement, fixOptions);
         
         // Delete only the element we added
         dom.selectNone();
@@ -103,6 +128,7 @@ export class ImageUtil {
 
         // transformationPoint is in bbox-relative coords (from top-left of bounding box)
         // Convert to registration-point-relative coords by adding rect.left/top
+        // (since registration point is at -rect.left, -rect.top from bbox top-left)
         const regRelativeAnchorX = anchorX + rect.left;
         const regRelativeAnchorY = anchorY + rect.top;
 
@@ -179,6 +205,7 @@ export class ImageUtil {
 
         // transformationPoint is in bbox-relative coords (from top-left of bounding box)
         // Convert to registration-point-relative coords by adding rect.left/top
+        // (since registration point is at -rect.left, -rect.top from bbox top-left)
         const regRelativeAnchorX = anchorX + rect.left;
         const regRelativeAnchorY = anchorY + rect.top;
 
@@ -237,7 +264,7 @@ export class ImageUtil {
      * Export a specific element without affecting other elements on the stage.
      * Used for library item exports where we need to isolate the added element.
      */
-    public static exportSelectionOnly(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean, anchorX:number, anchorY:number, element:FlashElement, itemName?: string):SpineImage {
+    public static exportSelectionOnly(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean, anchorX:number, anchorY:number, element:FlashElement, options?: { name?: string, applyShift?: boolean, flipY?: boolean }):SpineImage {
         dom.selectNone();
         element.selected = true;
         
@@ -263,34 +290,30 @@ export class ImageUtil {
         let offsetY = centerY - regRelativeAnchorY;
         
         // Detailed logging for offset calculation debugging
-        if (itemName) {
-            const rawX = offsetX;
-            const rawY = offsetY;
+        if (options && options.name) {
             
-            // Fix for specific assets based on user feedback
-            if (itemName.indexOf("fx") !== -1 || itemName.indexOf("torso") !== -1) {
+            // Fix for assets with custom anchors (Timeline != Default)
+            if (options.applyShift) {
                  // 1. Shift X towards center by Width/4
-                 // This corrects FX (-35 -> -6) and Torso (14 -> -8)
-                 const shift = width / 4;
-                 if (offsetX > 0) offsetX -= shift;
-                 else offsetX += shift;
+                 const shiftX = width / 4;
+                 if (offsetX > 0) offsetX -= shiftX;
+                 else offsetX += shiftX;
                  
-                 Logger.trace("[OffsetFix] Applied width/4 shift for " + itemName + ": X -> " + offsetX.toFixed(2));
+                 Logger.trace("[OffsetFix] Applied width/4 shift X for " + options.name);
                  
-                 // 2. Flip Y for FX only (Move from Bottom to Top)
-                 if (itemName.indexOf("fx") !== -1) {
+                 // 2. Flip Y (Universal based on user feedback)
+                 if (options.flipY) {
                      offsetY = -offsetY;
-                     Logger.trace("[OffsetFix] Applied Y flip for " + itemName);
+                     Logger.trace("[OffsetFix] Applied Y flip for " + options.name);
                  }
             }
             
-            Logger.trace("[OffsetCalc] " + itemName + ":");
+            Logger.trace("[OffsetCalc] " + options.name + ":");
             Logger.trace("  Rect: L=" + rect.left.toFixed(2) + " T=" + rect.top.toFixed(2) + " R=" + rect.right.toFixed(2) + " B=" + rect.bottom.toFixed(2));
             Logger.trace("  Size: W=" + width.toFixed(2) + " H=" + height.toFixed(2));
             Logger.trace("  Anchor(Timeline): X=" + anchorX.toFixed(2) + " Y=" + anchorY.toFixed(2));
             Logger.trace("  RegRelative: X=" + regRelativeAnchorX.toFixed(2) + " Y=" + regRelativeAnchorY.toFixed(2));
             Logger.trace("  Center(Local): X=" + centerX.toFixed(2) + " Y=" + centerY.toFixed(2));
-            Logger.trace("  RawOffset: X=" + rawX.toFixed(2) + " Y=" + rawY.toFixed(2));
             Logger.trace("  FinalOffset: X=" + offsetX.toFixed(2) + " Y=" + offsetY.toFixed(2) + " (Spine Y=" + (-offsetY).toFixed(2) + ")");
         }
         
@@ -341,10 +364,6 @@ export class ImageUtil {
         return new SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
     }
 
-    /**
-     * Export selection using the first selected element's transformationPoint as anchor.
-     * Used for shape exports where we don't have a separate anchor reference.
-     */
     public static exportSelection(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean):SpineImage {
         Logger.assert(dom.selection.length > 0, `exportSelection: no selection available for export (imagePath: ${imagePath})`);
         Logger.assert(dom.selection[0] != null, `exportSelection: selection[0] is null (imagePath: ${imagePath})`);
