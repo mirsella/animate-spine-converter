@@ -2239,9 +2239,13 @@ var ImageUtil = /** @class */ (function () {
         // Image center in local coordinates (relative to registration point at 0,0)
         var centerX = rect.left + width / 2;
         var centerY = rect.top + height / 2;
+        // transformationPoint is in bbox-relative coords (from top-left of bounding box)
+        // Convert to registration-point-relative coords by adding rect.left/top
+        var regRelativeAnchorX = anchorX + rect.left;
+        var regRelativeAnchorY = anchorY + rect.top;
         // Offset from Anchor Point (bone position) to Image Center
-        var offsetX = centerX - anchorX;
-        var offsetY = centerY - anchorY;
+        var offsetX = centerX - regRelativeAnchorX;
+        var offsetY = centerY - regRelativeAnchorY;
         // Debug: trace attachment offset calculation
         var pathParts = imagePath.split('/');
         var imageName = pathParts[pathParts.length - 1];
@@ -2249,7 +2253,7 @@ var ImageUtil = /** @class */ (function () {
         Logger_1.Logger.trace("  rect: left=".concat(rect.left.toFixed(2), " top=").concat(rect.top.toFixed(2), " right=").concat(rect.right.toFixed(2), " bottom=").concat(rect.bottom.toFixed(2)));
         Logger_1.Logger.trace("  size: ".concat(width.toFixed(2), " x ").concat(height.toFixed(2)));
         Logger_1.Logger.trace("  imageCenter: (".concat(centerX.toFixed(2), ", ").concat(centerY.toFixed(2), ")"));
-        Logger_1.Logger.trace("  anchorPoint: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ")"));
+        Logger_1.Logger.trace("  bboxAnchor: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ") -> regRelative: (").concat(regRelativeAnchorX.toFixed(2), ", ").concat(regRelativeAnchorY.toFixed(2), ")"));
         Logger_1.Logger.trace("  offset: (".concat(offsetX.toFixed(2), ", ").concat(offsetY.toFixed(2), ") -> spine: (").concat(offsetX.toFixed(2), ", ").concat((-offsetY).toFixed(2), ")"));
         if (exportImages) {
             // Copy BEFORE creating temp doc to ensure we copy from correct context
@@ -2295,9 +2299,13 @@ var ImageUtil = /** @class */ (function () {
         // Image center in local coordinates (relative to registration point at 0,0)
         var centerX = rect.left + width / 2;
         var centerY = rect.top + height / 2;
+        // transformationPoint is in bbox-relative coords (from top-left of bounding box)
+        // Convert to registration-point-relative coords by adding rect.left/top
+        var regRelativeAnchorX = anchorX + rect.left;
+        var regRelativeAnchorY = anchorY + rect.top;
         // Offset from Anchor Point (bone position) to Image Center
-        var offsetX = centerX - anchorX;
-        var offsetY = centerY - anchorY;
+        var offsetX = centerX - regRelativeAnchorX;
+        var offsetY = centerY - regRelativeAnchorY;
         // Debug: trace attachment offset calculation
         var pathParts = imagePath.split('/');
         var imageName = pathParts[pathParts.length - 1];
@@ -2305,7 +2313,7 @@ var ImageUtil = /** @class */ (function () {
         Logger_1.Logger.trace("  rect: left=".concat(rect.left.toFixed(2), " top=").concat(rect.top.toFixed(2), " right=").concat(rect.right.toFixed(2), " bottom=").concat(rect.bottom.toFixed(2)));
         Logger_1.Logger.trace("  size: ".concat(width.toFixed(2), " x ").concat(height.toFixed(2)));
         Logger_1.Logger.trace("  imageCenter: (".concat(centerX.toFixed(2), ", ").concat(centerY.toFixed(2), ")"));
-        Logger_1.Logger.trace("  anchorPoint: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ")"));
+        Logger_1.Logger.trace("  bboxAnchor: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ") -> regRelative: (").concat(regRelativeAnchorX.toFixed(2), ", ").concat(regRelativeAnchorY.toFixed(2), ")"));
         Logger_1.Logger.trace("  offset: (".concat(offsetX.toFixed(2), ", ").concat(offsetY.toFixed(2), ") -> spine: (").concat(offsetX.toFixed(2), ", ").concat((-offsetY).toFixed(2), ")"));
         if (exportImages) {
             // Copy BEFORE creating temp doc to ensure we copy from correct context
@@ -2350,9 +2358,14 @@ var ImageUtil = /** @class */ (function () {
         // Image center in local coordinates (relative to registration point at 0,0)
         var centerX = rect.left + width / 2;
         var centerY = rect.top + height / 2;
+        // transformationPoint is in bbox-relative coords (from top-left of bounding box)
+        // Convert to registration-point-relative coords by adding rect.left/top
+        // (since registration point is at -rect.left, -rect.top from bbox top-left)
+        var regRelativeAnchorX = anchorX + rect.left;
+        var regRelativeAnchorY = anchorY + rect.top;
         // Offset from Anchor Point (bone position) to Image Center
-        var offsetX = centerX - anchorX;
-        var offsetY = centerY - anchorY;
+        var offsetX = centerX - regRelativeAnchorX;
+        var offsetY = centerY - regRelativeAnchorY;
         // Debug: trace attachment offset calculation
         var pathParts = imagePath.split('/');
         var imageName = pathParts[pathParts.length - 1];
@@ -2360,7 +2373,7 @@ var ImageUtil = /** @class */ (function () {
         Logger_1.Logger.trace("  rect: left=".concat(rect.left.toFixed(2), " top=").concat(rect.top.toFixed(2), " right=").concat(rect.right.toFixed(2), " bottom=").concat(rect.bottom.toFixed(2)));
         Logger_1.Logger.trace("  size: ".concat(width.toFixed(2), " x ").concat(height.toFixed(2)));
         Logger_1.Logger.trace("  imageCenter: (".concat(centerX.toFixed(2), ", ").concat(centerY.toFixed(2), ")"));
-        Logger_1.Logger.trace("  anchorPoint: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ")"));
+        Logger_1.Logger.trace("  bboxAnchor: (".concat(anchorX.toFixed(2), ", ").concat(anchorY.toFixed(2), ") -> regRelative: (").concat(regRelativeAnchorX.toFixed(2), ", ").concat(regRelativeAnchorY.toFixed(2), ")"));
         Logger_1.Logger.trace("  offset: (".concat(offsetX.toFixed(2), ", ").concat(offsetY.toFixed(2), ") -> spine: (").concat(offsetX.toFixed(2), ", ").concat((-offsetY).toFixed(2), ")"));
         if (exportImages) {
             // Copy BEFORE creating temp doc to ensure we copy from correct context

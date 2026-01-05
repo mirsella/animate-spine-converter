@@ -97,9 +97,14 @@ export class ImageUtil {
         const centerX = rect.left + width / 2;
         const centerY = rect.top + height / 2;
 
+        // transformationPoint is in bbox-relative coords (from top-left of bounding box)
+        // Convert to registration-point-relative coords by adding rect.left/top
+        const regRelativeAnchorX = anchorX + rect.left;
+        const regRelativeAnchorY = anchorY + rect.top;
+
         // Offset from Anchor Point (bone position) to Image Center
-        const offsetX = centerX - anchorX;
-        const offsetY = centerY - anchorY;
+        const offsetX = centerX - regRelativeAnchorX;
+        const offsetY = centerY - regRelativeAnchorY;
         
         // Debug: trace attachment offset calculation
         const pathParts = imagePath.split('/');
@@ -108,7 +113,7 @@ export class ImageUtil {
         Logger.trace(`  rect: left=${rect.left.toFixed(2)} top=${rect.top.toFixed(2)} right=${rect.right.toFixed(2)} bottom=${rect.bottom.toFixed(2)}`);
         Logger.trace(`  size: ${width.toFixed(2)} x ${height.toFixed(2)}`);
         Logger.trace(`  imageCenter: (${centerX.toFixed(2)}, ${centerY.toFixed(2)})`);
-        Logger.trace(`  anchorPoint: (${anchorX.toFixed(2)}, ${anchorY.toFixed(2)})`);
+        Logger.trace(`  bboxAnchor: (${anchorX.toFixed(2)}, ${anchorY.toFixed(2)}) -> regRelative: (${regRelativeAnchorX.toFixed(2)}, ${regRelativeAnchorY.toFixed(2)})`);
         Logger.trace(`  offset: (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) -> spine: (${offsetX.toFixed(2)}, ${(-offsetY).toFixed(2)})`);
 
         if (exportImages) {
@@ -168,9 +173,14 @@ export class ImageUtil {
         const centerX = rect.left + width / 2;
         const centerY = rect.top + height / 2;
 
+        // transformationPoint is in bbox-relative coords (from top-left of bounding box)
+        // Convert to registration-point-relative coords by adding rect.left/top
+        const regRelativeAnchorX = anchorX + rect.left;
+        const regRelativeAnchorY = anchorY + rect.top;
+
         // Offset from Anchor Point (bone position) to Image Center
-        const offsetX = centerX - anchorX;
-        const offsetY = centerY - anchorY;
+        const offsetX = centerX - regRelativeAnchorX;
+        const offsetY = centerY - regRelativeAnchorY;
         
         // Debug: trace attachment offset calculation
         const pathParts = imagePath.split('/');
@@ -179,7 +189,7 @@ export class ImageUtil {
         Logger.trace(`  rect: left=${rect.left.toFixed(2)} top=${rect.top.toFixed(2)} right=${rect.right.toFixed(2)} bottom=${rect.bottom.toFixed(2)}`);
         Logger.trace(`  size: ${width.toFixed(2)} x ${height.toFixed(2)}`);
         Logger.trace(`  imageCenter: (${centerX.toFixed(2)}, ${centerY.toFixed(2)})`);
-        Logger.trace(`  anchorPoint: (${anchorX.toFixed(2)}, ${anchorY.toFixed(2)})`);
+        Logger.trace(`  bboxAnchor: (${anchorX.toFixed(2)}, ${anchorY.toFixed(2)}) -> regRelative: (${regRelativeAnchorX.toFixed(2)}, ${regRelativeAnchorY.toFixed(2)})`);
         Logger.trace(`  offset: (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) -> spine: (${offsetX.toFixed(2)}, ${(-offsetY).toFixed(2)})`);
 
         if (exportImages) {
@@ -238,9 +248,15 @@ export class ImageUtil {
         const centerX = rect.left + width / 2;
         const centerY = rect.top + height / 2;
 
+        // transformationPoint is in bbox-relative coords (from top-left of bounding box)
+        // Convert to registration-point-relative coords by adding rect.left/top
+        // (since registration point is at -rect.left, -rect.top from bbox top-left)
+        const regRelativeAnchorX = anchorX + rect.left;
+        const regRelativeAnchorY = anchorY + rect.top;
+
         // Offset from Anchor Point (bone position) to Image Center
-        const offsetX = centerX - anchorX;
-        const offsetY = centerY - anchorY;
+        const offsetX = centerX - regRelativeAnchorX;
+        const offsetY = centerY - regRelativeAnchorY;
         
         // Debug: trace attachment offset calculation
         const pathParts = imagePath.split('/');
@@ -249,7 +265,7 @@ export class ImageUtil {
         Logger.trace(`  rect: left=${rect.left.toFixed(2)} top=${rect.top.toFixed(2)} right=${rect.right.toFixed(2)} bottom=${rect.bottom.toFixed(2)}`);
         Logger.trace(`  size: ${width.toFixed(2)} x ${height.toFixed(2)}`);
         Logger.trace(`  imageCenter: (${centerX.toFixed(2)}, ${centerY.toFixed(2)})`);
-        Logger.trace(`  anchorPoint: (${anchorX.toFixed(2)}, ${anchorY.toFixed(2)})`);
+        Logger.trace(`  bboxAnchor: (${anchorX.toFixed(2)}, ${anchorY.toFixed(2)}) -> regRelative: (${regRelativeAnchorX.toFixed(2)}, ${regRelativeAnchorY.toFixed(2)})`);
         Logger.trace(`  offset: (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)}) -> spine: (${offsetX.toFixed(2)}, ${(-offsetY).toFixed(2)})`);
 
         if (exportImages) {
