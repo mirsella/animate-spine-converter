@@ -58,13 +58,6 @@ interface FlashLibrary {
     addItemToDocument(position: FlashPoint, namePath?: string): boolean;
 }
 
-interface FlashItem {
-    name: string;
-    itemType: string;
-    timeline?: FlashTimeline;
-    exportToFile(path: string): boolean;
-}
-
 interface FlashTimeline {
     name: string;
     layers: FlashLayer[];
@@ -108,9 +101,3 @@ interface FlashElement {
     setTransformationPoint(pt: FlashPoint): void;
 }
 
-declare const fl: FlashFL;
-declare const FLfile: {
-    exists(path: string): boolean;
-    createFolder(path: string): void;
-    write(path: string, data: string): boolean;
-};
