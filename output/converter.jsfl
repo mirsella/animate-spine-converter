@@ -2195,10 +2195,11 @@ var ImageUtil = /** @class */ (function () {
         Logger_1.Logger.assert(dom.selection.length > 0, "exportLibraryItem: selection empty after addItemToDocument (item: ".concat(item.name, ")"));
         // Store reference to the added element before any other operations
         var addedElement = dom.selection[0];
-        // The bone is at the element's transformationPoint (where the anchor is in local space)
-        var anchorX = element.transformationPoint.x;
-        var anchorY = element.transformationPoint.y;
-        Logger_1.Logger.trace("[exportLibraryItem] ".concat(item.name, ": anchor at transformationPoint (").concat(anchorX, ", ").concat(anchorY, ")"));
+        // Use the FRESH instance's transformationPoint (library item's default anchor)
+        // NOT the original element's transformationPoint (which can be moved per-instance)
+        var anchorX = addedElement.transformationPoint.x;
+        var anchorY = addedElement.transformationPoint.y;
+        Logger_1.Logger.trace("[exportLibraryItem] ".concat(item.name, ": anchor at transformationPoint (").concat(anchorX, ", ").concat(anchorY, ") [from fresh instance]"));
         var result = ImageUtil.exportSelectionOnly(imagePath, dom, scale, exportImages, anchorX, anchorY, addedElement);
         // Delete only the element we added
         dom.selectNone();

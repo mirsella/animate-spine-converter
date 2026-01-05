@@ -38,11 +38,12 @@ export class ImageUtil {
         // Store reference to the added element before any other operations
         const addedElement = dom.selection[0];
         
-        // The bone is at the element's transformationPoint (where the anchor is in local space)
-        const anchorX = element.transformationPoint.x;
-        const anchorY = element.transformationPoint.y;
+        // Use the FRESH instance's transformationPoint (library item's default anchor)
+        // NOT the original element's transformationPoint (which can be moved per-instance)
+        const anchorX = addedElement.transformationPoint.x;
+        const anchorY = addedElement.transformationPoint.y;
         
-        Logger.trace(`[exportLibraryItem] ${item.name}: anchor at transformationPoint (${anchorX}, ${anchorY})`);
+        Logger.trace(`[exportLibraryItem] ${item.name}: anchor at transformationPoint (${anchorX}, ${anchorY}) [from fresh instance]`);
         
         const result = ImageUtil.exportSelectionOnly(imagePath, dom, scale, exportImages, anchorX, anchorY, addedElement);
         
