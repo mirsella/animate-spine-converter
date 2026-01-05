@@ -150,16 +150,9 @@ export class ImageUtil {
         // 4. Inverse Transform the vector into Bone Local Space
         // We want to rotate by -AnimateRotation (Inverse).
         // decomp.rotation (Spine) = -AnimateRotation.
-        // So Inverse AnimateRotation = -(-decomp.rotation) = decomp.rotation?
-        // Wait:
-        // Animate +30 deg (CW). Spine stored as -30.
-        // To undo +30 CW, we rotate -30 CW (which is +30 CCW).
-        // Spine Rotation is -30.
-        // We need +30.
-        // So we need -(-30) = +30.
-        // So we need -decomp.rotation.
+        // So Inverse AnimateRotation = decomp.rotation.
         
-        const angleRad = -decomp.rotation * (Math.PI / 180);
+        const angleRad = decomp.rotation * (Math.PI / 180);
         const cos = Math.cos(angleRad);
         const sin = Math.sin(angleRad);
 

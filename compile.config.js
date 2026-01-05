@@ -68,7 +68,9 @@ compiler.run((err, stats) => {
 
         const file = Path.resolve(webpackConfig.output.path, webpackConfig.output.filename);
         const content = File.readFileSync(file).toString('utf-8');
-        const temp = content.replaceAll('Object.defineProperty(exports, "__esModule", ({ value: true }));', '');
+        let temp = content.replace(/Object\.defineProperty\(exports, "__esModule", \({ value: true }\)\);/g, '');
+        temp = temp.replace(/Object\.create\(b\)/g, '({})');
+        temp = temp.replace(/Object\.setPrototypeOf/g, 'null');
         File.writeFileSync(file, temp);
 
         console.log('Done!');

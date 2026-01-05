@@ -475,7 +475,7 @@ exports.ConverterContext = ConverterContext;
 
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
+        extendStatics = null ||
             ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
             function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
         return extendStatics(d, b);
@@ -485,7 +485,7 @@ var __extends = (this && this.__extends) || (function () {
             throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
         extendStatics(d, b);
         function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+        d.prototype = b === null ? ({}) : (__.prototype = b.prototype, new __());
     };
 })();
 
@@ -1169,7 +1169,7 @@ exports.SpineAttachment = SpineAttachment;
 
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
+        extendStatics = null ||
             ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
             function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
         return extendStatics(d, b);
@@ -1179,7 +1179,7 @@ var __extends = (this && this.__extends) || (function () {
             throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
         extendStatics(d, b);
         function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+        d.prototype = b === null ? ({}) : (__.prototype = b.prototype, new __());
     };
 })();
 
@@ -1209,7 +1209,7 @@ exports.SpineClippingAttachment = SpineClippingAttachment;
 
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
+        extendStatics = null ||
             ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
             function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
         return extendStatics(d, b);
@@ -1219,7 +1219,7 @@ var __extends = (this && this.__extends) || (function () {
             throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
         extendStatics(d, b);
         function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+        d.prototype = b === null ? ({}) : (__.prototype = b.prototype, new __());
     };
 })();
 
@@ -1246,7 +1246,7 @@ exports.SpinePointAttachment = SpinePointAttachment;
 
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
+        extendStatics = null ||
             ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
             function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
         return extendStatics(d, b);
@@ -1256,7 +1256,7 @@ var __extends = (this && this.__extends) || (function () {
             throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
         extendStatics(d, b);
         function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+        d.prototype = b === null ? ({}) : (__.prototype = b.prototype, new __());
     };
 })();
 
@@ -1619,7 +1619,7 @@ exports.SpineFormatV3_8_99 = SpineFormatV3_8_99;
 
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
+        extendStatics = null ||
             ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
             function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
         return extendStatics(d, b);
@@ -1629,7 +1629,7 @@ var __extends = (this && this.__extends) || (function () {
             throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
         extendStatics(d, b);
         function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+        d.prototype = b === null ? ({}) : (__.prototype = b.prototype, new __());
     };
 })();
 var __assign = (this && this.__assign) || function () {
@@ -1734,7 +1734,7 @@ exports.SpineFormatV4_0_00 = SpineFormatV4_0_00;
 
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
+        extendStatics = null ||
             ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
             function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
         return extendStatics(d, b);
@@ -1744,7 +1744,7 @@ var __extends = (this && this.__extends) || (function () {
             throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
         extendStatics(d, b);
         function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+        d.prototype = b === null ? ({}) : (__.prototype = b.prototype, new __());
     };
 })();
 
@@ -1773,7 +1773,7 @@ exports.SpineFormatV4_1_00 = SpineFormatV4_1_00;
 
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
+        extendStatics = null ||
             ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
             function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
         return extendStatics(d, b);
@@ -1783,7 +1783,7 @@ var __extends = (this && this.__extends) || (function () {
             throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
         extendStatics(d, b);
         function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+        d.prototype = b === null ? ({}) : (__.prototype = b.prototype, new __());
     };
 })();
 
@@ -1914,7 +1914,7 @@ exports.SpineTimelineGroup = SpineTimelineGroup;
 
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
+        extendStatics = null ||
             ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
             function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
         return extendStatics(d, b);
@@ -1924,7 +1924,7 @@ var __extends = (this && this.__extends) || (function () {
             throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
         extendStatics(d, b);
         function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+        d.prototype = b === null ? ({}) : (__.prototype = b.prototype, new __());
     };
 })();
 
@@ -1951,7 +1951,7 @@ exports.SpineTimelineGroupBone = SpineTimelineGroupBone;
 
 var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
+        extendStatics = null ||
             ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
             function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
         return extendStatics(d, b);
@@ -1961,7 +1961,7 @@ var __extends = (this && this.__extends) || (function () {
             throw new TypeError("Class extends value " + String(b) + " is not a constructor or null");
         extendStatics(d, b);
         function __() { this.constructor = d; }
-        d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
+        d.prototype = b === null ? ({}) : (__.prototype = b.prototype, new __());
     };
 })();
 
@@ -2335,15 +2335,8 @@ var ImageUtil = /** @class */ (function () {
         // 4. Inverse Transform the vector into Bone Local Space
         // We want to rotate by -AnimateRotation (Inverse).
         // decomp.rotation (Spine) = -AnimateRotation.
-        // So Inverse AnimateRotation = -(-decomp.rotation) = decomp.rotation?
-        // Wait:
-        // Animate +30 deg (CW). Spine stored as -30.
-        // To undo +30 CW, we rotate -30 CW (which is +30 CCW).
-        // Spine Rotation is -30.
-        // We need +30.
-        // So we need -(-30) = +30.
-        // So we need -decomp.rotation.
-        var angleRad = -decomp.rotation * (Math.PI / 180);
+        // So Inverse AnimateRotation = decomp.rotation.
+        var angleRad = decomp.rotation * (Math.PI / 180);
         var cos = Math.cos(angleRad);
         var sin = Math.sin(angleRad);
         var rx = dx * cos - dy * sin;
