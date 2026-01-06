@@ -45,47 +45,79 @@ export class SpineTransformMatrix implements SpineTransform {
 
         // 1. Scale Extraction
         // Scale is the magnitude of the basis vectors.
-        const scaleX = Math.sqrt(a * a + b * b);
+        let scaleX = Math.sqrt(a * a + b * b);
         let scaleY = Math.sqrt(c * c + d * d);
 
-        // 2. Determinant Check (Flipping)
-        // If det < 0, the coordinate system is inverted (handedness change).
-        const det = a * d - b * c;
-        if (det < 0) {
-            scaleY = -scaleY;
-        }
-
-        // 3. Rotation Extraction
-        // Rotation is the angle of the primary basis vector (X) relative to global axes.
+        // 2. Rotation and Shear Extraction
         const rotXRad = Math.atan2(b, a);
         const rotYRad = Math.atan2(d, c);
-
-        // Convert to Degrees
-        // Animate is CW, Spine is CCW. We negate the rotation.
-        const rotation = -rotXRad * (180 / Math.PI);
-
-        // 4. Shear Extraction
-        // Shear is defined by the angle between X and Y basis vectors.
-        // Ideally they are 90 degrees (PI/2) apart.
-        // shear = rotY - rotX - PI/2
-        // We convert to degrees and negate for Spine's CCW system if necessary,
-        // but typically Spine shear is added to rotation. 
-        // Logic from paper: shear_spine = (phi_rad - theta_rad - PI/2) * 180/PI
-        // Note: Paper says "shearY: -shear" to match CCW logic.
         
-        let shearRaw = rotYRad - rotXRad - (Math.PI / 2);
+        const det = a * d - b * c;
         
-        // Normalize shear to -PI...PI range mostly to avoid large wrapping, though not strictly required for math
-        while (shearRaw <= -Math.PI) shearRaw += 2 * Math.PI;
-        while (shearRaw > Math.PI) shearRaw -= 2 * Math.PI;
+        let rotation = 0;
+        let shearY = 0;
 
-        const shearDeg = shearRaw * (180 / Math.PI);
-        
-        // Spine 4.x shear convention: positive shear leans the Y axis to the right (relative to X).
-        // In Animate (Y down), positive rotation is CW.
-        // If we have Y-down to Y-up conversion involved, signs get tricky.
-        // Per paper: shearY = -shear
-        const shearY = -shearDeg;
+        if (det < 0) {
+            // Handedness flip (Mirroring)
+            // We can achieve this by negating scaleX OR scaleY.
+            // We choose the one that results in a simpler rotation (closer to 0).
+            
+            // Option A: Flip Y (Standard QR decomposition preference)
+            // If we flip Y, the logical Y axis is opposite to physical Y.
+            // rotY_logical = rotY + PI
+            // rotation = -rotX (Animate is CW, so we negate)
+            // shear = (rotY + PI) - rotX - PI/2
+            
+            const rotY_flipY = rotYRad + Math.PI;
+            let rot_flipY = -rotXRad * (180 / Math.PI);
+            // Normalize to -180..180
+            while (rot_flipY <= -180) rot_flipY += 360;
+            while (rot_flipY > 180) rot_flipY -= 360;
+            
+            // Option B: Flip X
+            // If we flip X, the logical X axis is opposite to physical X.
+            // rotX_logical = rotX + PI
+            // rotation = -rotX_logical = -(rotX + PI)
+            // shear = rotY - (rotX + PI) - PI/2
+            
+            const rotX_flipX = rotXRad + Math.PI;
+            let rot_flipX = -rotX_flipX * (180 / Math.PI);
+            // Normalize
+            while (rot_flipX <= -180) rot_flipX += 360;
+            while (rot_flipX > 180) rot_flipX -= 360;
+            
+            // Decision: Choose the smaller absolute rotation
+            if (Math.abs(rot_flipX) < Math.abs(rot_flipY)) {
+                // Use Flip X
+                scaleX = -scaleX;
+                rotation = rot_flipX;
+                
+                // Shear calc for Flip X
+                let shearRaw = rotYRad - rotX_flipX - (Math.PI / 2);
+                while (shearRaw <= -Math.PI) shearRaw += 2 * Math.PI;
+                while (shearRaw > Math.PI) shearRaw -= 2 * Math.PI;
+                shearY = -shearRaw * (180 / Math.PI); // Negate for CCW
+            } else {
+                // Use Flip Y
+                scaleY = -scaleY;
+                rotation = rot_flipY;
+                
+                // Shear calc for Flip Y
+                let shearRaw = rotY_flipY - rotXRad - (Math.PI / 2);
+                while (shearRaw <= -Math.PI) shearRaw += 2 * Math.PI;
+                while (shearRaw > Math.PI) shearRaw -= 2 * Math.PI;
+                shearY = -shearRaw * (180 / Math.PI);
+            }
+            
+        } else {
+            // Standard non-flipped
+            rotation = -rotXRad * (180 / Math.PI);
+            
+            let shearRaw = rotYRad - rotXRad - (Math.PI / 2);
+            while (shearRaw <= -Math.PI) shearRaw += 2 * Math.PI;
+            while (shearRaw > Math.PI) shearRaw -= 2 * Math.PI;
+            shearY = -shearRaw * (180 / Math.PI);
+        }
 
         return {
             rotation: rotation,

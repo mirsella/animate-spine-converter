@@ -2020,39 +2020,76 @@ var SpineTransformMatrix = /** @class */ (function () {
         // Scale is the magnitude of the basis vectors.
         var scaleX = Math.sqrt(a * a + b * b);
         var scaleY = Math.sqrt(c * c + d * d);
-        // 2. Determinant Check (Flipping)
-        // If det < 0, the coordinate system is inverted (handedness change).
-        var det = a * d - b * c;
-        if (det < 0) {
-            scaleY = -scaleY;
-        }
-        // 3. Rotation Extraction
-        // Rotation is the angle of the primary basis vector (X) relative to global axes.
+        // 2. Rotation and Shear Extraction
         var rotXRad = Math.atan2(b, a);
         var rotYRad = Math.atan2(d, c);
-        // Convert to Degrees
-        // Animate is CW, Spine is CCW. We negate the rotation.
-        var rotation = -rotXRad * (180 / Math.PI);
-        // 4. Shear Extraction
-        // Shear is defined by the angle between X and Y basis vectors.
-        // Ideally they are 90 degrees (PI/2) apart.
-        // shear = rotY - rotX - PI/2
-        // We convert to degrees and negate for Spine's CCW system if necessary,
-        // but typically Spine shear is added to rotation. 
-        // Logic from paper: shear_spine = (phi_rad - theta_rad - PI/2) * 180/PI
-        // Note: Paper says "shearY: -shear" to match CCW logic.
-        var shearRaw = rotYRad - rotXRad - (Math.PI / 2);
-        // Normalize shear to -PI...PI range mostly to avoid large wrapping, though not strictly required for math
-        while (shearRaw <= -Math.PI)
-            shearRaw += 2 * Math.PI;
-        while (shearRaw > Math.PI)
-            shearRaw -= 2 * Math.PI;
-        var shearDeg = shearRaw * (180 / Math.PI);
-        // Spine 4.x shear convention: positive shear leans the Y axis to the right (relative to X).
-        // In Animate (Y down), positive rotation is CW.
-        // If we have Y-down to Y-up conversion involved, signs get tricky.
-        // Per paper: shearY = -shear
-        var shearY = -shearDeg;
+        var det = a * d - b * c;
+        var rotation = 0;
+        var shearY = 0;
+        if (det < 0) {
+            // Handedness flip (Mirroring)
+            // We can achieve this by negating scaleX OR scaleY.
+            // We choose the one that results in a simpler rotation (closer to 0).
+            // Option A: Flip Y (Standard QR decomposition preference)
+            // If we flip Y, the logical Y axis is opposite to physical Y.
+            // rotY_logical = rotY + PI
+            // rotation = -rotX (Animate is CW, so we negate)
+            // shear = (rotY + PI) - rotX - PI/2
+            var rotY_flipY = rotYRad + Math.PI;
+            var rot_flipY = -rotXRad * (180 / Math.PI);
+            // Normalize to -180..180
+            while (rot_flipY <= -180)
+                rot_flipY += 360;
+            while (rot_flipY > 180)
+                rot_flipY -= 360;
+            // Option B: Flip X
+            // If we flip X, the logical X axis is opposite to physical X.
+            // rotX_logical = rotX + PI
+            // rotation = -rotX_logical = -(rotX + PI)
+            // shear = rotY - (rotX + PI) - PI/2
+            var rotX_flipX = rotXRad + Math.PI;
+            var rot_flipX = -rotX_flipX * (180 / Math.PI);
+            // Normalize
+            while (rot_flipX <= -180)
+                rot_flipX += 360;
+            while (rot_flipX > 180)
+                rot_flipX -= 360;
+            // Decision: Choose the smaller absolute rotation
+            if (Math.abs(rot_flipX) < Math.abs(rot_flipY)) {
+                // Use Flip X
+                scaleX = -scaleX;
+                rotation = rot_flipX;
+                // Shear calc for Flip X
+                var shearRaw = rotYRad - rotX_flipX - (Math.PI / 2);
+                while (shearRaw <= -Math.PI)
+                    shearRaw += 2 * Math.PI;
+                while (shearRaw > Math.PI)
+                    shearRaw -= 2 * Math.PI;
+                shearY = -shearRaw * (180 / Math.PI); // Negate for CCW
+            }
+            else {
+                // Use Flip Y
+                scaleY = -scaleY;
+                rotation = rot_flipY;
+                // Shear calc for Flip Y
+                var shearRaw = rotY_flipY - rotXRad - (Math.PI / 2);
+                while (shearRaw <= -Math.PI)
+                    shearRaw += 2 * Math.PI;
+                while (shearRaw > Math.PI)
+                    shearRaw -= 2 * Math.PI;
+                shearY = -shearRaw * (180 / Math.PI);
+            }
+        }
+        else {
+            // Standard non-flipped
+            rotation = -rotXRad * (180 / Math.PI);
+            var shearRaw = rotYRad - rotXRad - (Math.PI / 2);
+            while (shearRaw <= -Math.PI)
+                shearRaw += 2 * Math.PI;
+            while (shearRaw > Math.PI)
+                shearRaw -= 2 * Math.PI;
+            shearY = -shearRaw * (180 / Math.PI);
+        }
         return {
             rotation: rotation,
             scaleX: scaleX,
@@ -2217,6 +2254,12 @@ var ImageUtil = /** @class */ (function () {
     ImageUtil.exportBitmap = function (imagePath, element, exportImages) {
         var _a;
         Logger_1.Logger.assert(element.libraryItem != null, "exportBitmap: element has no libraryItem (element: ".concat(element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ")"));
+        // Capture geometric properties immediately
+        var regPointX = element.x;
+        var regPointY = element.y;
+        var transPointX = element.transformX;
+        var transPointY = element.transformY;
+        var matrix = element.matrix;
         var item = element.libraryItem;
         var w = item.hPixels || item.width || 0;
         var h = item.vPixels || item.height || 0;
@@ -2228,43 +2271,42 @@ var ImageUtil = /** @class */ (function () {
         // The image center relative to Reg Point is (w/2, h/2).
         var localCenterX = w / 2;
         var localCenterY = h / 2;
-        var offset = ImageUtil.calculateAttachmentOffset(element, localCenterX, localCenterY);
-        return new SpineImage_1.SpineImage(imagePath, w, h, 1, offset.x, -offset.y); // Negate Y for Spine
+        var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
+        return new SpineImage_1.SpineImage(imagePath, w, h, 1, offset.x, offset.y); // Negate Y handled by SpineFormat
     };
     ImageUtil.exportLibraryItem = function (imagePath, element, scale, exportImages) {
-        // This method is for primitives or ensuring clean library export.
-        // It relies on creating a temporary instance. 
-        // We will keep the original logic for now but ensure we use the Smart Pivot if possible.
-        // However, exportLibraryItem is often used when the element on stage is NOT the symbol itself but a shape.
-        // If it IS a symbol instance, we should use exportInstance.
         Logger_1.Logger.assert(element.libraryItem != null, "exportLibraryItem: element has no libraryItem");
-        var dom = fl.getDocumentDOM();
-        var item = element.libraryItem;
-        dom.selectNone();
-        dom.library.addItemToDocument({ x: 0, y: 0 }, item.name);
-        var addedElement = dom.selection[0];
-        // We use the added element to get dimensions.
-        // The offset logic should arguably be based on the ORIGINAL element's transform if available.
-        // But this function is often called for Shapes turned into Library Items.
-        // Let's stick to the existing "SelectionOnly" logic but updated.
-        var anchorX = element.transformationPoint.x;
-        var anchorY = element.transformationPoint.y;
-        // We pass the original element to calculate offset if needed.
-        var result = ImageUtil.exportSelectionOnly(imagePath, dom, scale, exportImages, anchorX, anchorY, addedElement);
-        dom.selectNone();
-        addedElement.selected = true;
-        dom.deleteSelection();
-        return result;
+        // Use the shared export logic
+        return ImageUtil.exportSymbol(imagePath, element, fl.getDocumentDOM(), scale, exportImages);
     };
     ImageUtil.exportInstance = function (imagePath, element, document, scale, exportImages) {
         Logger_1.Logger.assert(element.libraryItem != null, "exportInstance: element has no libraryItem.");
-        var dom = fl.getDocumentDOM();
+        // Use the shared export logic
+        return ImageUtil.exportSymbol(imagePath, element, document, scale, exportImages);
+    };
+    ImageUtil.exportSymbol = function (imagePath, element, document, scale, exportImages) {
         var item = element.libraryItem;
+        // Capture geometric properties BEFORE switching context
+        var regPointX = element.x;
+        var regPointY = element.y;
+        var transPointX = element.transformX;
+        var transPointY = element.transformY;
+        var matrix = element.matrix;
         // Enter the symbol
         document.library.editItem(item.name);
+        var dom = fl.getDocumentDOM();
+        var timeline = dom.getTimeline();
+        // Unlock, unhide, and select all frames/layers
+        timeline.selectAllFrames();
+        for (var _i = 0, _a = timeline.layers; _i < _a.length; _i++) {
+            var layer = _a[_i];
+            if (layer.layerType === 'guide')
+                continue;
+            layer.locked = false;
+            layer.visible = true;
+        }
         dom.selectAll();
         // Calculate offsets using the Smart Pivot logic
-        // We need the bounding box of the symbol contents to find the visual center.
         var rect;
         if (dom.selection.length > 0) {
             rect = dom.getSelectionRect();
@@ -2279,9 +2321,8 @@ var ImageUtil = /** @class */ (function () {
         // Image Center in Local Space (relative to Reg Point 0,0)
         var localCenterX = rect.left + width / 2;
         var localCenterY = rect.top + height / 2;
-        // Calculate correct attachment offset
-        var offset = ImageUtil.calculateAttachmentOffset(element, localCenterX, localCenterY);
-        // Export Image Generation (PNG)
+        var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
+        Logger_1.Logger.trace("[ImageUtil] ".concat(element.name || item.name, ": Reg=(").concat(regPointX.toFixed(2), ",").concat(regPointY.toFixed(2), ") Trans=(").concat(transPointX.toFixed(2), ",").concat(transPointY.toFixed(2), ") LocalCenter=(").concat(localCenterX.toFixed(2), ",").concat(localCenterY.toFixed(2), ") Offset=(").concat(offset.x.toFixed(2), ",").concat(offset.y.toFixed(2), ")"));
         if (exportImages && dom.selection.length > 0) {
             dom.clipCopy();
             var tempDoc = fl.createDocument();
@@ -2294,7 +2335,6 @@ var ImageUtil = /** @class */ (function () {
                 var group = tempDoc.selection[0];
                 group.scaleX *= scale;
                 group.scaleY *= scale;
-                // Center in temp doc
                 var pRect = tempDoc.getSelectionRect();
                 var pCx = (pRect.left + pRect.right) / 2;
                 var pCy = (pRect.top + pRect.bottom) / 2;
@@ -2307,31 +2347,20 @@ var ImageUtil = /** @class */ (function () {
             tempDoc.close(false);
         }
         dom.selectNone();
-        document.library.editItem(document.name);
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, -offset.y);
+        dom.exitEditMode();
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y);
     };
     /**
      * Calculates the Attachment Offset using the "Smart Pivot" algorithm.
      * This compensates for the Animate Transformation Point vs Registration Point mismatch.
-     *
-     * @param element The FlashElement (Symbol Instance) on the stage.
-     * @param localCenterX The X coordinate of the image center in Local Symbol Space (relative to Reg Point).
-     * @param localCenterY The Y coordinate of the image center in Local Symbol Space (relative to Reg Point).
      */
-    ImageUtil.calculateAttachmentOffset = function (element, localCenterX, localCenterY) {
-        // 1. Get Parent-Space Coordinates
-        // element.x / element.y are the Registration Point in Parent Space.
-        var regPointX = element.x;
-        var regPointY = element.y;
-        // element.transformX / transformY are the Transformation Point (Bone Origin) in Parent Space.
-        var transPointX = element.transformX;
-        var transPointY = element.transformY;
+    ImageUtil.calculateAttachmentOffset = function (matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY) {
+        // 1. Get Parent-Space Coordinates passed in
         // 2. Vector from Bone Origin to Reg Point (in Parent Space)
         var dx = regPointX - transPointX;
         var dy = regPointY - transPointY;
         // 3. Decompose Matrix to get Bone Rotation/Scale
-        // We use the same decomposition logic as the Bone creation to ensure consistency.
-        var decomp = SpineTransformMatrix_1.SpineTransformMatrix.decomposeMatrix(element.matrix);
+        var decomp = SpineTransformMatrix_1.SpineTransformMatrix.decomposeMatrix(matrix);
         // 4. Inverse Transform the vector into Bone Local Space
         // We want to rotate by -AnimateRotation (Inverse).
         // decomp.rotation (Spine) = -AnimateRotation.
@@ -2341,14 +2370,21 @@ var ImageUtil = /** @class */ (function () {
         var sin = Math.sin(angleRad);
         var rx = dx * cos - dy * sin;
         var ry = dx * sin + dy * cos;
-        // Apply Inverse Scale
-        var localRx = rx / decomp.scaleX;
-        var localRy = ry / decomp.scaleY;
+        // Apply Inverse Shear and Scale
+        // Basis vectors in local space (after removing rotation):
+        // X-axis: (scaleX, 0)
+        // Y-axis: (-scaleY * sin(shear), scaleY * cos(shear))
+        // We solve: rx = x * scaleX - y * scaleY * sin(shear)
+        //           ry = y * scaleY * cos(shear)
+        var shearRad = decomp.shearY * (Math.PI / 180);
+        var shearCos = Math.cos(shearRad);
+        var shearTan = Math.tan(shearRad);
+        // Solve for y (localRy) first
+        var localRy = ry / (decomp.scaleY * shearCos);
+        // Solve for x (localRx)
+        var localRx = (rx + ry * shearTan) / decomp.scaleX;
         // 5. Add Image Center Offset
         // Image Center is relative to Reg Point (0,0) in Symbol Space.
-        // Since Bone Local Space (unrotated) aligns with Symbol Space, we just add.
-        // Note: Check for Shear. If shear exists, the mapping is more complex.
-        // For now, assuming standard orthogonal symbol space.
         var finalX = localRx + localCenterX;
         var finalY = localRy + localCenterY;
         return { x: finalX, y: finalY };
@@ -2356,10 +2392,6 @@ var ImageUtil = /** @class */ (function () {
     // Helper for legacy/other paths
     ImageUtil.exportSelectionOnly = function (imagePath, dom, scale, exportImages, anchorX, anchorY, element, options) {
         // This legacy method assumes 'element' is the one SELECTED inside the library or temporary doc.
-        // It's tricky to apply the smart pivot here because we might lose the parent context (transformation point).
-        // However, if we passed the original element in 'options' or arguments, we could use it.
-        // For now, we retain the bounding-box logic for robustness in 'exportLibraryItem', 
-        // but refined to use standard centers.
         dom.selectNone();
         element.selected = true;
         var rect = dom.getSelectionRect();
@@ -2369,24 +2401,7 @@ var ImageUtil = /** @class */ (function () {
         var h = Math.max(1, Math.ceil(height * scale));
         var localCenterX = rect.left + width / 2;
         var localCenterY = rect.top + height / 2;
-        // Determine offsets.
-        // If we are exporting a raw shape/selection, the "Bone" is usually implicitly at (0,0) or the anchor passed in.
-        // In the old logic, anchorX/Y were used.
-        // If this is used for 'exportLibraryItem', anchorX/Y comes from the original element.
-        // Let's try to deduce the offset simply:
-        // Anchor is at anchorX, anchorY (Parent BBox relative? No, usually Parent Space).
-        // If we are in a fresh doc (0,0 based), we need to be careful.
-        // Fallback to simple bbox center offset from the provided anchor.
-        // Note: The previous logic had a lot of "fix" code. 
-        // We will simplify: Offset = Center - Anchor.
-        // But we must respect the coordinate space of Anchor.
-        // If this is called from exportLibraryItem, anchorX/Y are element.transformationPoint.x/y (Parent Space).
-        // But the item is placed at 0,0 in the temp doc.
-        // So the "Parent" implies the Registration Point is at 0,0.
-        // The Transformation Point relative to Reg Point is (anchorX - element.x, anchorY - element.y).
-        // This path is less critical than exportInstance. 
-        // We'll preserve a simplified version of the old logic for now.
-        var regRelativeAnchorX = anchorX + rect.left; // This was the old suspicious math
+        var regRelativeAnchorX = anchorX + rect.left;
         var regRelativeAnchorY = anchorY + rect.top;
         var offsetX = localCenterX - regRelativeAnchorX;
         var offsetY = localCenterY - regRelativeAnchorY;
@@ -2411,12 +2426,10 @@ var ImageUtil = /** @class */ (function () {
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
         }
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, offsetY);
     };
     // Legacy support method (stub to prevent breakages if called elsewhere)
     ImageUtil.exportInstanceContents = function (imagePath, dom, scale, exportImages, anchorX, anchorY) {
-        // This should ideally not be called anymore by the main path.
-        // We implement a basic fallback.
         var rect = dom.getSelectionRect();
         var width = rect.right - rect.left;
         var height = rect.bottom - rect.top;
@@ -2426,7 +2439,7 @@ var ImageUtil = /** @class */ (function () {
         var centerY = rect.top + height / 2;
         var offsetX = centerX - (anchorX + rect.left);
         var offsetY = centerY - (anchorY + rect.top);
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY);
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, offsetY);
     };
     return ImageUtil;
 }());
