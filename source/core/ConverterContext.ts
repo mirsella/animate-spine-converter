@@ -59,10 +59,18 @@ export class ConverterContext {
     }
 
     public createBone(element:FlashElement, time:number):ConverterContext {
-        const transform = new SpineTransformMatrix(element);
+        const boneName = ConvertUtil.createBoneName(element, this);
+        const referenceTransform = this.global.assetTransforms.get(boneName);
+        
+        // Pass reference transform to constructor to handle flipping continuity
+        const transform = new SpineTransformMatrix(element, referenceTransform);
+        
+        // Update the cache with the current transform for the next frame
+        this.global.assetTransforms.set(boneName, transform);
+
         const context = new ConverterContext();
 
-        context.bone = this.global.skeleton.createBone(ConvertUtil.createBoneName(element, this), this.bone);
+        context.bone = this.global.skeleton.createBone(boneName, this.bone);
         context.clipping = this.clipping;
         context.slot = null;
         context.time = this.time + time;
@@ -89,8 +97,6 @@ export class ConverterContext {
                 x: transform.x + this.parentOffset.x,
                 y: transform.y + this.parentOffset.y
             };
-
-            Logger.trace(`[Bone] ${context.bone.name} at (${boneTransform.x.toFixed(2)}, ${boneTransform.y.toFixed(2)}) (parentOffset: ${this.parentOffset.x.toFixed(2)}, ${this.parentOffset.y.toFixed(2)})`);
 
             SpineAnimationHelper.applyBoneTransform(context.bone, boneTransform);
         }

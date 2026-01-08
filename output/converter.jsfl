@@ -88,7 +88,7 @@ var Converter = /** @class */ (function () {
     Converter.prototype.convertShapeElementSlot = function (context) {
         var _this = this;
         this.convertElementSlot(context, context.element, function (context, imagePath) {
-            return ImageUtil_1.ImageUtil.exportInstance(imagePath, context.element, _this._document, _this._config.shapeExportScale, _this._config.exportShapes);
+            return ImageUtil_1.ImageUtil.exportShape(imagePath, context.element, _this._document, _this._config.shapeExportScale, _this._config.exportShapes);
         });
     };
     Converter.prototype.composeElementMaskLayer = function (context, convertLayer) {
@@ -250,8 +250,10 @@ var Converter = /** @class */ (function () {
             try {
                 context.global.stageType = "structure" /* ConverterStageType.STRUCTURE */;
                 this.convertElement(context);
+                Logger_1.Logger.trace("[Converter] Converting animations for symbol instance: ".concat(element.name || element.libraryItem.name, ". Found ").concat(context.global.labels.length, " labels."));
                 for (var _i = 0, _a = context.global.labels; _i < _a.length; _i++) {
                     var l = _a[_i];
+                    Logger_1.Logger.trace("  - Processing label: ".concat(l.name, " (frames ").concat(l.startFrameIdx, "-").concat(l.endFrameIdx, ")"));
                     var sub = context.switchContextAnimation(l);
                     sub.global.stageType = "animation" /* ConverterStageType.ANIMATION */;
                     this.convertElement(sub);
@@ -364,7 +366,6 @@ exports.ConverterContext = void 0;
 var SpineAnimationHelper_1 = __webpack_require__(/*! ../spine/SpineAnimationHelper */ "./source/spine/SpineAnimationHelper.ts");
 var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTransformMatrix */ "./source/spine/transform/SpineTransformMatrix.ts");
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
-var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var ConverterContext = /** @class */ (function () {
     function ConverterContext() {
         /**
@@ -394,9 +395,14 @@ var ConverterContext = /** @class */ (function () {
         return this;
     };
     ConverterContext.prototype.createBone = function (element, time) {
-        var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
+        var boneName = ConvertUtil_1.ConvertUtil.createBoneName(element, this);
+        var referenceTransform = this.global.assetTransforms.get(boneName);
+        // Pass reference transform to constructor to handle flipping continuity
+        var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element, referenceTransform);
+        // Update the cache with the current transform for the next frame
+        this.global.assetTransforms.set(boneName, transform);
         var context = new ConverterContext();
-        context.bone = this.global.skeleton.createBone(ConvertUtil_1.ConvertUtil.createBoneName(element, this), this.bone);
+        context.bone = this.global.skeleton.createBone(boneName, this.bone);
         context.clipping = this.clipping;
         context.slot = null;
         context.time = this.time + time;
@@ -414,7 +420,6 @@ var ConverterContext = /** @class */ (function () {
             context.bone.initialized = true;
             // Shift position from Parent Registration Point to Parent Anchor Point
             var boneTransform = __assign(__assign({}, transform), { x: transform.x + this.parentOffset.x, y: transform.y + this.parentOffset.y });
-            Logger_1.Logger.trace("[Bone] ".concat(context.bone.name, " at (").concat(boneTransform.x.toFixed(2), ", ").concat(boneTransform.y.toFixed(2), ") (parentOffset: ").concat(this.parentOffset.x.toFixed(2), ", ").concat(this.parentOffset.y.toFixed(2), ")"));
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, boneTransform);
         }
         // Set parentOffset for children of this bone: shift from this bone's RP to this bone's Anchor
@@ -741,12 +746,11 @@ exports.SpineAnimation = SpineAnimation;
 /*!**********************************************!*\
   !*** ./source/spine/SpineAnimationHelper.ts ***!
   \**********************************************/
-/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+/***/ (function(__unused_webpack_module, exports) {
 
 
 
 exports.SpineAnimationHelper = void 0;
-var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineAnimationHelper = /** @class */ (function () {
     function SpineAnimationHelper() {
     }
@@ -770,8 +774,6 @@ var SpineAnimationHelper = /** @class */ (function () {
         shearFrame.y = transform.shearY - bone.shearY;
     };
     SpineAnimationHelper.applyBoneTransform = function (bone, transform) {
-        Logger_1.Logger.trace("[SpineAnimationHelper] applyBoneTransform to \"".concat(bone.name, "\""));
-        Logger_1.Logger.trace("  Transform: x=".concat(transform.x.toFixed(2), " y=").concat(transform.y.toFixed(2), " rot=").concat(transform.rotation.toFixed(2), " sx=").concat(transform.scaleX.toFixed(2), " sy=").concat(transform.scaleY.toFixed(2)));
         bone.x = transform.x;
         bone.y = transform.y;
         bone.rotation = transform.rotation;
@@ -1989,29 +1991,39 @@ exports.SpineTimelineGroupSlot = SpineTimelineGroupSlot;
 
 exports.SpineTransformMatrix = void 0;
 var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/Logger.ts");
+var NumberUtil_1 = __webpack_require__(/*! ../../utils/NumberUtil */ "./source/utils/NumberUtil.ts");
 var SpineTransformMatrix = /** @class */ (function () {
-    function SpineTransformMatrix(element) {
+    function SpineTransformMatrix(element, reference) {
+        if (reference === void 0) { reference = null; }
         var _a;
         // Position: The Spine bone must be positioned at the Transformation Point.
         // element.transformX/Y are the global (parent) coordinates of the transformation point.
         this.x = element.transformX;
         this.y = element.transformY;
+        var name = element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
         // Decompose the matrix to get robust Rotation, Scale, and Shear
-        var decomposed = SpineTransformMatrix.decomposeMatrix(element.matrix);
+        var decomposed = SpineTransformMatrix.decomposeMatrix(element.matrix, reference, name);
         this.rotation = decomposed.rotation;
         this.scaleX = decomposed.scaleX;
         this.scaleY = decomposed.scaleY;
         this.shearX = decomposed.shearX;
         this.shearY = decomposed.shearY;
         // Debug extended transform info
-        var name = element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
-        Logger_1.Logger.trace("[SpineTransformMatrix] ".concat(name, ": decomposed rot=").concat(this.rotation.toFixed(2), " sx=").concat(this.scaleX.toFixed(2), " sy=").concat(this.scaleY.toFixed(2), " shearY=").concat(this.shearY.toFixed(2)));
+        if (decomposed.scaleX < 0 || decomposed.scaleY < 0) {
+            Logger_1.Logger.trace("[SpineTransformMatrix] ".concat(name, ": MIRRORED -> rot=").concat(this.rotation.toFixed(2), " sx=").concat(this.scaleX.toFixed(2), " sy=").concat(this.scaleY.toFixed(2), " shearX=").concat(this.shearX.toFixed(2)));
+        }
     }
     /**
+
      * Decomposes an Animate Matrix into Spine components (Rotation, Scale, Shear).
      * Based on the "Advanced Coordinate System Transformation" technical monograph.
+     * @param mat The Flash Matrix
+     * @param reference Optional previous transform to help disambiguate flip (handedness) choices.
+     * @param debugName Optional name for logging
      */
-    SpineTransformMatrix.decomposeMatrix = function (mat) {
+    SpineTransformMatrix.decomposeMatrix = function (mat, reference, debugName) {
+        if (reference === void 0) { reference = null; }
+        if (debugName === void 0) { debugName = ''; }
         var a = mat.a;
         var b = mat.b;
         var c = mat.c;
@@ -2025,16 +2037,13 @@ var SpineTransformMatrix = /** @class */ (function () {
         var rotYRad = Math.atan2(d, c);
         var det = a * d - b * c;
         var rotation = 0;
-        var shearY = 0;
+        var shearX = 0;
         if (det < 0) {
             // Handedness flip (Mirroring)
             // We can achieve this by negating scaleX OR scaleY.
-            // We choose the one that results in a simpler rotation (closer to 0).
             // Option A: Flip Y (Standard QR decomposition preference)
-            // If we flip Y, the logical Y axis is opposite to physical Y.
             // rotY_logical = rotY + PI
             // rotation = -rotX (Animate is CW, so we negate)
-            // shear = (rotY + PI) - rotX - PI/2
             var rotY_flipY = rotYRad + Math.PI;
             var rot_flipY = -rotXRad * (180 / Math.PI);
             // Normalize to -180..180
@@ -2043,10 +2052,8 @@ var SpineTransformMatrix = /** @class */ (function () {
             while (rot_flipY > 180)
                 rot_flipY -= 360;
             // Option B: Flip X
-            // If we flip X, the logical X axis is opposite to physical X.
             // rotX_logical = rotX + PI
             // rotation = -rotX_logical = -(rotX + PI)
-            // shear = rotY - (rotX + PI) - PI/2
             var rotX_flipX = rotXRad + Math.PI;
             var rot_flipX = -rotX_flipX * (180 / Math.PI);
             // Normalize
@@ -2054,8 +2061,43 @@ var SpineTransformMatrix = /** @class */ (function () {
                 rot_flipX += 360;
             while (rot_flipX > 180)
                 rot_flipX -= 360;
-            // Decision: Choose the smaller absolute rotation
-            if (Math.abs(rot_flipX) < Math.abs(rot_flipY)) {
+            var useFlipX = false;
+            var reason = "default heuristic";
+            if (reference != null) {
+                // Heuristic: Continuity with Reference (Previous Frame or Setup Pose)
+                // Compare rotational distance
+                var diffA = Math.abs(rot_flipY - reference.rotation);
+                while (diffA > 180)
+                    diffA -= 360;
+                while (diffA < -180)
+                    diffA += 360;
+                diffA = Math.abs(diffA);
+                var diffB = Math.abs(rot_flipX - reference.rotation);
+                while (diffB > 180)
+                    diffB -= 360;
+                while (diffB < -180)
+                    diffB += 360;
+                diffB = Math.abs(diffB);
+                // Compare scale signs (parity)
+                // Option A implies ScaleY < 0. Option B implies ScaleX < 0.
+                var scoreA = diffA + (NumberUtil_1.NumberUtil.sign(reference.scaleY) !== -1 ? 1000 : 0) + (NumberUtil_1.NumberUtil.sign(reference.scaleX) !== 1 ? 1000 : 0);
+                var scoreB = diffB + (NumberUtil_1.NumberUtil.sign(reference.scaleX) !== -1 ? 1000 : 0) + (NumberUtil_1.NumberUtil.sign(reference.scaleY) !== 1 ? 1000 : 0);
+                if (scoreB < scoreA) {
+                    useFlipX = true;
+                    reason = "continuity match (scoreB < scoreA)";
+                }
+                else {
+                    reason = "continuity match (scoreA <= scoreB)";
+                }
+            }
+            else {
+                // Default Heuristic: Choose the smaller absolute rotation
+                if (Math.abs(rot_flipX) < Math.abs(rot_flipY)) {
+                    useFlipX = true;
+                    reason = "smaller rotation";
+                }
+            }
+            if (useFlipX) {
                 // Use Flip X
                 scaleX = -scaleX;
                 rotation = rot_flipX;
@@ -2065,7 +2107,8 @@ var SpineTransformMatrix = /** @class */ (function () {
                     shearRaw += 2 * Math.PI;
                 while (shearRaw > Math.PI)
                     shearRaw -= 2 * Math.PI;
-                shearY = -shearRaw * (180 / Math.PI); // Negate for CCW
+                shearX = -shearRaw * (180 / Math.PI); // Negate for CCW
+                Logger_1.Logger.trace("[Decompose] ".concat(debugName, ": Flip X chosen. Reason: ").concat(reason, ". Rot: ").concat(rot_flipX.toFixed(2)));
             }
             else {
                 // Use Flip Y
@@ -2077,25 +2120,28 @@ var SpineTransformMatrix = /** @class */ (function () {
                     shearRaw += 2 * Math.PI;
                 while (shearRaw > Math.PI)
                     shearRaw -= 2 * Math.PI;
-                shearY = -shearRaw * (180 / Math.PI);
+                shearX = -shearRaw * (180 / Math.PI);
+                Logger_1.Logger.trace("[Decompose] ".concat(debugName, ": Flip Y chosen. Reason: ").concat(reason, ". Rot: ").concat(rot_flipY.toFixed(2)));
             }
         }
         else {
-            // Standard non-flipped
+            // Normal (Positive Determinant)
             rotation = -rotXRad * (180 / Math.PI);
+            // Shear
+            // shear = rotY - rotX - PI/2
             var shearRaw = rotYRad - rotXRad - (Math.PI / 2);
             while (shearRaw <= -Math.PI)
                 shearRaw += 2 * Math.PI;
             while (shearRaw > Math.PI)
                 shearRaw -= 2 * Math.PI;
-            shearY = -shearRaw * (180 / Math.PI);
+            shearX = -shearRaw * (180 / Math.PI);
         }
         return {
             rotation: rotation,
             scaleX: scaleX,
             scaleY: scaleY,
-            shearX: 0,
-            shearY: shearY
+            shearX: shearX,
+            shearY: 0
         };
     };
     SpineTransformMatrix.Y_DIRECTION = -1;
@@ -2170,29 +2216,65 @@ var ConvertUtil = /** @class */ (function () {
         Logger_1.Logger.assert(item.timeline != null, "obtainElementLabels: libraryItem has no timeline. (item: ".concat(item.name, ")"));
         var timeline = item.timeline;
         var layers = timeline.layers;
+        var potentialLabels = [];
+        // 1. Collect all labels from all layers
         for (var _i = 0, layers_1 = layers; _i < layers_1.length; _i++) {
             var layer = layers_1[_i];
+            // Optimization: Skip guide and mask layers if they shouldn't contain labels? 
+            // Usually labels are on normal layers or folder layers (though folders are weird in JSFL).
+            // Let's scan all.
             var frames = layer.frames;
             for (var frameIdx = 0; frameIdx < frames.length; frameIdx++) {
                 var frame = frames[frameIdx];
-                if (frame.startFrame !== frameIdx) {
+                if (frame.startFrame !== frameIdx)
                     continue;
-                }
-                if (frame.labelType === 'name') {
-                    labels.push({
-                        endFrameIdx: frame.startFrame + (frame.duration - 1),
-                        startFrameIdx: frame.startFrame,
+                if (frame.labelType === 'name' && frame.name) {
+                    potentialLabels.push({
+                        idx: frame.startFrame,
                         name: frame.name
                     });
                 }
             }
         }
+        // 2. Sort labels by frame index
+        potentialLabels.sort(function (a, b) { return a.idx - b.idx; });
+        // 3. Convert to ranges (start to next_start - 1)
+        if (potentialLabels.length > 0) {
+            var _loop_1 = function (i) {
+                var current = potentialLabels[i];
+                var next = potentialLabels[i + 1];
+                var startFrame = current.idx;
+                var endFrame = next ? (next.idx - 1) : (timeline.frameCount - 1);
+                // Filter out duplicates if multiple layers have the same label at the same frame
+                // or if different labels exist at same frame (ambiguous, but we take the last one or skip?)
+                // Simple dedup by name check or just push?
+                // Let's push, but maybe check if we already added a label for this startFrame?
+                // Actually, if there are two labels at the same frame on different layers, 
+                // that's weird. We'll just process them.
+                // Check if this specific label/range already exists (deduplication)
+                var exists = labels.some(function (l) { return l.startFrameIdx === startFrame && l.name === current.name; });
+                if (!exists) {
+                    labels.push({
+                        name: current.name,
+                        startFrameIdx: startFrame,
+                        endFrameIdx: endFrame
+                    });
+                }
+            };
+            for (var i = 0; i < potentialLabels.length; i++) {
+                _loop_1(i);
+            }
+        }
         if (labels.length === 0) {
+            Logger_1.Logger.trace("No labels found for ".concat(item.name, ", using default full timeline."));
             labels.push({
                 endFrameIdx: item.timeline.frameCount - 1,
                 startFrameIdx: 0,
                 name: 'default'
             });
+        }
+        else {
+            Logger_1.Logger.trace("Found ".concat(labels.length, " labels for ").concat(item.name, ": ").concat(labels.map(function (l) { return "".concat(l.name, "(").concat(l.startFrameIdx, "-").concat(l.endFrameIdx, ")"); }).join(', ')));
         }
         return labels;
     };
@@ -2280,9 +2362,95 @@ var ImageUtil = /** @class */ (function () {
         return ImageUtil.exportSymbol(imagePath, element, fl.getDocumentDOM(), scale, exportImages);
     };
     ImageUtil.exportInstance = function (imagePath, element, document, scale, exportImages) {
-        Logger_1.Logger.assert(element.libraryItem != null, "exportInstance: element has no libraryItem.");
+        Logger_1.Logger.assert(element.libraryItem != null, "exportInstance: element has no libraryItem. (type: ".concat(element.elementType, ")"));
         // Use the shared export logic
         return ImageUtil.exportSymbol(imagePath, element, document, scale, exportImages);
+    };
+    ImageUtil.exportShape = function (imagePath, element, document, scale, exportImages) {
+        // Shapes don't have a library item, so we export them directly from the current context.
+        // The Converter ensures we are in the correct parent context.
+        var matrix = element.matrix;
+        var transPointX = element.transformX;
+        var transPointY = element.transformY;
+        // CRITICAL: For Shapes, element.x/y is the Bounding Box Left/Top, NOT the transformation origin.
+        // We must use the matrix translation (tx, ty) as the effective "Registration Point" (Origin)
+        // because that matches the coordinate system where the shape's geometry is defined relative to (0,0).
+        var regPointX = matrix.tx;
+        var regPointY = matrix.ty;
+        var dom = document;
+        // 2. Copy the shape
+        // Ensure layer is unlocked/visible to allow selection/copy
+        var layer = element.layer;
+        var wasLocked = layer.locked;
+        var wasVisible = layer.visible;
+        layer.locked = false;
+        layer.visible = true;
+        dom.selectNone();
+        element.selected = true;
+        try {
+            dom.clipCopy();
+        }
+        catch (e) {
+            Logger_1.Logger.warning("[ImageUtil] clipCopy failed for shape on layer '".concat(layer.name, "': ").concat(e));
+        }
+        element.selected = false;
+        // Restore layer state
+        layer.locked = wasLocked;
+        layer.visible = wasVisible;
+        // 3. Paste into a temp document to isolate and normalize it
+        var tempDoc = fl.createDocument();
+        // Use inPlace=true to keep coordinates consistent with source stage (though we reset matrix anyway)
+        tempDoc.clipPaste(true);
+        var w = 1;
+        var h = 1;
+        var localCenterX = 0;
+        var localCenterY = 0;
+        if (tempDoc.selection.length > 0) {
+            var pasted = tempDoc.selection[0];
+            // 4. RESET MATRIX TO IDENTITY
+            // This is the critical fix for skewed/rotated shapes. 
+            // We want the image to be the "neutral" pose. The Bone in Spine will handle the skew/rotation.
+            // When matrix is identity, the shape's geometry is positioned relative to the Stage Origin (0,0)
+            // exactly as it is defined relative to its own internal origin.
+            pasted.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+            // 5. Measure the normalized shape
+            var rect = tempDoc.getSelectionRect();
+            var width = rect.right - rect.left;
+            var height = rect.bottom - rect.top;
+            w = Math.max(1, Math.ceil(width * scale));
+            h = Math.max(1, Math.ceil(height * scale));
+            // Local Center: The vector from the Shape's Origin (which is 0,0 now) to the Center of its Bounding Box.
+            // Since we reset matrix to identity (tx=0, ty=0), the "Origin" is at Stage (0,0).
+            // rect.left/top are coordinates on this stage.
+            // So rect.left IS the x-distance from Origin to Left Edge.
+            localCenterX = rect.left + width / 2;
+            localCenterY = rect.top + height / 2;
+            Logger_1.Logger.trace("[ImageUtil] Shape ".concat(element.name || 'shape', ": IdentityRect=(").concat(rect.left.toFixed(2), ",").concat(rect.top.toFixed(2), ",").concat(width.toFixed(2), "x").concat(height.toFixed(2), ")"));
+            if (exportImages) {
+                tempDoc.width = w;
+                tempDoc.height = h;
+                // Apply Export Scale
+                if (scale !== 1) {
+                    pasted.scaleX = scale;
+                    pasted.scaleY = scale;
+                }
+                // Center in the Temp Canvas
+                var finalRect = tempDoc.getSelectionRect();
+                var fx = (finalRect.left + finalRect.right) / 2;
+                var fy = (finalRect.top + finalRect.bottom) / 2;
+                tempDoc.moveSelectionBy({
+                    x: (w / 2) - fx,
+                    y: (h / 2) - fy
+                });
+                tempDoc.exportPNG(imagePath, true, true);
+            }
+        }
+        tempDoc.close(false);
+        // 6. Calculate Offset using the ORIGINAL transform 
+        // We pass regPoint = matrix.tx/ty because that's the "Origin" in parent space.
+        // We pass localCenter calculated from the identity shape relative to (0,0).
+        var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y);
     };
     ImageUtil.exportSymbol = function (imagePath, element, document, scale, exportImages) {
         var item = element.libraryItem;
@@ -2322,7 +2490,6 @@ var ImageUtil = /** @class */ (function () {
         var localCenterX = rect.left + width / 2;
         var localCenterY = rect.top + height / 2;
         var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
-        Logger_1.Logger.trace("[ImageUtil] ".concat(element.name || item.name, ": Reg=(").concat(regPointX.toFixed(2), ",").concat(regPointY.toFixed(2), ") Trans=(").concat(transPointX.toFixed(2), ",").concat(transPointY.toFixed(2), ") LocalCenter=(").concat(localCenterX.toFixed(2), ",").concat(localCenterY.toFixed(2), ") Offset=(").concat(offset.x.toFixed(2), ",").concat(offset.y.toFixed(2), ")"));
         if (exportImages && dom.selection.length > 0) {
             dom.clipCopy();
             var tempDoc = fl.createDocument();
@@ -2376,13 +2543,16 @@ var ImageUtil = /** @class */ (function () {
         // Y-axis: (-scaleY * sin(shear), scaleY * cos(shear))
         // We solve: rx = x * scaleX - y * scaleY * sin(shear)
         //           ry = y * scaleY * cos(shear)
-        var shearRad = decomp.shearY * (Math.PI / 180);
+        // Use shearX because Spine uses X-shear (shear of Y axis relative to X)
+        var shearRad = decomp.shearX * (Math.PI / 180);
         var shearCos = Math.cos(shearRad);
         var shearTan = Math.tan(shearRad);
         // Solve for y (localRy) first
         var localRy = ry / (decomp.scaleY * shearCos);
         // Solve for x (localRx)
-        var localRx = (rx + ry * shearTan) / decomp.scaleX;
+        // x = (rx + y * scaleY * sin(shear)) / scaleX
+        // y * scaleY * sin(shear) = (ry / cos) * sin = ry * tan
+        var localRx = (rx - ry * shearTan) / decomp.scaleX;
         // 5. Add Image Center Offset
         // Image Center is relative to Reg Point (0,0) in Symbol Space.
         var finalX = localRx + localCenterX;
@@ -2741,6 +2911,13 @@ var NumberUtil = /** @class */ (function () {
     NumberUtil.equals = function (first, second, precision) {
         if (precision === void 0) { precision = 0.001; }
         return Math.abs(first - second) < precision;
+    };
+    NumberUtil.sign = function (value) {
+        if (value > 0)
+            return 1;
+        if (value < 0)
+            return -1;
+        return 0;
     };
     NumberUtil.clamp = function (value) {
         return (value < 1) ? ((value > 0) ? value : 0) : 1;

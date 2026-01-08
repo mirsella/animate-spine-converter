@@ -3,6 +3,12 @@ export class NumberUtil {
         return Math.abs(first - second) < precision;
     }
 
+    public static sign(value:number):number {
+        if (value > 0) return 1;
+        if (value < 0) return -1;
+        return 0;
+    }
+
     public static clamp(value:number):number {
         return (value < 1) ? ((value > 0) ? value : 0) : 1;
     }

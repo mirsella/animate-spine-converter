@@ -116,7 +116,7 @@ export class Converter {
         this.convertElementSlot(
             context, context.element,
             (context, imagePath) => {
-                return ImageUtil.exportInstance(imagePath, context.element, this._document, this._config.shapeExportScale, this._config.exportShapes);
+                return ImageUtil.exportShape(imagePath, context.element, this._document, this._config.shapeExportScale, this._config.exportShapes);
             }
         );
     }
@@ -275,7 +275,9 @@ export class Converter {
             try {
                 context.global.stageType = ConverterStageType.STRUCTURE;
                 this.convertElement(context);
+                Logger.trace(`[Converter] Converting animations for symbol instance: ${element.name || element.libraryItem.name}. Found ${context.global.labels.length} labels.`);
                 for (const l of context.global.labels) {
+                    Logger.trace(`  - Processing label: ${l.name} (frames ${l.startFrameIdx}-${l.endFrameIdx})`);
                     const sub = context.switchContextAnimation(l);
                     sub.global.stageType = ConverterStageType.ANIMATION;
                     this.convertElement(sub);

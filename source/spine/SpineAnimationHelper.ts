@@ -34,9 +34,6 @@ export class SpineAnimationHelper {
     }
 
     public static applyBoneTransform(bone:SpineBone, transform:SpineTransform):void {
-        Logger.trace(`[SpineAnimationHelper] applyBoneTransform to "${bone.name}"`);
-        Logger.trace(`  Transform: x=${transform.x.toFixed(2)} y=${transform.y.toFixed(2)} rot=${transform.rotation.toFixed(2)} sx=${transform.scaleX.toFixed(2)} sy=${transform.scaleY.toFixed(2)}`);
-        
         bone.x = transform.x;
         bone.y = transform.y;
         bone.rotation = transform.rotation;
