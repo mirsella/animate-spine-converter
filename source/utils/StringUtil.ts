@@ -1,11 +1,8 @@
 export class StringUtil {
     public static simplify(value:string):string {
-        const lastSlash = value.lastIndexOf('/');
+        // Do not strip the path. Replace slashes and other chars with underscores to ensure uniqueness.
+        // This prevents collisions between "folderA/item" and "folderB/item".
         const regex = /[\/\-. ]+/gi;
-
-        if (lastSlash !== -1) {
-            value = value.slice(lastSlash + 1);
-        }
 
         return (
             value.replace(regex, '_')

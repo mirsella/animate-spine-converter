@@ -13,6 +13,7 @@
 exports.Converter = void 0;
 var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineAnimationHelper_1 = __webpack_require__(/*! ../spine/SpineAnimationHelper */ "./source/spine/SpineAnimationHelper.ts");
+var SpineImage_1 = __webpack_require__(/*! ../spine/SpineImage */ "./source/spine/SpineImage.ts");
 var SpineSkeleton_1 = __webpack_require__(/*! ../spine/SpineSkeleton */ "./source/spine/SpineSkeleton.ts");
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
 var ImageUtil_1 = __webpack_require__(/*! ../utils/ImageUtil */ "./source/utils/ImageUtil.ts");
@@ -48,7 +49,15 @@ var Converter = /** @class */ (function () {
         var attachment = slot.createAttachment(attachmentName, "region" /* SpineAttachmentType.REGION */);
         var spineImage = context.global.imagesCache.get(imagePath);
         if (spineImage == null) {
-            spineImage = imageExportFactory(context, imagePath);
+            try {
+                spineImage = imageExportFactory(context, imagePath);
+            }
+            catch (e) {
+                Logger_1.Logger.error("[Converter] Image export error for '".concat(imageName, "': ").concat(e, ". Using placeholder."));
+                // Create a 1x1 placeholder to allow the script to continue
+                // We assume scale 1 and offset 0 for the placeholder
+                spineImage = new SpineImage_1.SpineImage(imagePath, 1, 1, 1, 0, 0);
+            }
             context.global.imagesCache.set(imagePath, spineImage);
         }
         attachment.width = spineImage.width;
@@ -172,20 +181,46 @@ var Converter = /** @class */ (function () {
         });
     };
     Converter.prototype.convertCompositeElement = function (context) {
-        var layers = context.element.libraryItem.timeline.layers;
-        for (var i = layers.length - 1; i >= 0; i--) {
-            var layer = layers[i];
-            if (layer.layerType === 'normal') {
-                this.convertCompositeElementLayer(context, layer);
+        var item = context.element.libraryItem;
+        if (!item)
+            return;
+        // Enter the symbol to ensure we are in the correct context for selection and interpolation
+        // We only do this if we can actually edit the item
+        var canEdit = this._document.library.itemExists(item.name);
+        if (canEdit) {
+            this._document.library.editItem(item.name);
+        }
+        try {
+            var layers = item.timeline.layers;
+            for (var i = layers.length - 1; i >= 0; i--) {
+                var layer = layers[i];
+                Logger_1.Logger.trace("[Converter] Processing layer '".concat(layer.name, "' (type:").concat(layer.layerType, ", visible:").concat(layer.visible, ") in symbol '").concat(item.name, "'"));
+                // Skip hidden layers to prevent exporting reference art or disabled content
+                if (!layer.visible) {
+                    Logger_1.Logger.trace("[Converter] Skipping hidden layer: '".concat(layer.name, "' in symbol '").concat(item.name, "'"));
+                    continue;
+                }
+                // Treat 'guided' layers (layers being guided by a motion guide) as normal layers
+                if (layer.layerType === 'normal' || layer.layerType === 'guided') {
+                    this.convertCompositeElementLayer(context, layer);
+                }
+                else if (layer.layerType === 'masked') {
+                    var mask = LayerMaskUtil_1.LayerMaskUtil.extractTargetMask(layers, i);
+                    if (mask)
+                        this.composeElementMaskLayer(context, mask);
+                    this.convertCompositeElementLayer(context, layer);
+                }
+                else if (layer.layerType === 'mask') {
+                    this.disposeElementMaskLayer(context);
+                }
+                else {
+                    Logger_1.Logger.trace("[Converter] Skipping layer '".concat(layer.name, "' with type '").concat(layer.layerType, "' in symbol '").concat(item.name, "'"));
+                }
             }
-            else if (layer.layerType === 'masked') {
-                var mask = LayerMaskUtil_1.LayerMaskUtil.extractTargetMask(layers, i);
-                if (mask)
-                    this.composeElementMaskLayer(context, mask);
-                this.convertCompositeElementLayer(context, layer);
-            }
-            else if (layer.layerType === 'mask') {
-                this.disposeElementMaskLayer(context);
+        }
+        finally {
+            if (canEdit) {
+                this._document.exitEditMode();
             }
         }
     };
@@ -198,14 +233,16 @@ var Converter = /** @class */ (function () {
         }
         for (var i = start; i <= end; i++) {
             var frame = layer.frames[i];
-            if (!frame || frame.startFrame !== i)
+            if (!frame)
                 continue;
             var time = (i - start) / frameRate;
+            // Export events from comments
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */)
                     SpineAnimationHelper_1.SpineAnimationHelper.applyEventAnimation(context.global.animation, frame.name, time);
             }
+            // Handle empty keyframes (end of visibility) by setting attachment to null
             if (frame.elements.length === 0) {
                 var slots = context.global.layersCache.get(context.layer);
                 if (slots && stageType === "animation" /* ConverterStageType.ANIMATION */) {
@@ -216,12 +253,78 @@ var Converter = /** @class */ (function () {
                 }
                 continue;
             }
-            for (var _b = 0, _c = frame.elements; _b < _c.length; _b++) {
-                var el = _c[_b];
+            // Iterate elements on the frame
+            for (var eIdx = 0; eIdx < frame.elements.length; eIdx++) {
+                var el = frame.elements[eIdx];
+                // INTERPOLATION HANDLING
+                if (i !== frame.startFrame) {
+                    this._document.getTimeline().currentFrame = i;
+                    var wasLocked = layer.locked;
+                    var wasVisible = layer.visible;
+                    layer.locked = false;
+                    layer.visible = true;
+                    // Robust selection logic
+                    var timeline = this._document.getTimeline();
+                    // Find correct layer index
+                    var layerIdx = -1;
+                    var layers = timeline.layers;
+                    // Try reference match first
+                    for (var k = 0; k < layers.length; k++) {
+                        if (layers[k] === layer) {
+                            layerIdx = k;
+                            break;
+                        }
+                    }
+                    // Fallback to name match if reference fails (JSFL quirk)
+                    if (layerIdx === -1) {
+                        for (var k = 0; k < layers.length; k++) {
+                            if (layers[k].name === layer.name) {
+                                layerIdx = k;
+                                break;
+                            }
+                        }
+                    }
+                    if (layerIdx !== -1) {
+                        timeline.setSelectedLayers(layerIdx);
+                    }
+                    timeline.setSelectedFrames(i, i + 1); // Focus the specific frame
+                    this._document.selectNone();
+                    // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance
+                    el.selected = true;
+                    if (this._document.selection.length > 0) {
+                        el = this._document.selection[0];
+                    }
+                    layer.locked = wasLocked;
+                    layer.visible = wasVisible;
+                }
+                else {
+                    this._document.getTimeline().currentFrame = i;
+                }
                 var sub = context.switchContextFrame(frame).createBone(el, time);
-                this._document.library.editItem(context.element.libraryItem.name);
-                this._document.getTimeline().currentFrame = frame.startFrame;
+                // Recurse into symbol if needed
+                // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
+                // However, we must ensure we don't lose our place in the current timeline loop.
                 factory(sub);
+                // RESTORE CONTEXT CHECK
+                // If the factory call (e.g. ImageUtil.exportSymbol) changed the active edit context (returned to parent/root),
+                // we must re-enter the current symbol to continue processing its timeline correctly.
+                if (context.element && context.element.libraryItem) {
+                    var targetName = context.element.libraryItem.name;
+                    var dom = this._document;
+                    // Check if current timeline matches our expected context
+                    // Note: timeline.name matches the Symbol name for symbols.
+                    var currentTl = dom.getTimeline();
+                    if (currentTl.name !== targetName) {
+                        Logger_1.Logger.trace("[Converter] Context lost (Current: '".concat(currentTl.name, "', Expected: '").concat(targetName, "'). Restoring..."));
+                        if (dom.library.itemExists(targetName)) {
+                            dom.library.editItem(targetName);
+                        }
+                    }
+                }
+                // Restore timeline frame in case recursion changed it
+                if (this._document.getTimeline().currentFrame !== i) {
+                    this._document.getTimeline().currentFrame = i;
+                }
             }
         }
     };
@@ -1997,29 +2100,20 @@ var SpineTransformMatrix = /** @class */ (function () {
         if (reference === void 0) { reference = null; }
         var _a;
         // Position: The Spine bone must be positioned at the Transformation Point.
-        // element.transformX/Y are the global (parent) coordinates of the transformation point.
         this.x = element.transformX;
         this.y = element.transformY;
         var name = element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
-        // Decompose the matrix to get robust Rotation, Scale, and Shear
+        // Decompose the matrix
         var decomposed = SpineTransformMatrix.decomposeMatrix(element.matrix, reference, name);
         this.rotation = decomposed.rotation;
         this.scaleX = decomposed.scaleX;
         this.scaleY = decomposed.scaleY;
         this.shearX = decomposed.shearX;
         this.shearY = decomposed.shearY;
-        // Debug extended transform info
-        if (decomposed.scaleX < 0 || decomposed.scaleY < 0) {
-            Logger_1.Logger.trace("[SpineTransformMatrix] ".concat(name, ": MIRRORED -> rot=").concat(this.rotation.toFixed(2), " sx=").concat(this.scaleX.toFixed(2), " sy=").concat(this.scaleY.toFixed(2), " shearX=").concat(this.shearX.toFixed(2)));
-        }
     }
     /**
-
-     * Decomposes an Animate Matrix into Spine components (Rotation, Scale, Shear).
-     * Based on the "Advanced Coordinate System Transformation" technical monograph.
-     * @param mat The Flash Matrix
-     * @param reference Optional previous transform to help disambiguate flip (handedness) choices.
-     * @param debugName Optional name for logging
+     * Decomposes an Animate Matrix into Spine components.
+     * Handles Scale, Rotation, Shear, and Mirroring (Flipping).
      */
     SpineTransformMatrix.decomposeMatrix = function (mat, reference, debugName) {
         if (reference === void 0) { reference = null; }
@@ -2028,113 +2122,137 @@ var SpineTransformMatrix = /** @class */ (function () {
         var b = mat.b;
         var c = mat.c;
         var d = mat.d;
-        // 1. Scale Extraction
-        // Scale is the magnitude of the basis vectors.
+        // Basis Vectors
+        // U = (a, b)
+        // V = (c, d)
+        // 1. Scale X and Rotation (from Vector U)
         var scaleX = Math.sqrt(a * a + b * b);
-        var scaleY = Math.sqrt(c * c + d * d);
-        // 2. Rotation and Shear Extraction
+        // Rotation (CCW for Spine)
+        // Animate (Y-Down): atan2(b, a) is angle from X-axis.
+        // Spine (Y-Up): We negate the angle.
         var rotXRad = Math.atan2(b, a);
-        var rotYRad = Math.atan2(d, c);
+        var rotation = -rotXRad * (180 / Math.PI);
+        // 2. Determinant
         var det = a * d - b * c;
-        var rotation = 0;
-        var shearX = 0;
-        if (det < 0) {
-            // Handedness flip (Mirroring)
-            // We can achieve this by negating scaleX OR scaleY.
-            // Option A: Flip Y (Standard QR decomposition preference)
-            // rotY_logical = rotY + PI
-            // rotation = -rotX (Animate is CW, so we negate)
-            var rotY_flipY = rotYRad + Math.PI;
-            var rot_flipY = -rotXRad * (180 / Math.PI);
-            // Normalize to -180..180
-            while (rot_flipY <= -180)
-                rot_flipY += 360;
-            while (rot_flipY > 180)
-                rot_flipY -= 360;
-            // Option B: Flip X
-            // rotX_logical = rotX + PI
-            // rotation = -rotX_logical = -(rotX + PI)
-            var rotX_flipX = rotXRad + Math.PI;
-            var rot_flipX = -rotX_flipX * (180 / Math.PI);
-            // Normalize
-            while (rot_flipX <= -180)
-                rot_flipX += 360;
-            while (rot_flipX > 180)
-                rot_flipX -= 360;
-            var useFlipX = false;
-            var reason = "default heuristic";
-            if (reference != null) {
-                // Heuristic: Continuity with Reference (Previous Frame or Setup Pose)
-                // Compare rotational distance
-                var diffA = Math.abs(rot_flipY - reference.rotation);
-                while (diffA > 180)
-                    diffA -= 360;
-                while (diffA < -180)
-                    diffA += 360;
-                diffA = Math.abs(diffA);
-                var diffB = Math.abs(rot_flipX - reference.rotation);
-                while (diffB > 180)
-                    diffB -= 360;
-                while (diffB < -180)
-                    diffB += 360;
-                diffB = Math.abs(diffB);
-                // Compare scale signs (parity)
-                // Option A implies ScaleY < 0. Option B implies ScaleX < 0.
-                var scoreA = diffA + (NumberUtil_1.NumberUtil.sign(reference.scaleY) !== -1 ? 1000 : 0) + (NumberUtil_1.NumberUtil.sign(reference.scaleX) !== 1 ? 1000 : 0);
-                var scoreB = diffB + (NumberUtil_1.NumberUtil.sign(reference.scaleX) !== -1 ? 1000 : 0) + (NumberUtil_1.NumberUtil.sign(reference.scaleY) !== 1 ? 1000 : 0);
-                if (scoreB < scoreA) {
-                    useFlipX = true;
-                    reason = "continuity match (scoreB < scoreA)";
-                }
-                else {
-                    reason = "continuity match (scoreA <= scoreB)";
-                }
-            }
-            else {
-                // Default Heuristic: Choose the smaller absolute rotation
-                if (Math.abs(rot_flipX) < Math.abs(rot_flipY)) {
-                    useFlipX = true;
-                    reason = "smaller rotation";
-                }
-            }
-            if (useFlipX) {
-                // Use Flip X
+        // 3. Scale Y
+        // Use det / scaleX.
+        // - Preserves flipping sign (if det < 0, scaleY < 0).
+        // - Preserves Animate's visual skew squashing (Area = det).
+        var scaleY = (scaleX > 0.00001) ? (det / scaleX) : 0;
+        // 4. Shear X
+        // Angle of Vector V
+        var rotYRad = Math.atan2(d, c);
+        // Shear is the angular deviation of V from orthogonality.
+        // In standard frame: V should be U + 90deg.
+        // Shear = Angle(V) - Angle(U) - 90.
+        var shearRad = rotYRad - rotXRad - (Math.PI / 2);
+        // 5. Flip Correction
+        // If we are flipped (ScaleY < 0), the "visual" Y-axis (V) is flipped relative to the "local" Y-axis.
+        // Local Y-axis (before scale) is U + 90.
+        // Flipped Y-axis (after scale) is -(U + 90).
+        // The angle 'rotYRad' is the angle of V.
+        // If V is roughly opposite to U+90, 'shearRad' will be roughly 180 degrees (PI).
+        // This visual 180 flip is accounted for by 'scaleY = -1'.
+        // So we subtract PI from shear to get the "shear relative to the flipped basis".
+        if (scaleY < 0) {
+            shearRad -= Math.PI;
+        }
+        // Normalize Shear to -180..180
+        while (shearRad <= -Math.PI)
+            shearRad += 2 * Math.PI;
+        while (shearRad > Math.PI)
+            shearRad -= 2 * Math.PI;
+        // Convert to Degrees and Negate for Spine (CCW)
+        var shearX = -shearRad * (180 / Math.PI);
+        // Normalize Rotation to -180..180
+        while (rotation <= -180)
+            rotation += 360;
+        while (rotation > 180)
+            rotation -= 360;
+        // Normalize ShearX to -180..180
+        while (shearX <= -180)
+            shearX += 360;
+        while (shearX > 180)
+            shearX -= 360;
+        // --- Continuity Heuristic (Optional) ---
+        // If we have a reference (previous frame), and the current solution involves a flip (scaleY < 0),
+        // we check if an "X-Flip" solution (scaleX < 0) would be closer in rotation.
+        // Current Solution (S1): Rot, Sx, Sy<0, Shear
+        // Alternative Solution (S2): X-Flip
+        // Rot2 = Rot + 180
+        // Sx2 = -Sx
+        // Sy2 = -Sy (so Sy2 > 0)
+        // Shear2 = Shear (roughly? depends on basis)
+        if (reference) {
+            // Only consider alternatives if we are flipped or reference is flipped
+            var isFlipped = scaleY < 0;
+            var refScaleX = reference.scaleX;
+            // If current is Y-Flip (Sx>0, Sy<0), but Ref has Sx<0 (X-Flip):
+            // We might want to switch to X-Flip to avoid Rotation popping by 180.
+            // Or simply: Generate Candidate 2 (Flip X) and compare scores.
+            // Cand 2: Flip X
+            var angleX_flip = Math.atan2(-b, -a);
+            var rot2 = -angleX_flip * (180 / Math.PI);
+            while (rot2 <= -180)
+                rot2 += 360;
+            while (rot2 > 180)
+                rot2 -= 360;
+            var diff1 = Math.abs(rotation - reference.rotation);
+            if (diff1 > 180)
+                diff1 = 360 - diff1;
+            var diff2 = Math.abs(rot2 - reference.rotation);
+            if (diff2 > 180)
+                diff2 = 360 - diff2;
+            // If Rot2 is significantly closer, use it.
+            // But prefer preserving ScaleX sign.
+            var signMatch1 = NumberUtil_1.NumberUtil.sign(scaleX) === NumberUtil_1.NumberUtil.sign(refScaleX);
+            var signMatch2 = NumberUtil_1.NumberUtil.sign(-scaleX) === NumberUtil_1.NumberUtil.sign(refScaleX);
+            // Add penalty for sign mismatch
+            var penalty = 1000;
+            var score1 = diff1 + (signMatch1 ? 0 : penalty);
+            var score2 = diff2 + (signMatch2 ? 0 : penalty);
+            if (score2 < score1) {
+                // Adopt Flip X
+                rotation = rot2;
                 scaleX = -scaleX;
-                rotation = rot_flipX;
-                // Shear calc for Flip X
-                var shearRaw = rotYRad - rotX_flipX - (Math.PI / 2);
-                while (shearRaw <= -Math.PI)
-                    shearRaw += 2 * Math.PI;
-                while (shearRaw > Math.PI)
-                    shearRaw -= 2 * Math.PI;
-                shearX = -shearRaw * (180 / Math.PI); // Negate for CCW
-                Logger_1.Logger.trace("[Decompose] ".concat(debugName, ": Flip X chosen. Reason: ").concat(reason, ". Rot: ").concat(rot_flipX.toFixed(2)));
-            }
-            else {
-                // Use Flip Y
+                // ScaleY must also flip sign to maintain Determinant?
+                // det = sx * sy ... if sx flips, sy must flip?
+                // No, det is fixed. det = sx * sy. 
+                // If we flip sx, we must flip sy to keep det same.
                 scaleY = -scaleY;
-                rotation = rot_flipY;
-                // Shear calc for Flip Y
-                var shearRaw = rotY_flipY - rotXRad - (Math.PI / 2);
-                while (shearRaw <= -Math.PI)
-                    shearRaw += 2 * Math.PI;
-                while (shearRaw > Math.PI)
-                    shearRaw -= 2 * Math.PI;
-                shearX = -shearRaw * (180 / Math.PI);
-                Logger_1.Logger.trace("[Decompose] ".concat(debugName, ": Flip Y chosen. Reason: ").concat(reason, ". Rot: ").concat(rot_flipY.toFixed(2)));
+                // Recalculate shear for Flip X?
+                // Visual Y is (c,d). Local Y is now orthogonal to FLIPPED X.
+                // Rot2 is angle of -U.
+                // Orthogonal Y to -U is (-U) + 90.
+                // Shear = Angle(V) - Angle(-U + 90).
+                // Let's re-run shear math relative to Rot2.
+                // ... Or just assume shear is similar? 
+                // Actually, if we flip both axes (Rot 180), Shear is unchanged.
+                // If we flip X and Y, we rotated 180.
+                // Wait, S2 is Flip X. S1 was Flip Y.
+                // S2 = S1 * Rot(180)?
+                // Scale(1, -1) * Rot(180) = Scale(1, -1) * [[-1, 0], [0, -1]] = [[-1, 0], [0, 1]] = Scale(-1, 1).
+                // Yes! Flip Y + Rot 180 == Flip X.
+                // So Shear should be preserved?
+                // Spine applies Scale -> Shear -> Rot.
+                // If we switch from Flip Y to Flip X, we added 180 to rotation.
+                // Shear X is angle between Y and X-normal.
+                // If we rotate 180, Y and X-normal both rotate 180. Angle diff preserves.
+                // So ShearX is likely preserved.
+                Logger_1.Logger.trace("[Decompose] ".concat(debugName, ": Switched to Flip X for continuity. Rot=").concat(rotation.toFixed(1)));
             }
         }
-        else {
-            // Normal (Positive Determinant)
-            rotation = -rotXRad * (180 / Math.PI);
-            // Shear
-            // shear = rotY - rotX - PI/2
-            var shearRaw = rotYRad - rotXRad - (Math.PI / 2);
-            while (shearRaw <= -Math.PI)
-                shearRaw += 2 * Math.PI;
-            while (shearRaw > Math.PI)
-                shearRaw -= 2 * Math.PI;
-            shearX = -shearRaw * (180 / Math.PI);
+        // Final normalization just in case
+        while (shearX <= -180)
+            shearX += 360;
+        while (shearX > 180)
+            shearX -= 360;
+        // Debug logging: Only log on significant frames or errors to reduce noise
+        // We identify "significant" as containing shear or negative scale (flipping)
+        if (debugName.indexOf('arm') >= 0 || debugName.indexOf('weapon') >= 0) {
+            if (scaleY > 0 || Math.abs(shearX) > 1) { // ScaleY > 0 is "Flipped" in our -det/sx logic (Y points Up)
+                Logger_1.Logger.trace("[Decompose] ".concat(debugName, ": Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " Shear=").concat(shearX.toFixed(1)));
+            }
         }
         return {
             rotation: rotation,
@@ -2329,12 +2447,11 @@ exports.ConvertUtil = ConvertUtil;
 exports.ImageUtil = void 0;
 var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineImage_1 = __webpack_require__(/*! ../spine/SpineImage */ "./source/spine/SpineImage.ts");
-var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTransformMatrix */ "./source/spine/transform/SpineTransformMatrix.ts");
 var ImageUtil = /** @class */ (function () {
     function ImageUtil() {
     }
     ImageUtil.exportBitmap = function (imagePath, element, exportImages) {
-        var _a;
+        var _a, _b;
         Logger_1.Logger.assert(element.libraryItem != null, "exportBitmap: element has no libraryItem (element: ".concat(element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ")"));
         // Capture geometric properties immediately
         var regPointX = element.x;
@@ -2349,108 +2466,427 @@ var ImageUtil = /** @class */ (function () {
             item.exportToFile(imagePath);
         }
         // Calculate Smart Pivot Offset
-        // For a raw bitmap, the internal origin (Reg Point) is (0,0) (top-left).
-        // The image center relative to Reg Point is (w/2, h/2).
         var localCenterX = w / 2;
         var localCenterY = h / 2;
-        var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
-        return new SpineImage_1.SpineImage(imagePath, w, h, 1, offset.x, offset.y); // Negate Y handled by SpineFormat
+        var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name));
+        return new SpineImage_1.SpineImage(imagePath, w, h, 1, offset.x, offset.y);
     };
     ImageUtil.exportLibraryItem = function (imagePath, element, scale, exportImages) {
         Logger_1.Logger.assert(element.libraryItem != null, "exportLibraryItem: element has no libraryItem");
-        // Use the shared export logic
         return ImageUtil.exportSymbol(imagePath, element, fl.getDocumentDOM(), scale, exportImages);
     };
     ImageUtil.exportInstance = function (imagePath, element, document, scale, exportImages) {
+        // If the instance has filters, color effects, or is a specific "baking" candidate, we export from Stage.
+        // Otherwise, we export from Library to handle reusability better.
+        // For now, we prefer Stage export if there are ANY visual overrides, to ensure fidelity (e.g. Dash effects).
+        var hasFilters = element.filters && element.filters.length > 0;
+        var hasColor = element.colorMode && element.colorMode !== 'none';
+        if (hasFilters || hasColor) {
+            return ImageUtil.exportInstanceFromStage(imagePath, element, document, scale, exportImages);
+        }
         Logger_1.Logger.assert(element.libraryItem != null, "exportInstance: element has no libraryItem. (type: ".concat(element.elementType, ")"));
-        // Use the shared export logic
         return ImageUtil.exportSymbol(imagePath, element, document, scale, exportImages);
     };
-    ImageUtil.exportShape = function (imagePath, element, document, scale, exportImages) {
-        // Shapes don't have a library item, so we export them directly from the current context.
-        // The Converter ensures we are in the correct parent context.
+    ImageUtil.sleep = function (ms) {
+        var start = new Date().getTime();
+        while (new Date().getTime() < start + ms)
+            ;
+    };
+    ImageUtil.clearClipboard = function () {
+        try {
+            var blankDoc = fl.createDocument();
+            blankDoc.width = 1;
+            blankDoc.height = 1;
+            blankDoc.addNewRectangle({ left: 0, top: 0, right: 1, bottom: 1 }, 0);
+            blankDoc.selectAll();
+            blankDoc.clipCopy();
+            // Use try-catch for close to handle EDAPT or other plugin errors
+            try {
+                blankDoc.close(false);
+            }
+            catch (e) { /* ignore */ }
+        }
+        catch (e) {
+            Logger_1.Logger.warning("[ImageUtil] Failed to clear clipboard: ".concat(e));
+        }
+    };
+    ImageUtil.regainFocus = function (dom) {
+        try {
+            // Strategy 1: Explicitly make the target document active
+            if (dom.makeActive) {
+                try {
+                    dom.makeActive();
+                }
+                catch (e) { /* ignore */ }
+            }
+            // Strategy 2: If the active DOM is not our target, try to switch
+            var current = fl.getDocumentDOM();
+            if (current && current.name !== dom.name) {
+                // Try to focus by opening/closing a dummy if makeActive didn't work effectively? 
+                // Or just rely on the retry.
+            }
+        }
+        catch (e) {
+            Logger_1.Logger.warning("[ImageUtil] regainFocus failed: ".concat(e));
+        }
+    };
+    ImageUtil.exportInstanceFromStage = function (imagePath, element, document, scale, exportImages) {
+        var _a;
         var matrix = element.matrix;
         var transPointX = element.transformX;
         var transPointY = element.transformY;
-        // CRITICAL: For Shapes, element.x/y is the Bounding Box Left/Top, NOT the transformation origin.
-        // We must use the matrix translation (tx, ty) as the effective "Registration Point" (Origin)
-        // because that matches the coordinate system where the shape's geometry is defined relative to (0,0).
         var regPointX = matrix.tx;
         var regPointY = matrix.ty;
         var dom = document;
-        // 2. Copy the shape
-        // Ensure layer is unlocked/visible to allow selection/copy
         var layer = element.layer;
         var wasLocked = layer.locked;
         var wasVisible = layer.visible;
         layer.locked = false;
         layer.visible = true;
-        dom.selectNone();
-        element.selected = true;
+        // Ensure we are focused on the right document before selection
+        ImageUtil.regainFocus(dom);
+        // Explicitly clear frame selection to ensure we are in Object Selection mode
         try {
-            dom.clipCopy();
+            dom.getTimeline().setSelectedFrames([]);
         }
         catch (e) {
-            Logger_1.Logger.warning("[ImageUtil] clipCopy failed for shape on layer '".concat(layer.name, "': ").concat(e));
+            try {
+                dom.getTimeline().setSelectedFrames(0, 0);
+                dom.selectNone();
+            }
+            catch (e2) { }
         }
-        element.selected = false;
-        // Restore layer state
-        layer.locked = wasLocked;
-        layer.visible = wasVisible;
-        // 3. Paste into a temp document to isolate and normalize it
-        var tempDoc = fl.createDocument();
-        // Use inPlace=true to keep coordinates consistent with source stage (though we reset matrix anyway)
-        tempDoc.clipPaste(true);
-        var w = 1;
-        var h = 1;
-        var localCenterX = 0;
-        var localCenterY = 0;
-        if (tempDoc.selection.length > 0) {
-            var pasted = tempDoc.selection[0];
-            // 4. RESET MATRIX TO IDENTITY
-            // This is the critical fix for skewed/rotated shapes. 
-            // We want the image to be the "neutral" pose. The Bone in Spine will handle the skew/rotation.
-            // When matrix is identity, the shape's geometry is positioned relative to the Stage Origin (0,0)
-            // exactly as it is defined relative to its own internal origin.
-            pasted.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
-            // 5. Measure the normalized shape
-            var rect = tempDoc.getSelectionRect();
-            var width = rect.right - rect.left;
-            var height = rect.bottom - rect.top;
-            w = Math.max(1, Math.ceil(width * scale));
-            h = Math.max(1, Math.ceil(height * scale));
-            // Local Center: The vector from the Shape's Origin (which is 0,0 now) to the Center of its Bounding Box.
-            // Since we reset matrix to identity (tx=0, ty=0), the "Origin" is at Stage (0,0).
-            // rect.left/top are coordinates on this stage.
-            // So rect.left IS the x-distance from Origin to Left Edge.
-            localCenterX = rect.left + width / 2;
-            localCenterY = rect.top + height / 2;
-            Logger_1.Logger.trace("[ImageUtil] Shape ".concat(element.name || 'shape', ": IdentityRect=(").concat(rect.left.toFixed(2), ",").concat(rect.top.toFixed(2), ",").concat(width.toFixed(2), "x").concat(height.toFixed(2), ")"));
-            if (exportImages) {
-                tempDoc.width = w;
-                tempDoc.height = h;
-                // Apply Export Scale
-                if (scale !== 1) {
-                    pasted.scaleX = scale;
-                    pasted.scaleY = scale;
+        dom.selectNone();
+        element.selected = true;
+        var copySuccess = false;
+        // Retry loop for clipCopy
+        for (var attempt = 0; attempt < 4; attempt++) {
+            try {
+                // Ensure selection is fresh
+                if (attempt > 0) {
+                    ImageUtil.regainFocus(dom);
+                    // Force re-selection sequence
+                    dom.selectNone();
+                    try {
+                        dom.getTimeline().setSelectedFrames([]);
+                    }
+                    catch (e) { }
+                    // Try alternative selection method
+                    if (attempt % 2 === 1) {
+                        dom.selection = [element];
+                    }
+                    else {
+                        element.selected = true;
+                    }
+                    // Verify selection
+                    if (dom.selection.length === 0) {
+                        // Force frame selection reset again
+                        try {
+                            var tl = dom.getTimeline();
+                            // Refresh frame (assignment to itself forces update in JSFL)
+                            var cf = tl.currentFrame;
+                            tl.currentFrame = cf;
+                        }
+                        catch (e) { }
+                        // Try assignment again if element.selected = true failed
+                        try {
+                            dom.selection = [element];
+                        }
+                        catch (e) {
+                            element.selected = true;
+                        }
+                    }
+                    ImageUtil.sleep(200 + (attempt * 100)); // Increased backoff
                 }
-                // Center in the Temp Canvas
-                var finalRect = tempDoc.getSelectionRect();
-                var fx = (finalRect.left + finalRect.right) / 2;
-                var fy = (finalRect.top + finalRect.bottom) / 2;
-                tempDoc.moveSelectionBy({
-                    x: (w / 2) - fx,
-                    y: (h / 2) - fy
-                });
-                tempDoc.exportPNG(imagePath, true, true);
+                if (dom.selection.length > 0) {
+                    dom.clipCopy();
+                    copySuccess = true;
+                    Logger_1.Logger.trace("[ImageUtil] exportInstanceFromStage: Success on attempt ".concat(attempt + 1));
+                    break;
+                }
+                else {
+                    if (attempt === 0) {
+                        // First attempt failed. Try assignment fallback immediately
+                        try {
+                            dom.selection = [element];
+                        }
+                        catch (e) { }
+                        if (dom.selection.length > 0) {
+                            dom.clipCopy();
+                            copySuccess = true;
+                            break;
+                        }
+                        Logger_1.Logger.warning("[ImageUtil] exportInstanceFromStage: Selection empty (attempt ".concat(attempt + 1, "). Layer: ").concat(layer.name));
+                    }
+                }
+            }
+            catch (e) {
+                Logger_1.Logger.warning("[ImageUtil] exportInstanceFromStage: clipCopy failed (attempt ".concat(attempt + 1, "/4): ").concat(e, "."));
+                ImageUtil.clearClipboard();
             }
         }
-        tempDoc.close(false);
-        // 6. Calculate Offset using the ORIGINAL transform 
-        // We pass regPoint = matrix.tx/ty because that's the "Origin" in parent space.
-        // We pass localCenter calculated from the identity shape relative to (0,0).
-        var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y);
+        element.selected = false;
+        layer.locked = wasLocked;
+        layer.visible = wasVisible;
+        if (!copySuccess) {
+            Logger_1.Logger.error("[ImageUtil] exportInstanceFromStage: Failed to copy element after retries. Element: ".concat(element.name));
+            return new SpineImage_1.SpineImage(imagePath, 1, 1, scale, 0, 0);
+        }
+        try {
+            var tempDoc = fl.createDocument();
+            try {
+                tempDoc.clipPaste(true);
+                var w = 1;
+                var h = 1;
+                var localCenterX = 0;
+                var localCenterY = 0;
+                if (tempDoc.selection.length > 0) {
+                    var pasted = tempDoc.selection[0];
+                    // --- SANITIZATION STEP ---
+                    // If the pasted element is a Symbol Instance, we must clean its internal timeline 
+                    // (remove hidden layers) to prevent "Full Asset" glitches where hidden reference layers appear.
+                    if (pasted.elementType === 'instance' && pasted.instanceType === 'symbol' && pasted.libraryItem) {
+                        try {
+                            // Ensure the temp document is active for editing
+                            if (tempDoc.makeActive) {
+                                try {
+                                    tempDoc.makeActive();
+                                }
+                                catch (e) { }
+                            }
+                            // Select the instance to ensure context
+                            tempDoc.selectNone();
+                            pasted.selected = true;
+                            // Enter the symbol in place
+                            var libItem = pasted.libraryItem;
+                            var itemName = libItem.name;
+                            // Note: We use the library item name to edit.
+                            tempDoc.library.editItem(itemName);
+                            var subTimeline = tempDoc.getTimeline();
+                            // Iterate backwards to delete hidden/guide layers
+                            var modified = false;
+                            for (var i = subTimeline.layers.length - 1; i >= 0; i--) {
+                                var lay = subTimeline.layers[i];
+                                var shouldDelete = lay.layerType === 'guide' || !lay.visible;
+                                if (shouldDelete) {
+                                    Logger_1.Logger.trace("[ImageUtil] Sanitizing: Deleting layer '".concat(lay.name, "' (visible=").concat(lay.visible, ", type=").concat(lay.layerType, ") in '").concat(itemName, "'"));
+                                    subTimeline.deleteLayer(i);
+                                    modified = true;
+                                }
+                            }
+                            // Exit editing mode to return to Main Timeline of temp doc
+                            tempDoc.exitEditMode();
+                            // Re-select the pasted instance if edit mode cleared selection
+                            if (modified) {
+                                tempDoc.selectAll();
+                            }
+                            else {
+                                // If nothing was modified, ensure selection is active
+                                if (tempDoc.selection.length === 0) {
+                                    pasted.selected = true;
+                                }
+                            }
+                        }
+                        catch (eSanitize) {
+                            Logger_1.Logger.warning("[ImageUtil] Failed to sanitize temp symbol: ".concat(eSanitize));
+                            try {
+                                tempDoc.exitEditMode();
+                            }
+                            catch (e) { }
+                        }
+                    }
+                    // -------------------------
+                    // Re-fetch selection[0] as editing might have changed reference
+                    if (tempDoc.selection.length > 0) {
+                        var finalPasted = tempDoc.selection[0];
+                        // Disable cacheAsBitmap on the final instance too
+                        if (finalPasted.elementType === 'instance') {
+                            finalPasted.cacheAsBitmap = false;
+                        }
+                        // RESET MATRIX TO IDENTITY (removes skew/scale/rotation, BUT keeps filters/color effects)
+                        finalPasted.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                        var rect = tempDoc.getSelectionRect();
+                        var width = rect.right - rect.left;
+                        var height = rect.bottom - rect.top;
+                        w = Math.max(1, Math.ceil(width * scale));
+                        h = Math.max(1, Math.ceil(height * scale));
+                        localCenterX = rect.left + width / 2;
+                        localCenterY = rect.top + height / 2;
+                        if (exportImages) {
+                            tempDoc.width = w;
+                            tempDoc.height = h;
+                            if (scale !== 1) {
+                                finalPasted.scaleX = scale;
+                                finalPasted.scaleY = scale;
+                            }
+                            var finalRect = tempDoc.getSelectionRect();
+                            var fx = (finalRect.left + finalRect.right) / 2;
+                            var fy = (finalRect.top + finalRect.bottom) / 2;
+                            tempDoc.moveSelectionBy({
+                                x: (w / 2) - fx,
+                                y: (h / 2) - fy
+                            });
+                            tempDoc.exportPNG(imagePath, true, true);
+                        }
+                    }
+                }
+                var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name));
+                return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y);
+            }
+            finally {
+                try {
+                    tempDoc.close(false);
+                }
+                catch (eClose) {
+                    Logger_1.Logger.warning("[ImageUtil] Failed to close temp document (exportInstanceFromStage): ".concat(eClose));
+                }
+            }
+        }
+        catch (eDoc) {
+            Logger_1.Logger.error("[ImageUtil] Error during temp document processing: ".concat(eDoc));
+            return new SpineImage_1.SpineImage(imagePath, 1, 1, scale, 0, 0);
+        }
+    };
+    ImageUtil.exportShape = function (imagePath, element, document, scale, exportImages) {
+        var matrix = element.matrix;
+        var transPointX = element.transformX;
+        var transPointY = element.transformY;
+        var regPointX = matrix.tx;
+        var regPointY = matrix.ty;
+        var dom = document;
+        var timeline = dom.getTimeline();
+        var originalFrame = timeline.currentFrame;
+        var layer = element.layer;
+        var wasLocked = layer.locked;
+        var wasVisible = layer.visible;
+        layer.locked = false;
+        layer.visible = true;
+        ImageUtil.regainFocus(dom);
+        // Explicitly clear frame selection
+        try {
+            timeline.setSelectedFrames([]);
+        }
+        catch (e) {
+            try {
+                timeline.setSelectedFrames(0, 0);
+                dom.selectNone();
+            }
+            catch (e2) { }
+        }
+        dom.selectNone();
+        element.selected = true;
+        var copySuccess = false;
+        // Retry loop for clipCopy
+        for (var attempt = 0; attempt < 4; attempt++) {
+            try {
+                if (attempt > 0) {
+                    ImageUtil.regainFocus(dom);
+                    // Ensure we are still on the correct frame
+                    if (timeline.currentFrame !== originalFrame) {
+                        timeline.currentFrame = originalFrame;
+                    }
+                    try {
+                        timeline.setSelectedFrames([]);
+                    }
+                    catch (e) { }
+                    dom.selectNone();
+                    // Try alternative selection method
+                    if (attempt % 2 === 1) {
+                        dom.selection = [element];
+                    }
+                    else {
+                        element.selected = true;
+                    }
+                    // If selection is still empty and it's a shape on a specific layer, 
+                    // and it's likely the only thing there or we are desperate:
+                    if (dom.selection.length === 0 && element.elementType === 'shape') {
+                        // Try selecting the layer's frame content?
+                        // Careful not to select whole frame duration
+                    }
+                    ImageUtil.sleep(100 + (attempt * 100));
+                }
+                if (dom.selection.length > 0) {
+                    dom.clipCopy();
+                    copySuccess = true;
+                    Logger_1.Logger.trace("[ImageUtil] exportShape: Success on attempt ".concat(attempt + 1));
+                    break;
+                }
+                else {
+                    if (attempt === 0) {
+                        // First attempt failed. Try assignment fallback immediately before logging/sleeping
+                        try {
+                            dom.selection = [element];
+                        }
+                        catch (e) { }
+                        if (dom.selection.length > 0) {
+                            dom.clipCopy();
+                            copySuccess = true;
+                            break;
+                        }
+                        Logger_1.Logger.warning("[ImageUtil] exportShape: Selection empty on layer '".concat(layer.name, "' (attempt ").concat(attempt + 1, "). Element type: ").concat(element.elementType));
+                    }
+                }
+            }
+            catch (e) {
+                Logger_1.Logger.warning("[ImageUtil] exportShape: clipCopy failed (attempt ".concat(attempt + 1, "/4): ").concat(e, "."));
+                ImageUtil.clearClipboard();
+            }
+        }
+        element.selected = false;
+        layer.locked = wasLocked;
+        layer.visible = wasVisible;
+        if (!copySuccess) {
+            Logger_1.Logger.error("[ImageUtil] exportShape: Failed to copy element after retries. Layer: '".concat(layer.name, "'"));
+            return new SpineImage_1.SpineImage(imagePath, 1, 1, scale, 0, 0);
+        }
+        // Paste into a temp document
+        var tempDoc = fl.createDocument();
+        try {
+            tempDoc.clipPaste(true);
+            var w = 1;
+            var h = 1;
+            var localCenterX = 0;
+            var localCenterY = 0;
+            if (tempDoc.selection.length > 0) {
+                var pasted = tempDoc.selection[0];
+                // RESET MATRIX TO IDENTITY
+                pasted.matrix = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+                // Measure the normalized shape
+                var rect = tempDoc.getSelectionRect();
+                var width = rect.right - rect.left;
+                var height = rect.bottom - rect.top;
+                w = Math.max(1, Math.ceil(width * scale));
+                h = Math.max(1, Math.ceil(height * scale));
+                localCenterX = rect.left + width / 2;
+                localCenterY = rect.top + height / 2;
+                if (exportImages) {
+                    tempDoc.width = w;
+                    tempDoc.height = h;
+                    // Apply Export Scale
+                    if (scale !== 1) {
+                        pasted.scaleX = scale;
+                        pasted.scaleY = scale;
+                    }
+                    // Center in the Temp Canvas
+                    var finalRect = tempDoc.getSelectionRect();
+                    var fx = (finalRect.left + finalRect.right) / 2;
+                    var fy = (finalRect.top + finalRect.bottom) / 2;
+                    tempDoc.moveSelectionBy({
+                        x: (w / 2) - fx,
+                        y: (h / 2) - fy
+                    });
+                    tempDoc.exportPNG(imagePath, true, true);
+                }
+            }
+            var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
+            return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y);
+        }
+        finally {
+            try {
+                tempDoc.close(false);
+            }
+            catch (e) { /* ignore */ }
+        }
     };
     ImageUtil.exportSymbol = function (imagePath, element, document, scale, exportImages) {
         var item = element.libraryItem;
@@ -2460,21 +2896,38 @@ var ImageUtil = /** @class */ (function () {
         var transPointX = element.transformX;
         var transPointY = element.transformY;
         var matrix = element.matrix;
-        // Enter the symbol
-        document.library.editItem(item.name);
+        // SAFE EXPORT STRATEGY: Duplicate the symbol, clean it up (delete hidden layers), export, then delete duplicate.
+        // This avoids modifying the original symbol's layer visibility/locking state and ensures 'selectAll' only grabs what we want.
+        var lib = document.library;
+        var originalName = item.name;
+        // 1. Select and Duplicate
+        lib.selectItem(originalName);
+        if (!lib.duplicateItem(originalName)) {
+            Logger_1.Logger.error("[ImageUtil] Failed to duplicate symbol '".concat(originalName, "' for export."));
+            return new SpineImage_1.SpineImage(imagePath, 1, 1, scale, 0, 0);
+        }
+        // The duplicate is now selected and named "Copy of ..." or similar.
+        var duplicateItem = lib.getSelectedItems()[0];
+        var tempSymbolName = duplicateItem.name;
+        // 2. Edit the Duplicate
+        lib.editItem(tempSymbolName);
         var dom = fl.getDocumentDOM();
         var timeline = dom.getTimeline();
-        // Unlock, unhide, and select all frames/layers
-        timeline.selectAllFrames();
-        for (var _i = 0, _a = timeline.layers; _i < _a.length; _i++) {
-            var layer = _a[_i];
-            if (layer.layerType === 'guide')
-                continue;
-            layer.locked = false;
-            layer.visible = true;
+        // 3. Clean up Layers (Delete hidden/guide layers)
+        // Iterate backwards to avoid index issues when deleting
+        for (var i = timeline.layers.length - 1; i >= 0; i--) {
+            var layer = timeline.layers[i];
+            if (layer.layerType === 'guide' || !layer.visible) {
+                timeline.deleteLayer(i);
+            }
+            else {
+                // Ensure remaining visible layers are unlocked
+                layer.locked = false;
+            }
         }
+        // 4. Select All (Now safe because only visible renderable content remains)
         dom.selectAll();
-        // Calculate offsets using the Smart Pivot logic
+        // Calculate offsets
         var rect;
         if (dom.selection.length > 0) {
             rect = dom.getSelectionRect();
@@ -2486,82 +2939,96 @@ var ImageUtil = /** @class */ (function () {
         var height = rect.bottom - rect.top;
         var w = Math.max(1, Math.ceil(width * scale));
         var h = Math.max(1, Math.ceil(height * scale));
-        // Image Center in Local Space (relative to Reg Point 0,0)
         var localCenterX = rect.left + width / 2;
         var localCenterY = rect.top + height / 2;
         var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
         if (exportImages && dom.selection.length > 0) {
-            dom.clipCopy();
-            var tempDoc = fl.createDocument();
-            tempDoc.width = w;
-            tempDoc.height = h;
-            tempDoc.clipPaste();
-            if (tempDoc.selection.length > 0) {
-                tempDoc.selectAll();
-                tempDoc.group();
-                var group = tempDoc.selection[0];
-                group.scaleX *= scale;
-                group.scaleY *= scale;
-                var pRect = tempDoc.getSelectionRect();
-                var pCx = (pRect.left + pRect.right) / 2;
-                var pCy = (pRect.top + pRect.bottom) / 2;
-                tempDoc.moveSelectionBy({
-                    x: (tempDoc.width / 2) - pCx,
-                    y: (tempDoc.height / 2) - pCy
-                });
+            var copySuccess = false;
+            // Retry loop
+            for (var attempt = 0; attempt < 3; attempt++) {
+                try {
+                    if (attempt > 0)
+                        ImageUtil.sleep(50);
+                    dom.clipCopy();
+                    copySuccess = true;
+                    break;
+                }
+                catch (e) {
+                    Logger_1.Logger.warning("[ImageUtil] exportSymbol: clipCopy failed (attempt ".concat(attempt + 1, "/3): ").concat(e));
+                    ImageUtil.clearClipboard();
+                    // Select again just in case
+                    dom.selectAll();
+                }
             }
-            tempDoc.exportPNG(imagePath, true, true);
-            tempDoc.close(false);
+            if (copySuccess) {
+                var tempDoc = fl.createDocument();
+                try {
+                    tempDoc.width = w;
+                    tempDoc.height = h;
+                    tempDoc.clipPaste();
+                    if (tempDoc.selection.length > 0) {
+                        tempDoc.selectAll();
+                        tempDoc.group();
+                        var group = tempDoc.selection[0];
+                        group.scaleX *= scale;
+                        group.scaleY *= scale;
+                        var pRect = tempDoc.getSelectionRect();
+                        var pCx = (pRect.left + pRect.right) / 2;
+                        var pCy = (pRect.top + pRect.bottom) / 2;
+                        tempDoc.moveSelectionBy({
+                            x: (tempDoc.width / 2) - pCx,
+                            y: (tempDoc.height / 2) - pCy
+                        });
+                    }
+                    tempDoc.exportPNG(imagePath, true, true);
+                }
+                finally {
+                    try {
+                        tempDoc.close(false);
+                    }
+                    catch (e) { }
+                }
+            }
         }
-        dom.selectNone();
+        // 5. Cleanup
         dom.exitEditMode();
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y);
+        lib.deleteItem(tempSymbolName);
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, -offset.y);
     };
     /**
      * Calculates the Attachment Offset using the "Smart Pivot" algorithm.
-     * This compensates for the Animate Transformation Point vs Registration Point mismatch.
+     * Uses explicit matrix inversion to map the World Space offset vector back into the
+     * Bone's Local Space.
      */
-    ImageUtil.calculateAttachmentOffset = function (matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY) {
-        // 1. Get Parent-Space Coordinates passed in
-        // 2. Vector from Bone Origin to Reg Point (in Parent Space)
+    ImageUtil.calculateAttachmentOffset = function (matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, debugName) {
+        // 1. Vector from Bone Origin (Trans Point) to Reg Point (in Parent Space)
         var dx = regPointX - transPointX;
         var dy = regPointY - transPointY;
-        // 3. Decompose Matrix to get Bone Rotation/Scale
-        var decomp = SpineTransformMatrix_1.SpineTransformMatrix.decomposeMatrix(matrix);
-        // 4. Inverse Transform the vector into Bone Local Space
-        // We want to rotate by -AnimateRotation (Inverse).
-        // decomp.rotation (Spine) = -AnimateRotation.
-        // So Inverse AnimateRotation = decomp.rotation.
-        var angleRad = decomp.rotation * (Math.PI / 180);
-        var cos = Math.cos(angleRad);
-        var sin = Math.sin(angleRad);
-        var rx = dx * cos - dy * sin;
-        var ry = dx * sin + dy * cos;
-        // Apply Inverse Shear and Scale
-        // Basis vectors in local space (after removing rotation):
-        // X-axis: (scaleX, 0)
-        // Y-axis: (-scaleY * sin(shear), scaleY * cos(shear))
-        // We solve: rx = x * scaleX - y * scaleY * sin(shear)
-        //           ry = y * scaleY * cos(shear)
-        // Use shearX because Spine uses X-shear (shear of Y axis relative to X)
-        var shearRad = decomp.shearX * (Math.PI / 180);
-        var shearCos = Math.cos(shearRad);
-        var shearTan = Math.tan(shearRad);
-        // Solve for y (localRy) first
-        var localRy = ry / (decomp.scaleY * shearCos);
-        // Solve for x (localRx)
-        // x = (rx + y * scaleY * sin(shear)) / scaleX
-        // y * scaleY * sin(shear) = (ry / cos) * sin = ry * tan
-        var localRx = (rx - ry * shearTan) / decomp.scaleX;
-        // 5. Add Image Center Offset
-        // Image Center is relative to Reg Point (0,0) in Symbol Space.
+        // 2. Inverse Matrix Calculation
+        var a = matrix.a;
+        var b = matrix.b;
+        var c = matrix.c;
+        var d = matrix.d;
+        var det = a * d - b * c;
+        if (Math.abs(det) < 0.000001) {
+            Logger_1.Logger.warning("[ImageUtil] Singular matrix for ".concat(debugName || 'unknown', ". Using center."));
+            return { x: localCenterX, y: localCenterY };
+        }
+        var invDet = 1.0 / det;
+        // Apply Inverse Matrix
+        var localRx = (d * dx - c * dy) * invDet;
+        var localRy = (-b * dx + a * dy) * invDet;
+        // 3. Add Image Center Offset
         var finalX = localRx + localCenterX;
         var finalY = localRy + localCenterY;
+        // Debug logging for specific problematic items
+        if (debugName && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('arm') >= 0) && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
+            Logger_1.Logger.trace("[Offset] ".concat(debugName, ": WorldVec=(").concat(dx.toFixed(1), ", ").concat(dy.toFixed(1), ") -> LocalVec=(").concat(localRx.toFixed(1), ", ").concat(localRy.toFixed(1), ") Final=(").concat(finalX.toFixed(1), ", ").concat(finalY.toFixed(1), ")"));
+        }
         return { x: finalX, y: finalY };
     };
     // Helper for legacy/other paths
     ImageUtil.exportSelectionOnly = function (imagePath, dom, scale, exportImages, anchorX, anchorY, element, options) {
-        // This legacy method assumes 'element' is the one SELECTED inside the library or temporary doc.
         dom.selectNone();
         element.selected = true;
         var rect = dom.getSelectionRect();
@@ -2598,7 +3065,6 @@ var ImageUtil = /** @class */ (function () {
         }
         return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, offsetY);
     };
-    // Legacy support method (stub to prevent breakages if called elsewhere)
     ImageUtil.exportInstanceContents = function (imagePath, dom, scale, exportImages, anchorX, anchorY) {
         var rect = dom.getSelectionRect();
         var width = rect.right - rect.left;
@@ -3262,11 +3728,9 @@ var StringUtil = /** @class */ (function () {
     function StringUtil() {
     }
     StringUtil.simplify = function (value) {
-        var lastSlash = value.lastIndexOf('/');
+        // Do not strip the path. Replace slashes and other chars with underscores to ensure uniqueness.
+        // This prevents collisions between "folderA/item" and "folderB/item".
         var regex = /[\/\-. ]+/gi;
-        if (lastSlash !== -1) {
-            value = value.slice(lastSlash + 1);
-        }
         return (value.replace(regex, '_')
             .toLowerCase());
     };

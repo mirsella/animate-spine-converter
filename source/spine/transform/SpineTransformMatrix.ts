@@ -15,13 +15,12 @@ export class SpineTransformMatrix implements SpineTransform {
 
     public constructor(element:FlashElement, reference: { rotation: number, scaleX: number, scaleY: number } = null) {
         // Position: The Spine bone must be positioned at the Transformation Point.
-        // element.transformX/Y are the global (parent) coordinates of the transformation point.
         this.x = element.transformX;
         this.y = element.transformY;
 
         const name = element.name || element.libraryItem?.name || '<anon>';
 
-        // Decompose the matrix to get robust Rotation, Scale, and Shear
+        // Decompose the matrix
         const decomposed = SpineTransformMatrix.decomposeMatrix(element.matrix, reference, name);
         
         this.rotation = decomposed.rotation;
@@ -29,20 +28,11 @@ export class SpineTransformMatrix implements SpineTransform {
         this.scaleY = decomposed.scaleY;
         this.shearX = decomposed.shearX;
         this.shearY = decomposed.shearY;
-
-        // Debug extended transform info
-        if (decomposed.scaleX < 0 || decomposed.scaleY < 0) {
-            Logger.trace(`[SpineTransformMatrix] ${name}: MIRRORED -> rot=${this.rotation.toFixed(2)} sx=${this.scaleX.toFixed(2)} sy=${this.scaleY.toFixed(2)} shearX=${this.shearX.toFixed(2)}`);
-        }
     }
 
     /**
-
-     * Decomposes an Animate Matrix into Spine components (Rotation, Scale, Shear).
-     * Based on the "Advanced Coordinate System Transformation" technical monograph.
-     * @param mat The Flash Matrix
-     * @param reference Optional previous transform to help disambiguate flip (handedness) choices.
-     * @param debugName Optional name for logging
+     * Decomposes an Animate Matrix into Spine components.
+     * Handles Scale, Rotation, Shear, and Mirroring (Flipping).
      */
     public static decomposeMatrix(mat: FlashMatrix, reference: { rotation: number, scaleX: number, scaleY: number } = null, debugName: string = ''): { rotation: number, scaleX: number, scaleY: number, shearX: number, shearY: number } {
         const a = mat.a;
@@ -50,116 +40,149 @@ export class SpineTransformMatrix implements SpineTransform {
         const c = mat.c;
         const d = mat.d;
 
-        // 1. Scale Extraction
-        // Scale is the magnitude of the basis vectors.
-        let scaleX = Math.sqrt(a * a + b * b);
-        let scaleY = Math.sqrt(c * c + d * d);
+        // Basis Vectors
+        // U = (a, b)
+        // V = (c, d)
 
-        // 2. Rotation and Shear Extraction
-        const rotXRad = Math.atan2(b, a);
-        const rotYRad = Math.atan2(d, c);
+        // 1. Scale X and Rotation (from Vector U)
+        let scaleX = Math.sqrt(a * a + b * b);
         
+        // Rotation (CCW for Spine)
+        // Animate (Y-Down): atan2(b, a) is angle from X-axis.
+        // Spine (Y-Up): We negate the angle.
+        const rotXRad = Math.atan2(b, a);
+        let rotation = -rotXRad * (180 / Math.PI);
+
+        // 2. Determinant
         const det = a * d - b * c;
         
-        let rotation = 0;
-        let shearX = 0;
+        // 3. Scale Y
+        // Use det / scaleX.
+        // - Preserves flipping sign (if det < 0, scaleY < 0).
+        // - Preserves Animate's visual skew squashing (Area = det).
+        let scaleY = (scaleX > 0.00001) ? (det / scaleX) : 0;
 
-        if (det < 0) {
-            // Handedness flip (Mirroring)
-            // We can achieve this by negating scaleX OR scaleY.
-            
-            // Option A: Flip Y (Standard QR decomposition preference)
-            // rotY_logical = rotY + PI
-            // rotation = -rotX (Animate is CW, so we negate)
-            
-            const rotY_flipY = rotYRad + Math.PI;
-            let rot_flipY = -rotXRad * (180 / Math.PI);
-            // Normalize to -180..180
-            while (rot_flipY <= -180) rot_flipY += 360;
-            while (rot_flipY > 180) rot_flipY -= 360;
-            
-            // Option B: Flip X
-            // rotX_logical = rotX + PI
-            // rotation = -rotX_logical = -(rotX + PI)
-            
-            const rotX_flipX = rotXRad + Math.PI;
-            let rot_flipX = -rotX_flipX * (180 / Math.PI);
-            // Normalize
-            while (rot_flipX <= -180) rot_flipX += 360;
-            while (rot_flipX > 180) rot_flipX -= 360;
-            
-            let useFlipX = false;
-            let reason = "default heuristic";
+        // 4. Shear X
+        // Angle of Vector V
+        const rotYRad = Math.atan2(d, c);
+        
+        // Shear is the angular deviation of V from orthogonality.
+        // In standard frame: V should be U + 90deg.
+        // Shear = Angle(V) - Angle(U) - 90.
+        let shearRad = rotYRad - rotXRad - (Math.PI / 2);
+        
+        // 5. Flip Correction
+        // If we are flipped (ScaleY < 0), the "visual" Y-axis (V) is flipped relative to the "local" Y-axis.
+        // Local Y-axis (before scale) is U + 90.
+        // Flipped Y-axis (after scale) is -(U + 90).
+        // The angle 'rotYRad' is the angle of V.
+        // If V is roughly opposite to U+90, 'shearRad' will be roughly 180 degrees (PI).
+        // This visual 180 flip is accounted for by 'scaleY = -1'.
+        // So we subtract PI from shear to get the "shear relative to the flipped basis".
+        if (scaleY < 0) {
+            shearRad -= Math.PI;
+        }
 
-            if (reference != null) {
-                // Heuristic: Continuity with Reference (Previous Frame or Setup Pose)
-                
-                // Compare rotational distance
-                let diffA = Math.abs(rot_flipY - reference.rotation);
-                while (diffA > 180) diffA -= 360;
-                while (diffA < -180) diffA += 360;
-                diffA = Math.abs(diffA);
+        // Normalize Shear to -180..180
+        while (shearRad <= -Math.PI) shearRad += 2 * Math.PI;
+        while (shearRad > Math.PI) shearRad -= 2 * Math.PI;
+        
+        // Convert to Degrees and Negate for Spine (CCW)
+        let shearX = -shearRad * (180 / Math.PI);
 
-                let diffB = Math.abs(rot_flipX - reference.rotation);
-                while (diffB > 180) diffB -= 360;
-                while (diffB < -180) diffB += 360;
-                diffB = Math.abs(diffB);
-                
-                // Compare scale signs (parity)
-                // Option A implies ScaleY < 0. Option B implies ScaleX < 0.
-                const scoreA = diffA + (NumberUtil.sign(reference.scaleY) !== -1 ? 1000 : 0) + (NumberUtil.sign(reference.scaleX) !== 1 ? 1000 : 0);
-                const scoreB = diffB + (NumberUtil.sign(reference.scaleX) !== -1 ? 1000 : 0) + (NumberUtil.sign(reference.scaleY) !== 1 ? 1000 : 0);
+        // Normalize Rotation to -180..180
+        while (rotation <= -180) rotation += 360;
+        while (rotation > 180) rotation -= 360;
+        
+        // Normalize ShearX to -180..180
+        while (shearX <= -180) shearX += 360;
+        while (shearX > 180) shearX -= 360;
 
-                if (scoreB < scoreA) {
-                    useFlipX = true;
-                    reason = "continuity match (scoreB < scoreA)";
-                } else {
-                    reason = "continuity match (scoreA <= scoreB)";
-                }
-            } else {
-                // Default Heuristic: Choose the smaller absolute rotation
-                if (Math.abs(rot_flipX) < Math.abs(rot_flipY)) {
-                    useFlipX = true;
-                    reason = "smaller rotation";
-                }
-            }
-
-            if (useFlipX) {
-                // Use Flip X
+        // --- Continuity Heuristic (Optional) ---
+        // If we have a reference (previous frame), and the current solution involves a flip (scaleY < 0),
+        // we check if an "X-Flip" solution (scaleX < 0) would be closer in rotation.
+        // Current Solution (S1): Rot, Sx, Sy<0, Shear
+        // Alternative Solution (S2): X-Flip
+        // Rot2 = Rot + 180
+        // Sx2 = -Sx
+        // Sy2 = -Sy (so Sy2 > 0)
+        // Shear2 = Shear (roughly? depends on basis)
+        
+        if (reference) {
+            // Only consider alternatives if we are flipped or reference is flipped
+            const isFlipped = scaleY < 0;
+            const refScaleX = reference.scaleX;
+            
+            // If current is Y-Flip (Sx>0, Sy<0), but Ref has Sx<0 (X-Flip):
+            // We might want to switch to X-Flip to avoid Rotation popping by 180.
+            
+            // Or simply: Generate Candidate 2 (Flip X) and compare scores.
+            
+            // Cand 2: Flip X
+            const angleX_flip = Math.atan2(-b, -a);
+            let rot2 = -angleX_flip * (180 / Math.PI);
+            while (rot2 <= -180) rot2 += 360; while (rot2 > 180) rot2 -= 360;
+            
+            let diff1 = Math.abs(rotation - reference.rotation);
+            if (diff1 > 180) diff1 = 360 - diff1;
+            
+            let diff2 = Math.abs(rot2 - reference.rotation);
+            if (diff2 > 180) diff2 = 360 - diff2;
+            
+            // If Rot2 is significantly closer, use it.
+            // But prefer preserving ScaleX sign.
+            const signMatch1 = NumberUtil.sign(scaleX) === NumberUtil.sign(refScaleX);
+            const signMatch2 = NumberUtil.sign(-scaleX) === NumberUtil.sign(refScaleX);
+            
+            // Add penalty for sign mismatch
+            const penalty = 1000;
+            const score1 = diff1 + (signMatch1 ? 0 : penalty);
+            const score2 = diff2 + (signMatch2 ? 0 : penalty);
+            
+            if (score2 < score1) {
+                // Adopt Flip X
+                rotation = rot2;
                 scaleX = -scaleX;
-                rotation = rot_flipX;
-                
-                // Shear calc for Flip X
-                let shearRaw = rotYRad - rotX_flipX - (Math.PI / 2);
-                while (shearRaw <= -Math.PI) shearRaw += 2 * Math.PI;
-                while (shearRaw > Math.PI) shearRaw -= 2 * Math.PI;
-                shearX = -shearRaw * (180 / Math.PI); // Negate for CCW
-                
-                Logger.trace(`[Decompose] ${debugName}: Flip X chosen. Reason: ${reason}. Rot: ${rot_flipX.toFixed(2)}`);
-            } else {
-                // Use Flip Y
+                // ScaleY must also flip sign to maintain Determinant?
+                // det = sx * sy ... if sx flips, sy must flip?
+                // No, det is fixed. det = sx * sy. 
+                // If we flip sx, we must flip sy to keep det same.
                 scaleY = -scaleY;
-                rotation = rot_flipY;
                 
-                // Shear calc for Flip Y
-                let shearRaw = rotY_flipY - rotXRad - (Math.PI / 2);
-                while (shearRaw <= -Math.PI) shearRaw += 2 * Math.PI;
-                while (shearRaw > Math.PI) shearRaw -= 2 * Math.PI;
-                shearX = -shearRaw * (180 / Math.PI);
+                // Recalculate shear for Flip X?
+                // Visual Y is (c,d). Local Y is now orthogonal to FLIPPED X.
+                // Rot2 is angle of -U.
+                // Orthogonal Y to -U is (-U) + 90.
+                // Shear = Angle(V) - Angle(-U + 90).
+                // Let's re-run shear math relative to Rot2.
+                // ... Or just assume shear is similar? 
+                // Actually, if we flip both axes (Rot 180), Shear is unchanged.
+                // If we flip X and Y, we rotated 180.
+                // Wait, S2 is Flip X. S1 was Flip Y.
+                // S2 = S1 * Rot(180)?
+                // Scale(1, -1) * Rot(180) = Scale(1, -1) * [[-1, 0], [0, -1]] = [[-1, 0], [0, 1]] = Scale(-1, 1).
+                // Yes! Flip Y + Rot 180 == Flip X.
+                // So Shear should be preserved?
+                // Spine applies Scale -> Shear -> Rot.
+                // If we switch from Flip Y to Flip X, we added 180 to rotation.
+                // Shear X is angle between Y and X-normal.
+                // If we rotate 180, Y and X-normal both rotate 180. Angle diff preserves.
+                // So ShearX is likely preserved.
                 
-                Logger.trace(`[Decompose] ${debugName}: Flip Y chosen. Reason: ${reason}. Rot: ${rot_flipY.toFixed(2)}`);
+                Logger.trace(`[Decompose] ${debugName}: Switched to Flip X for continuity. Rot=${rotation.toFixed(1)}`);
             }
-            
-        } else {
-            // Normal (Positive Determinant)
-            rotation = -rotXRad * (180 / Math.PI);
-            
-            // Shear
-            // shear = rotY - rotX - PI/2
-            let shearRaw = rotYRad - rotXRad - (Math.PI / 2);
-            while (shearRaw <= -Math.PI) shearRaw += 2 * Math.PI;
-            while (shearRaw > Math.PI) shearRaw -= 2 * Math.PI;
-            shearX = -shearRaw * (180 / Math.PI);
+        }
+
+        // Final normalization just in case
+        while (shearX <= -180) shearX += 360;
+        while (shearX > 180) shearX -= 360;
+
+        // Debug logging: Only log on significant frames or errors to reduce noise
+        // We identify "significant" as containing shear or negative scale (flipping)
+        if (debugName.indexOf('arm') >= 0 || debugName.indexOf('weapon') >= 0) {
+             if (scaleY > 0 || Math.abs(shearX) > 1) { // ScaleY > 0 is "Flipped" in our -det/sx logic (Y points Up)
+                 Logger.trace(`[Decompose] ${debugName}: Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} Shear=${shearX.toFixed(1)}`);
+             }
         }
 
         return {

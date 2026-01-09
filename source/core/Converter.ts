@@ -2,6 +2,7 @@ import { Logger } from '../logger/Logger';
 import { SpineClippingAttachment } from '../spine/attachment/SpineClippingAttachment';
 import { SpineRegionAttachment } from '../spine/attachment/SpineRegionAttachment';
 import { SpineAnimationHelper } from '../spine/SpineAnimationHelper';
+import { SpineImage } from '../spine/SpineImage';
 import { SpineSkeleton } from '../spine/SpineSkeleton';
 import { SpineTransformMatrix } from '../spine/transform/SpineTransformMatrix';
 import { SpineAttachmentType } from '../spine/types/SpineAttachmentType';
@@ -54,7 +55,14 @@ export class Converter {
 
         let spineImage = context.global.imagesCache.get(imagePath);
         if (spineImage == null) {
-            spineImage = imageExportFactory(context, imagePath);
+            try {
+                spineImage = imageExportFactory(context, imagePath);
+            } catch (e) {
+                Logger.error(`[Converter] Image export error for '${imageName}': ${e}. Using placeholder.`);
+                // Create a 1x1 placeholder to allow the script to continue
+                // We assume scale 1 and offset 0 for the placeholder
+                spineImage = new SpineImage(imagePath, 1, 1, 1, 0, 0);
+            }
             context.global.imagesCache.set(imagePath, spineImage);
         }
 
@@ -202,17 +210,44 @@ export class Converter {
     }
 
     private convertCompositeElement(context:ConverterContext):void {
-        const layers = context.element.libraryItem.timeline.layers;
-        for (let i = layers.length - 1; i >= 0; i--) {
-            const layer = layers[i];
-            if (layer.layerType === 'normal') {
-                this.convertCompositeElementLayer(context, layer);
-            } else if (layer.layerType === 'masked') {
-                const mask = LayerMaskUtil.extractTargetMask(layers, i);
-                if (mask) this.composeElementMaskLayer(context, mask);
-                this.convertCompositeElementLayer(context, layer);
-            } else if (layer.layerType === 'mask') {
-                this.disposeElementMaskLayer(context);
+        const item = context.element.libraryItem;
+        if (!item) return;
+
+        // Enter the symbol to ensure we are in the correct context for selection and interpolation
+        // We only do this if we can actually edit the item
+        const canEdit = this._document.library.itemExists(item.name);
+        if (canEdit) {
+            this._document.library.editItem(item.name);
+        }
+
+        try {
+            const layers = item.timeline.layers;
+            for (let i = layers.length - 1; i >= 0; i--) {
+                const layer = layers[i];
+                Logger.trace(`[Converter] Processing layer '${layer.name}' (type:${layer.layerType}, visible:${layer.visible}) in symbol '${item.name}'`);
+                
+                // Skip hidden layers to prevent exporting reference art or disabled content
+                if (!layer.visible) {
+                    Logger.trace(`[Converter] Skipping hidden layer: '${layer.name}' in symbol '${item.name}'`);
+                    continue;
+                }
+
+                // Treat 'guided' layers (layers being guided by a motion guide) as normal layers
+                if (layer.layerType === 'normal' || layer.layerType === 'guided') {
+                    this.convertCompositeElementLayer(context, layer);
+                } else if (layer.layerType === 'masked') {
+                    const mask = LayerMaskUtil.extractTargetMask(layers, i);
+                    if (mask) this.composeElementMaskLayer(context, mask);
+                    this.convertCompositeElementLayer(context, layer);
+                } else if (layer.layerType === 'mask') {
+                    this.disposeElementMaskLayer(context);
+                } else {
+                    Logger.trace(`[Converter] Skipping layer '${layer.name}' with type '${layer.layerType}' in symbol '${item.name}'`);
+                }
+            }
+        } finally {
+            if (canEdit) {
+                this._document.exitEditMode();
             }
         }
     }
@@ -224,14 +259,20 @@ export class Converter {
             start = label.startFrameIdx;
             end = label.endFrameIdx;
         }
+        
         for (let i = start; i <= end; i++) {
             const frame = layer.frames[i];
-            if (!frame || frame.startFrame !== i) continue;
+            if (!frame) continue;
+            
             const time = (i - start) / frameRate;
+            
+            // Export events from comments
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
                 if (stageType === ConverterStageType.ANIMATION) SpineAnimationHelper.applyEventAnimation(context.global.animation, frame.name, time);
             }
+            
+            // Handle empty keyframes (end of visibility) by setting attachment to null
             if (frame.elements.length === 0) {
                 const slots = context.global.layersCache.get(context.layer);
                 if (slots && stageType === ConverterStageType.ANIMATION) {
@@ -239,11 +280,91 @@ export class Converter {
                 }
                 continue;
             }
-            for (const el of frame.elements) {
+            
+            // Iterate elements on the frame
+            for (let eIdx = 0; eIdx < frame.elements.length; eIdx++) {
+                let el = frame.elements[eIdx];
+                
+                // INTERPOLATION HANDLING
+                if (i !== frame.startFrame) {
+                    this._document.getTimeline().currentFrame = i;
+                    
+                    const wasLocked = layer.locked;
+                    const wasVisible = layer.visible;
+                    layer.locked = false;
+                    layer.visible = true;
+                    
+                    // Robust selection logic
+                    const timeline = this._document.getTimeline();
+                    
+                    // Find correct layer index
+                    let layerIdx = -1;
+                    const layers = timeline.layers;
+                    // Try reference match first
+                    for (let k = 0; k < layers.length; k++) {
+                        if (layers[k] === layer) {
+                            layerIdx = k;
+                            break;
+                        }
+                    }
+                    // Fallback to name match if reference fails (JSFL quirk)
+                    if (layerIdx === -1) {
+                        for (let k = 0; k < layers.length; k++) {
+                            if (layers[k].name === layer.name) {
+                                layerIdx = k;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (layerIdx !== -1) {
+                        timeline.setSelectedLayers(layerIdx); 
+                    }
+                    
+                    timeline.setSelectedFrames(i, i + 1); // Focus the specific frame
+                    
+                    this._document.selectNone();
+                    // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance
+                    el.selected = true;
+                    
+                    if (this._document.selection.length > 0) {
+                        el = this._document.selection[0];
+                    }
+                    
+                    layer.locked = wasLocked;
+                    layer.visible = wasVisible;
+                } else {
+                    this._document.getTimeline().currentFrame = i;
+                }
+
                 const sub = context.switchContextFrame(frame).createBone(el, time);
-                this._document.library.editItem(context.element.libraryItem.name);
-                this._document.getTimeline().currentFrame = frame.startFrame;
+                
+                // Recurse into symbol if needed
+                // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
+                // However, we must ensure we don't lose our place in the current timeline loop.
                 factory(sub);
+                
+                // RESTORE CONTEXT CHECK
+                // If the factory call (e.g. ImageUtil.exportSymbol) changed the active edit context (returned to parent/root),
+                // we must re-enter the current symbol to continue processing its timeline correctly.
+                if (context.element && context.element.libraryItem) {
+                    const targetName = context.element.libraryItem.name;
+                    const dom = this._document;
+                    // Check if current timeline matches our expected context
+                    // Note: timeline.name matches the Symbol name for symbols.
+                    const currentTl = dom.getTimeline();
+                    if (currentTl.name !== targetName) {
+                        Logger.trace(`[Converter] Context lost (Current: '${currentTl.name}', Expected: '${targetName}'). Restoring...`);
+                        if (dom.library.itemExists(targetName)) {
+                            dom.library.editItem(targetName);
+                        }
+                    }
+                }
+
+                // Restore timeline frame in case recursion changed it
+                if (this._document.getTimeline().currentFrame !== i) {
+                    this._document.getTimeline().currentFrame = i;
+                }
             }
         }
     }
