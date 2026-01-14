@@ -125,8 +125,8 @@ export class SpineTransformMatrix implements SpineTransform {
 
         // Debug logging for specific items
         if (debugName.indexOf('arm') >= 0 || debugName.indexOf('weapon') >= 0 || debugName.indexOf('dash') >= 0 || debugName.indexOf('torso') >= 0) {
-             if (Math.abs(shearY) > 1 || scaleY < 0) {
-                 Logger.trace(`[Decompose] ${debugName}: Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
+             if (Math.abs(shearY) > 0.1 || scaleY < 0) {
+                 Logger.trace(`[Decompose-V2] ${debugName}: Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
              }
         }
 

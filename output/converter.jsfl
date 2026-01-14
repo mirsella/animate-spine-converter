@@ -56,8 +56,17 @@ var Converter = /** @class */ (function () {
         // Re-calculate using current matrix and the cached image's local center
         var requiredOffset = ImageUtil_1.ImageUtil.calculateAttachmentOffset(element.matrix, element.x, element.y, element.transformX, element.transformY, spineImage.imageCenterOffsetX, spineImage.imageCenterOffsetY, element.name);
         // Consistent Inversion for Spine Y-Up
+        // Derivation: 
+        // 1. requiredOffset.y is in Animate Y-Down space (positive = visually Down).
+        // 2. SpineFormat negates the value: JSON.y = attachment.y * -1.
+        // 3. Goal for Normal Bone: Visually Down -> JSON.y should be negative (e.g. -50).
+        //    So attachment.y should be 50. (attachment.y = requiredOffset.y).
+        // 4. Goal for Flipped Bone (ScaleY = -1): Bone axis points Down. Visually Down -> local Y should be POSITIVE relative to bone.
+        //    So JSON.y should be positive (e.g. 50).
+        //    So attachment.y should be -50. (attachment.y = -requiredOffset.y).
+        var det = element.matrix.a * element.matrix.d - element.matrix.b * element.matrix.c;
         var spineOffsetX = requiredOffset.x;
-        var spineOffsetY = -requiredOffset.y;
+        var spineOffsetY = (det < 0) ? -requiredOffset.y : requiredOffset.y;
         // 4. Resolve Variant
         var finalAttachmentName = baseImageName;
         var TOLERANCE = 0.05;
@@ -2228,6 +2237,10 @@ var SpineTransformMatrix = /** @class */ (function () {
         // Spine: y_angle = rotation + 90 + shearY
         // shearY = y_angle - rotation - 90
         var shearY = angleY - rotation - 90;
+        // Sign Inversion for Spine Compatibility
+        // Empirical testing shows Animate Skew X (-20) requires Spine Shear Y (+20).
+        // Our calculation yields -20. Thus, we negate.
+        shearY = -shearY;
         // Normalize
         while (rotation <= -180)
             rotation += 360;
@@ -2239,8 +2252,8 @@ var SpineTransformMatrix = /** @class */ (function () {
             shearY -= 360;
         // Debug logging for specific items
         if (debugName.indexOf('arm') >= 0 || debugName.indexOf('weapon') >= 0 || debugName.indexOf('dash') >= 0 || debugName.indexOf('torso') >= 0) {
-            if (Math.abs(shearY) > 1 || scaleY < 0) {
-                Logger_1.Logger.trace("[Decompose] ".concat(debugName, ": Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
+            if (Math.abs(shearY) > 0.1 || scaleY < 0) {
+                Logger_1.Logger.trace("[Decompose-V2] ".concat(debugName, ": Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
             }
         }
         return {

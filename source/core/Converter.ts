@@ -66,12 +66,17 @@ export class Converter {
         );
         
         // Consistent Inversion for Spine Y-Up
-        // Note: If the matrix has a negative determinant (flipped), the Bone's Y-axis is already flipped visually (pointing Down).
-        // In this case, a positive local Y in Animate (Down) should map to a positive local Y in Spine (Down).
-        // If the determinant is positive (ScaleY > 0), Bone Y is Up. Animate Y is Down. We must negate.
+        // Derivation: 
+        // 1. requiredOffset.y is in Animate Y-Down space (positive = visually Down).
+        // 2. SpineFormat negates the value: JSON.y = attachment.y * -1.
+        // 3. Goal for Normal Bone: Visually Down -> JSON.y should be negative (e.g. -50).
+        //    So attachment.y should be 50. (attachment.y = requiredOffset.y).
+        // 4. Goal for Flipped Bone (ScaleY = -1): Bone axis points Down. Visually Down -> local Y should be POSITIVE relative to bone.
+        //    So JSON.y should be positive (e.g. 50).
+        //    So attachment.y should be -50. (attachment.y = -requiredOffset.y).
         const det = element.matrix.a * element.matrix.d - element.matrix.b * element.matrix.c;
         const spineOffsetX = requiredOffset.x;
-        const spineOffsetY = (det < 0) ? requiredOffset.y : -requiredOffset.y; 
+        const spineOffsetY = (det < 0) ? -requiredOffset.y : requiredOffset.y; 
         
         // 4. Resolve Variant
         let finalAttachmentName = baseImageName;
