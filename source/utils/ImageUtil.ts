@@ -33,7 +33,7 @@ export class ImageUtil {
             element.name || element.libraryItem?.name
         );
 
-        return new SpineImage(imagePath, w, h, 1, offset.x, offset.y);
+        return new SpineImage(imagePath, w, h, 1, offset.x, -offset.y, localCenterX, localCenterY);
     }
 
     public static exportLibraryItem(imagePath:string, element:FlashElement, scale:number, exportImages:boolean):SpineImage {
@@ -167,7 +167,7 @@ export class ImageUtil {
                         if (dom.selection.length > 0) {
                             dom.clipCopy();
                             copySuccess = true;
-                            Logger.trace(`[ImageUtil] exportInstanceFromStage: Success on attempt ${attempt+1}`);
+                            // Logger.trace(`[ImageUtil] exportInstanceFromStage: Success on attempt ${attempt+1}`);
                             break;
                         } else {
                             if (attempt === 0) {
@@ -236,7 +236,7 @@ export class ImageUtil {
                                 const lay = subTimeline.layers[i];
                                 const shouldDelete = lay.layerType === 'guide' || !lay.visible;
                                 if (shouldDelete) {
-                                    Logger.trace(`[ImageUtil] Sanitizing: Deleting layer '${lay.name}' (visible=${lay.visible}, type=${lay.layerType}) in '${itemName}'`);
+                                    // Logger.trace(`[ImageUtil] Sanitizing: Deleting layer '${lay.name}' (visible=${lay.visible}, type=${lay.layerType}) in '${itemName}'`);
                                     subTimeline.deleteLayer(i);
                                     modified = true;
                                 }
@@ -314,7 +314,7 @@ export class ImageUtil {
                     element.name || element.libraryItem?.name
                 );
 
-                return new SpineImage(imagePath, w, h, scale, offset.x, offset.y);
+                return new SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
 
             } finally {
                 try {
@@ -392,7 +392,7 @@ export class ImageUtil {
                 if (dom.selection.length > 0) {
                     dom.clipCopy();
                     copySuccess = true;
-                    Logger.trace(`[ImageUtil] exportShape: Success on attempt ${attempt+1}`);
+                    // Logger.trace(`[ImageUtil] exportShape: Success on attempt ${attempt+1}`);
                     break;
                 } else {
                     if (attempt === 0) {
@@ -479,7 +479,7 @@ export class ImageUtil {
                 localCenterX, localCenterY
             );
 
-            return new SpineImage(imagePath, w, h, scale, offset.x, offset.y);
+            return new SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
         } finally {
             try {
                 tempDoc.close(false);
@@ -610,7 +610,7 @@ export class ImageUtil {
         dom.exitEditMode();
         lib.deleteItem(tempSymbolName);
         
-        return new SpineImage(imagePath, w, h, scale, offset.x, -offset.y);
+        return new SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
     }
 
     /**
@@ -618,7 +618,7 @@ export class ImageUtil {
      * Uses explicit matrix inversion to map the World Space offset vector back into the
      * Bone's Local Space.
      */
-    private static calculateAttachmentOffset(
+    public static calculateAttachmentOffset(
         matrix: FlashMatrix,
         regPointX: number, regPointY: number,
         transPointX: number, transPointY: number,
@@ -653,7 +653,7 @@ export class ImageUtil {
         const finalY = localRy + localCenterY;
 
         // Debug logging for specific problematic items
-        if (debugName && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('arm') >= 0) && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
+        if (debugName && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('arm') >= 0 || debugName.indexOf('torso') >= 0 || debugName.indexOf('dash') >= 0) && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
              Logger.trace(`[Offset] ${debugName}: WorldVec=(${dx.toFixed(1)}, ${dy.toFixed(1)}) -> LocalVec=(${localRx.toFixed(1)}, ${localRy.toFixed(1)}) Final=(${finalX.toFixed(1)}, ${finalY.toFixed(1)})`);
         }
 
@@ -701,7 +701,7 @@ export class ImageUtil {
              tempDoc.close(false);
         }
         
-        return new SpineImage(imagePath, w, h, scale, offsetX, offsetY);
+        return new SpineImage(imagePath, w, h, scale, offsetX, -offsetY, localCenterX, localCenterY);
     }
     
     public static exportInstanceContents(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean, anchorX:number, anchorY:number):SpineImage {
@@ -714,6 +714,6 @@ export class ImageUtil {
          const centerY = rect.top + height / 2;
          const offsetX = centerX - (anchorX + rect.left);
          const offsetY = centerY - (anchorY + rect.top);
-         return new SpineImage(imagePath, w, h, scale, offsetX, offsetY);
+         return new SpineImage(imagePath, w, h, scale, offsetX, -offsetY, centerX, centerY);
     }
 }

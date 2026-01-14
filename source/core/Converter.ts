@@ -33,10 +33,72 @@ export class Converter {
     }
 
     private convertElementSlot(context:ConverterContext, exportTarget:FlashElement | FlashItem, imageExportFactory:ImageExportFactory):void {
-        let imageName = context.global.shapesCache.get(exportTarget);
-        if (imageName == null) {
-            imageName = ConvertUtil.createAttachmentName(context.element, context);
-            context.global.shapesCache.set(exportTarget, imageName);
+        // 1. Get Base Name (for PNG path and initial cache key)
+        let baseImageName = context.global.shapesCache.get(exportTarget);
+        if (baseImageName == null) {
+            baseImageName = ConvertUtil.createAttachmentName(context.element, context);
+            context.global.shapesCache.set(exportTarget, baseImageName);
+        }
+
+        // 2. Ensure Image is Exported/Cached (to get dimensions and localCenter)
+        const baseImagePath = this.prepareImagesExportPath(context, baseImageName);
+        let spineImage = context.global.imagesCache.get(baseImagePath);
+        if (spineImage == null) {
+            try {
+                spineImage = imageExportFactory(context, baseImagePath);
+            } catch (e) {
+                Logger.error(`[Converter] Image export error for '${baseImageName}': ${e}. Using placeholder.`);
+                // Create a 1x1 placeholder
+                spineImage = new SpineImage(baseImagePath, 1, 1, 1, 0, 0, 0, 0);
+            }
+            context.global.imagesCache.set(baseImagePath, spineImage);
+        }
+
+        // 3. Calculate Required Offset for THIS instance (Variant Check)
+        const element = context.element;
+        // Re-calculate using current matrix and the cached image's local center
+        const requiredOffset = ImageUtil.calculateAttachmentOffset(
+            element.matrix,
+            element.x, element.y,
+            element.transformX, element.transformY,
+            spineImage.imageCenterOffsetX, spineImage.imageCenterOffsetY,
+            element.name 
+        );
+        
+        // Consistent Inversion for Spine Y-Up
+        const spineOffsetX = requiredOffset.x;
+        const spineOffsetY = -requiredOffset.y; 
+        
+        // 4. Resolve Variant
+        let finalAttachmentName = baseImageName;
+        const TOLERANCE = 0.05;
+        
+        let variants = context.global.attachmentVariants.get(baseImageName);
+        if (!variants) {
+            variants = [];
+            // Add the default one (from the image export) as the first variant
+            variants.push({ x: spineImage.x, y: spineImage.y, name: baseImageName });
+            context.global.attachmentVariants.set(baseImageName, variants);
+        }
+        
+        let found = false;
+        for (const v of variants) {
+            if (Math.abs(v.x - spineOffsetX) < TOLERANCE && Math.abs(v.y - spineOffsetY) < TOLERANCE) {
+                finalAttachmentName = v.name;
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            // Create new variant
+            finalAttachmentName = baseImageName + '_' + (variants.length + 1);
+            variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
+            
+            // Log creation of new variants for debugging
+            if (baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('arm') >= 0) {
+                Logger.trace(`[Converter] Created pivot variant: ${finalAttachmentName} offset=(${spineOffsetX.toFixed(1)}, ${spineOffsetY.toFixed(1)})`);
+            }
         }
 
         const subcontext = context.createSlot(context.element);
@@ -49,29 +111,20 @@ export class Converter {
             return;
         }
 
-        const imagePath = this.prepareImagesExportPath(context, imageName);
-        const attachmentName = this.prepareImagesAttachmentName(context, imageName);
+        const attachmentName = this.prepareImagesAttachmentName(context, finalAttachmentName);
         const attachment = slot.createAttachment(attachmentName, SpineAttachmentType.REGION) as SpineRegionAttachment;
 
-        let spineImage = context.global.imagesCache.get(imagePath);
-        if (spineImage == null) {
-            try {
-                spineImage = imageExportFactory(context, imagePath);
-            } catch (e) {
-                Logger.error(`[Converter] Image export error for '${imageName}': ${e}. Using placeholder.`);
-                // Create a 1x1 placeholder to allow the script to continue
-                // We assume scale 1 and offset 0 for the placeholder
-                spineImage = new SpineImage(imagePath, 1, 1, 1, 0, 0);
-            }
-            context.global.imagesCache.set(imagePath, spineImage);
+        // Force path to reuse the PNG if variant
+        if (finalAttachmentName !== baseImageName) {
+             attachment.path = this.prepareImagesAttachmentName(context, baseImageName);
         }
 
         attachment.width = spineImage.width;
         attachment.height = spineImage.height;
         attachment.scaleX = 1 / spineImage.scale;
         attachment.scaleY = 1 / spineImage.scale;
-        attachment.x = spineImage.x;
-        attachment.y = spineImage.y;
+        attachment.x = spineOffsetX;
+        attachment.y = spineOffsetY;
 
         SpineAnimationHelper.applySlotAttachment(
             context.global.animation,
@@ -224,11 +277,11 @@ export class Converter {
             const layers = item.timeline.layers;
             for (let i = layers.length - 1; i >= 0; i--) {
                 const layer = layers[i];
-                Logger.trace(`[Converter] Processing layer '${layer.name}' (type:${layer.layerType}, visible:${layer.visible}) in symbol '${item.name}'`);
+                // Logger.trace(`[Converter] Processing layer '${layer.name}' (type:${layer.layerType}, visible:${layer.visible}) in symbol '${item.name}'`);
                 
                 // Skip hidden layers to prevent exporting reference art or disabled content
                 if (!layer.visible) {
-                    Logger.trace(`[Converter] Skipping hidden layer: '${layer.name}' in symbol '${item.name}'`);
+                    // Logger.trace(`[Converter] Skipping hidden layer: '${layer.name}' in symbol '${item.name}'`);
                     continue;
                 }
 
@@ -242,7 +295,7 @@ export class Converter {
                 } else if (layer.layerType === 'mask') {
                     this.disposeElementMaskLayer(context);
                 } else {
-                    Logger.trace(`[Converter] Skipping layer '${layer.name}' with type '${layer.layerType}' in symbol '${item.name}'`);
+                    // Logger.trace(`[Converter] Skipping layer '${layer.name}' with type '${layer.layerType}' in symbol '${item.name}'`);
                 }
             }
         } finally {
@@ -354,7 +407,7 @@ export class Converter {
                     // Note: timeline.name matches the Symbol name for symbols.
                     const currentTl = dom.getTimeline();
                     if (currentTl.name !== targetName) {
-                        Logger.trace(`[Converter] Context lost (Current: '${currentTl.name}', Expected: '${targetName}'). Restoring...`);
+                        // Logger.trace(`[Converter] Context lost (Current: '${currentTl.name}', Expected: '${targetName}'). Restoring...`);
                         if (dom.library.itemExists(targetName)) {
                             dom.library.editItem(targetName);
                         }
@@ -396,9 +449,9 @@ export class Converter {
             try {
                 context.global.stageType = ConverterStageType.STRUCTURE;
                 this.convertElement(context);
-                Logger.trace(`[Converter] Converting animations for symbol instance: ${element.name || element.libraryItem.name}. Found ${context.global.labels.length} labels.`);
+                // Logger.trace(`[Converter] Converting animations for symbol instance: ${element.name || element.libraryItem.name}. Found ${context.global.labels.length} labels.`);
                 for (const l of context.global.labels) {
-                    Logger.trace(`  - Processing label: ${l.name} (frames ${l.startFrameIdx}-${l.endFrameIdx})`);
+                    // Logger.trace(`  - Processing label: ${l.name} (frames ${l.startFrameIdx}-${l.endFrameIdx})`);
                     const sub = context.switchContextAnimation(l);
                     sub.global.stageType = ConverterStageType.ANIMATION;
                     this.convertElement(sub);

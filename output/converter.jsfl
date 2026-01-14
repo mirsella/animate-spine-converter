@@ -31,10 +31,60 @@ var Converter = /** @class */ (function () {
         this._config = config;
     }
     Converter.prototype.convertElementSlot = function (context, exportTarget, imageExportFactory) {
-        var imageName = context.global.shapesCache.get(exportTarget);
-        if (imageName == null) {
-            imageName = ConvertUtil_1.ConvertUtil.createAttachmentName(context.element, context);
-            context.global.shapesCache.set(exportTarget, imageName);
+        // 1. Get Base Name (for PNG path and initial cache key)
+        var baseImageName = context.global.shapesCache.get(exportTarget);
+        if (baseImageName == null) {
+            baseImageName = ConvertUtil_1.ConvertUtil.createAttachmentName(context.element, context);
+            context.global.shapesCache.set(exportTarget, baseImageName);
+        }
+        // 2. Ensure Image is Exported/Cached (to get dimensions and localCenter)
+        var baseImagePath = this.prepareImagesExportPath(context, baseImageName);
+        var spineImage = context.global.imagesCache.get(baseImagePath);
+        if (spineImage == null) {
+            try {
+                spineImage = imageExportFactory(context, baseImagePath);
+            }
+            catch (e) {
+                Logger_1.Logger.error("[Converter] Image export error for '".concat(baseImageName, "': ").concat(e, ". Using placeholder."));
+                // Create a 1x1 placeholder
+                spineImage = new SpineImage_1.SpineImage(baseImagePath, 1, 1, 1, 0, 0, 0, 0);
+            }
+            context.global.imagesCache.set(baseImagePath, spineImage);
+        }
+        // 3. Calculate Required Offset for THIS instance (Variant Check)
+        var element = context.element;
+        // Re-calculate using current matrix and the cached image's local center
+        var requiredOffset = ImageUtil_1.ImageUtil.calculateAttachmentOffset(element.matrix, element.x, element.y, element.transformX, element.transformY, spineImage.imageCenterOffsetX, spineImage.imageCenterOffsetY, element.name);
+        // Consistent Inversion for Spine Y-Up
+        var spineOffsetX = requiredOffset.x;
+        var spineOffsetY = -requiredOffset.y;
+        // 4. Resolve Variant
+        var finalAttachmentName = baseImageName;
+        var TOLERANCE = 0.05;
+        var variants = context.global.attachmentVariants.get(baseImageName);
+        if (!variants) {
+            variants = [];
+            // Add the default one (from the image export) as the first variant
+            variants.push({ x: spineImage.x, y: spineImage.y, name: baseImageName });
+            context.global.attachmentVariants.set(baseImageName, variants);
+        }
+        var found = false;
+        for (var _i = 0, variants_1 = variants; _i < variants_1.length; _i++) {
+            var v = variants_1[_i];
+            if (Math.abs(v.x - spineOffsetX) < TOLERANCE && Math.abs(v.y - spineOffsetY) < TOLERANCE) {
+                finalAttachmentName = v.name;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            // Create new variant
+            finalAttachmentName = baseImageName + '_' + (variants.length + 1);
+            variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
+            // Log creation of new variants for debugging
+            if (baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('arm') >= 0) {
+                Logger_1.Logger.trace("[Converter] Created pivot variant: ".concat(finalAttachmentName, " offset=(").concat(spineOffsetX.toFixed(1), ", ").concat(spineOffsetY.toFixed(1), ")"));
+            }
         }
         var subcontext = context.createSlot(context.element);
         var slot = subcontext.slot;
@@ -44,28 +94,18 @@ var Converter = /** @class */ (function () {
             }
             return;
         }
-        var imagePath = this.prepareImagesExportPath(context, imageName);
-        var attachmentName = this.prepareImagesAttachmentName(context, imageName);
+        var attachmentName = this.prepareImagesAttachmentName(context, finalAttachmentName);
         var attachment = slot.createAttachment(attachmentName, "region" /* SpineAttachmentType.REGION */);
-        var spineImage = context.global.imagesCache.get(imagePath);
-        if (spineImage == null) {
-            try {
-                spineImage = imageExportFactory(context, imagePath);
-            }
-            catch (e) {
-                Logger_1.Logger.error("[Converter] Image export error for '".concat(imageName, "': ").concat(e, ". Using placeholder."));
-                // Create a 1x1 placeholder to allow the script to continue
-                // We assume scale 1 and offset 0 for the placeholder
-                spineImage = new SpineImage_1.SpineImage(imagePath, 1, 1, 1, 0, 0);
-            }
-            context.global.imagesCache.set(imagePath, spineImage);
+        // Force path to reuse the PNG if variant
+        if (finalAttachmentName !== baseImageName) {
+            attachment.path = this.prepareImagesAttachmentName(context, baseImageName);
         }
         attachment.width = spineImage.width;
         attachment.height = spineImage.height;
         attachment.scaleX = 1 / spineImage.scale;
         attachment.scaleY = 1 / spineImage.scale;
-        attachment.x = spineImage.x;
-        attachment.y = spineImage.y;
+        attachment.x = spineOffsetX;
+        attachment.y = spineOffsetY;
         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, slot, context, attachment, context.time);
     };
     Converter.prototype.convertBitmapElementSlot = function (context) {
@@ -194,10 +234,10 @@ var Converter = /** @class */ (function () {
             var layers = item.timeline.layers;
             for (var i = layers.length - 1; i >= 0; i--) {
                 var layer = layers[i];
-                Logger_1.Logger.trace("[Converter] Processing layer '".concat(layer.name, "' (type:").concat(layer.layerType, ", visible:").concat(layer.visible, ") in symbol '").concat(item.name, "'"));
+                // Logger.trace(`[Converter] Processing layer '${layer.name}' (type:${layer.layerType}, visible:${layer.visible}) in symbol '${item.name}'`);
                 // Skip hidden layers to prevent exporting reference art or disabled content
                 if (!layer.visible) {
-                    Logger_1.Logger.trace("[Converter] Skipping hidden layer: '".concat(layer.name, "' in symbol '").concat(item.name, "'"));
+                    // Logger.trace(`[Converter] Skipping hidden layer: '${layer.name}' in symbol '${item.name}'`);
                     continue;
                 }
                 // Treat 'guided' layers (layers being guided by a motion guide) as normal layers
@@ -214,7 +254,7 @@ var Converter = /** @class */ (function () {
                     this.disposeElementMaskLayer(context);
                 }
                 else {
-                    Logger_1.Logger.trace("[Converter] Skipping layer '".concat(layer.name, "' with type '").concat(layer.layerType, "' in symbol '").concat(item.name, "'"));
+                    // Logger.trace(`[Converter] Skipping layer '${layer.name}' with type '${layer.layerType}' in symbol '${item.name}'`);
                 }
             }
         }
@@ -315,7 +355,7 @@ var Converter = /** @class */ (function () {
                     // Note: timeline.name matches the Symbol name for symbols.
                     var currentTl = dom.getTimeline();
                     if (currentTl.name !== targetName) {
-                        Logger_1.Logger.trace("[Converter] Context lost (Current: '".concat(currentTl.name, "', Expected: '").concat(targetName, "'). Restoring..."));
+                        // Logger.trace(`[Converter] Context lost (Current: '${currentTl.name}', Expected: '${targetName}'). Restoring...`);
                         if (dom.library.itemExists(targetName)) {
                             dom.library.editItem(targetName);
                         }
@@ -353,10 +393,10 @@ var Converter = /** @class */ (function () {
             try {
                 context.global.stageType = "structure" /* ConverterStageType.STRUCTURE */;
                 this.convertElement(context);
-                Logger_1.Logger.trace("[Converter] Converting animations for symbol instance: ".concat(element.name || element.libraryItem.name, ". Found ").concat(context.global.labels.length, " labels."));
+                // Logger.trace(`[Converter] Converting animations for symbol instance: ${element.name || element.libraryItem.name}. Found ${context.global.labels.length} labels.`);
                 for (var _i = 0, _a = context.global.labels; _i < _a.length; _i++) {
                     var l = _a[_i];
-                    Logger_1.Logger.trace("  - Processing label: ".concat(l.name, " (frames ").concat(l.startFrameIdx, "-").concat(l.endFrameIdx, ")"));
+                    // Logger.trace(`  - Processing label: ${l.name} (frames ${l.startFrameIdx}-${l.endFrameIdx})`);
                     var sub = context.switchContextAnimation(l);
                     sub.global.stageType = "animation" /* ConverterStageType.ANIMATION */;
                     this.convertElement(sub);
@@ -663,6 +703,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.shapesCache = new ConverterMap_1.ConverterMap();
         context.layersCache = new ConverterMap_1.ConverterMap();
         context.assetTransforms = new ConverterMap_1.ConverterMap();
+        context.attachmentVariants = new ConverterMap_1.ConverterMap();
         return context;
     };
     return ConverterContextGlobal;
@@ -993,13 +1034,17 @@ exports.SpineEvent = SpineEvent;
 
 exports.SpineImage = void 0;
 var SpineImage = /** @class */ (function () {
-    function SpineImage(path, width, height, scale, x, y) {
+    function SpineImage(path, width, height, scale, x, y, imageCenterOffsetX, imageCenterOffsetY) {
+        if (imageCenterOffsetX === void 0) { imageCenterOffsetX = 0; }
+        if (imageCenterOffsetY === void 0) { imageCenterOffsetY = 0; }
         this.path = path;
         this.width = width;
         this.height = height;
         this.scale = scale;
         this.x = x;
         this.y = y;
+        this.imageCenterOffsetX = imageCenterOffsetX;
+        this.imageCenterOffsetY = imageCenterOffsetY;
     }
     return SpineImage;
 }());
@@ -2094,7 +2139,6 @@ exports.SpineTimelineGroupSlot = SpineTimelineGroupSlot;
 
 exports.SpineTransformMatrix = void 0;
 var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/Logger.ts");
-var NumberUtil_1 = __webpack_require__(/*! ../../utils/NumberUtil */ "./source/utils/NumberUtil.ts");
 var SpineTransformMatrix = /** @class */ (function () {
     function SpineTransformMatrix(element, reference) {
         if (reference === void 0) { reference = null; }
@@ -2112,154 +2156,99 @@ var SpineTransformMatrix = /** @class */ (function () {
         this.shearY = decomposed.shearY;
     }
     /**
-     * Decomposes an Animate Matrix into Spine components.
-     * Handles Scale, Rotation, Shear, and Mirroring (Flipping).
+     * Decomposes an Animate Matrix into Spine components using a robust Basis Vector approach.
+     * Accounts for coordinate system differences (Animate Y-Down vs Spine Y-Up).
      */
     SpineTransformMatrix.decomposeMatrix = function (mat, reference, debugName) {
+        // Animate Matrix (Y-Down):
+        // [a  c  tx]
+        // [b  d  ty]
+        // [0  0  1 ]
+        //
+        // Basis Vectors in Animate:
+        // U_anim = (a, b)
+        // V_anim = (c, d)
         if (reference === void 0) { reference = null; }
         if (debugName === void 0) { debugName = ''; }
+        // Convert to Spine Space (Y-Up):
+        // P_spine = (x, -y)
+        // Transform Matrix M_spine:
+        // [ a  -c  tx]
+        // [-b   d -ty]
+        //
+        // Basis Vectors in Spine:
+        // U_spine = (a, -b)
+        // V_spine = (-c, d)
         var a = mat.a;
-        var b = mat.b;
-        var c = mat.c;
-        var d = mat.d;
-        // Basis Vectors
-        // U = (a, b)
-        // V = (c, d)
-        // 1. Scale X and Rotation (from Vector U)
+        var b = -mat.b; // Negate Y component of U
+        var c = -mat.c; // Negate X component of V (from M_spine derivation)
+        var d = mat.d; // D stays positive (d -> d)
+        // 1. Scale
         var scaleX = Math.sqrt(a * a + b * b);
-        // Rotation (CCW for Spine)
-        // Animate (Y-Down): atan2(b, a) is angle from X-axis.
-        // Spine (Y-Up): We negate the angle.
-        var rotXRad = Math.atan2(b, a);
-        var rotation = -rotXRad * (180 / Math.PI);
-        // 2. Determinant
+        var scaleY = Math.sqrt(c * c + d * d);
+        // 2. Determinant (Signed Area)
         var det = a * d - b * c;
-        // 3. Scale Y
-        // Use det / scaleX.
-        // - Preserves flipping sign (if det < 0, scaleY < 0).
-        // - Preserves Animate's visual skew squashing (Area = det).
-        var scaleY = (scaleX > 0.00001) ? (det / scaleX) : 0;
-        // 4. Shear X
-        // Angle of Vector V
-        var rotYRad = Math.atan2(d, c);
-        // Shear is the angular deviation of V from orthogonality.
-        // In standard frame: V should be U + 90deg.
-        // Shear = Angle(V) - Angle(U) - 90.
-        var shearRad = rotYRad - rotXRad - (Math.PI / 2);
-        // 5. Flip Correction
-        // If we are flipped (ScaleY < 0), the "visual" Y-axis (V) is flipped relative to the "local" Y-axis.
-        // Local Y-axis (before scale) is U + 90.
-        // Flipped Y-axis (after scale) is -(U + 90).
-        // The angle 'rotYRad' is the angle of V.
-        // If V is roughly opposite to U+90, 'shearRad' will be roughly 180 degrees (PI).
-        // This visual 180 flip is accounted for by 'scaleY = -1'.
-        // So we subtract PI from shear to get the "shear relative to the flipped basis".
-        if (scaleY < 0) {
-            shearRad -= Math.PI;
+        // 3. Flip Handling
+        // If determinant is negative, the basis is flipped (handedness change).
+        // We handle this by negating ScaleY.
+        if (det < 0) {
+            scaleY = -scaleY;
         }
-        // Normalize Shear to -180..180
-        while (shearRad <= -Math.PI)
-            shearRad += 2 * Math.PI;
-        while (shearRad > Math.PI)
-            shearRad -= 2 * Math.PI;
-        // Convert to Degrees and Negate for Spine (CCW)
-        var shearX = -shearRad * (180 / Math.PI);
-        // Normalize Rotation to -180..180
+        // 4. Angles
+        // Angle of X-Axis
+        var angleX = Math.atan2(b, a) * (180 / Math.PI);
+        // Angle of Y-Axis (Use the sign-corrected basis if flipped?)
+        // Actually, if det < 0, we flip Y scale. 
+        // The "Geometric" Y axis we want to represent is V_spine.
+        // If scaleY is negative, Spine will render -Y_local.
+        // We want -Y_local to align with V_spine.
+        // So Y_local should align with -V_spine.
+        // So we calculate angle of V_spine, and if scaleY < 0, we treat it as...
+        // Wait, standard decomposition:
+        // angleX = atan2(u)
+        // angleY = atan2(v)
+        // shear = angleY - angleX - 90
+        // If det < 0, shear will be around 180 or -180.
+        // We don't want massive shears for simple flips. We want negative scale.
+        // If we set scaleY = -1.
+        // Then standard Spine Y axis is inverted.
+        // Angle relation: Y_actual = Y_basis * scaleY.
+        // If scaleY = -1, Y_actual = -Y_basis.
+        // So Y_basis = -Y_actual = -V_spine.
+        // So we should calculate angle of -V_spine if flipped.
+        var angleY_rad = Math.atan2(d, c);
+        if (scaleY < 0) {
+            // If flipped, the "basis" Y is opposite to the visual vector
+            angleY_rad = Math.atan2(-d, -c);
+        }
+        var angleY = angleY_rad * (180 / Math.PI);
+        // 5. Rotation & Shear
+        var rotation = angleX;
+        // ShearY: Deviation of Y-Axis from Orthogonality relative to X-Axis
+        // Spine: y_angle = rotation + 90 + shearY
+        // shearY = y_angle - rotation - 90
+        var shearY = angleY - rotation - 90;
+        // Normalize
         while (rotation <= -180)
             rotation += 360;
         while (rotation > 180)
             rotation -= 360;
-        // Normalize ShearX to -180..180
-        while (shearX <= -180)
-            shearX += 360;
-        while (shearX > 180)
-            shearX -= 360;
-        // --- Continuity Heuristic (Optional) ---
-        // If we have a reference (previous frame), and the current solution involves a flip (scaleY < 0),
-        // we check if an "X-Flip" solution (scaleX < 0) would be closer in rotation.
-        // Current Solution (S1): Rot, Sx, Sy<0, Shear
-        // Alternative Solution (S2): X-Flip
-        // Rot2 = Rot + 180
-        // Sx2 = -Sx
-        // Sy2 = -Sy (so Sy2 > 0)
-        // Shear2 = Shear (roughly? depends on basis)
-        if (reference) {
-            // Only consider alternatives if we are flipped or reference is flipped
-            var isFlipped = scaleY < 0;
-            var refScaleX = reference.scaleX;
-            // If current is Y-Flip (Sx>0, Sy<0), but Ref has Sx<0 (X-Flip):
-            // We might want to switch to X-Flip to avoid Rotation popping by 180.
-            // Or simply: Generate Candidate 2 (Flip X) and compare scores.
-            // Cand 2: Flip X
-            var angleX_flip = Math.atan2(-b, -a);
-            var rot2 = -angleX_flip * (180 / Math.PI);
-            while (rot2 <= -180)
-                rot2 += 360;
-            while (rot2 > 180)
-                rot2 -= 360;
-            var diff1 = Math.abs(rotation - reference.rotation);
-            if (diff1 > 180)
-                diff1 = 360 - diff1;
-            var diff2 = Math.abs(rot2 - reference.rotation);
-            if (diff2 > 180)
-                diff2 = 360 - diff2;
-            // If Rot2 is significantly closer, use it.
-            // But prefer preserving ScaleX sign.
-            var signMatch1 = NumberUtil_1.NumberUtil.sign(scaleX) === NumberUtil_1.NumberUtil.sign(refScaleX);
-            var signMatch2 = NumberUtil_1.NumberUtil.sign(-scaleX) === NumberUtil_1.NumberUtil.sign(refScaleX);
-            // Add penalty for sign mismatch
-            var penalty = 1000;
-            var score1 = diff1 + (signMatch1 ? 0 : penalty);
-            var score2 = diff2 + (signMatch2 ? 0 : penalty);
-            if (score2 < score1) {
-                // Adopt Flip X
-                rotation = rot2;
-                scaleX = -scaleX;
-                // ScaleY must also flip sign to maintain Determinant?
-                // det = sx * sy ... if sx flips, sy must flip?
-                // No, det is fixed. det = sx * sy. 
-                // If we flip sx, we must flip sy to keep det same.
-                scaleY = -scaleY;
-                // Recalculate shear for Flip X?
-                // Visual Y is (c,d). Local Y is now orthogonal to FLIPPED X.
-                // Rot2 is angle of -U.
-                // Orthogonal Y to -U is (-U) + 90.
-                // Shear = Angle(V) - Angle(-U + 90).
-                // Let's re-run shear math relative to Rot2.
-                // ... Or just assume shear is similar? 
-                // Actually, if we flip both axes (Rot 180), Shear is unchanged.
-                // If we flip X and Y, we rotated 180.
-                // Wait, S2 is Flip X. S1 was Flip Y.
-                // S2 = S1 * Rot(180)?
-                // Scale(1, -1) * Rot(180) = Scale(1, -1) * [[-1, 0], [0, -1]] = [[-1, 0], [0, 1]] = Scale(-1, 1).
-                // Yes! Flip Y + Rot 180 == Flip X.
-                // So Shear should be preserved?
-                // Spine applies Scale -> Shear -> Rot.
-                // If we switch from Flip Y to Flip X, we added 180 to rotation.
-                // Shear X is angle between Y and X-normal.
-                // If we rotate 180, Y and X-normal both rotate 180. Angle diff preserves.
-                // So ShearX is likely preserved.
-                Logger_1.Logger.trace("[Decompose] ".concat(debugName, ": Switched to Flip X for continuity. Rot=").concat(rotation.toFixed(1)));
-            }
-        }
-        // Final normalization just in case
-        while (shearX <= -180)
-            shearX += 360;
-        while (shearX > 180)
-            shearX -= 360;
-        // Debug logging: Only log on significant frames or errors to reduce noise
-        // We identify "significant" as containing shear or negative scale (flipping)
-        if (debugName.indexOf('arm') >= 0 || debugName.indexOf('weapon') >= 0) {
-            if (scaleY > 0 || Math.abs(shearX) > 1) { // ScaleY > 0 is "Flipped" in our -det/sx logic (Y points Up)
-                Logger_1.Logger.trace("[Decompose] ".concat(debugName, ": Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " Shear=").concat(shearX.toFixed(1)));
+        while (shearY <= -180)
+            shearY += 360;
+        while (shearY > 180)
+            shearY -= 360;
+        // Debug logging for specific items
+        if (debugName.indexOf('arm') >= 0 || debugName.indexOf('weapon') >= 0 || debugName.indexOf('dash') >= 0 || debugName.indexOf('torso') >= 0) {
+            if (Math.abs(shearY) > 1 || scaleY < 0) {
+                Logger_1.Logger.trace("[Decompose] ".concat(debugName, ": Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
             }
         }
         return {
             rotation: rotation,
             scaleX: scaleX,
             scaleY: scaleY,
-            shearX: shearX,
-            shearY: 0
+            shearX: 0,
+            shearY: shearY
         };
     };
     SpineTransformMatrix.Y_DIRECTION = -1;
@@ -2384,7 +2373,7 @@ var ConvertUtil = /** @class */ (function () {
             }
         }
         if (labels.length === 0) {
-            Logger_1.Logger.trace("No labels found for ".concat(item.name, ", using default full timeline."));
+            // Logger.trace(`No labels found for ${item.name}, using default full timeline.`);
             labels.push({
                 endFrameIdx: item.timeline.frameCount - 1,
                 startFrameIdx: 0,
@@ -2392,7 +2381,7 @@ var ConvertUtil = /** @class */ (function () {
             });
         }
         else {
-            Logger_1.Logger.trace("Found ".concat(labels.length, " labels for ").concat(item.name, ": ").concat(labels.map(function (l) { return "".concat(l.name, "(").concat(l.startFrameIdx, "-").concat(l.endFrameIdx, ")"); }).join(', ')));
+            // Logger.trace(`Found ${labels.length} labels for ${item.name}: ${labels.map(l => `${l.name}(${l.startFrameIdx}-${l.endFrameIdx})`).join(', ')}`);
         }
         return labels;
     };
@@ -2469,7 +2458,7 @@ var ImageUtil = /** @class */ (function () {
         var localCenterX = w / 2;
         var localCenterY = h / 2;
         var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name));
-        return new SpineImage_1.SpineImage(imagePath, w, h, 1, offset.x, offset.y);
+        return new SpineImage_1.SpineImage(imagePath, w, h, 1, offset.x, -offset.y, localCenterX, localCenterY);
     };
     ImageUtil.exportLibraryItem = function (imagePath, element, scale, exportImages) {
         Logger_1.Logger.assert(element.libraryItem != null, "exportLibraryItem: element has no libraryItem");
@@ -2601,7 +2590,7 @@ var ImageUtil = /** @class */ (function () {
                 if (dom.selection.length > 0) {
                     dom.clipCopy();
                     copySuccess = true;
-                    Logger_1.Logger.trace("[ImageUtil] exportInstanceFromStage: Success on attempt ".concat(attempt + 1));
+                    // Logger.trace(`[ImageUtil] exportInstanceFromStage: Success on attempt ${attempt+1}`);
                     break;
                 }
                 else {
@@ -2669,7 +2658,7 @@ var ImageUtil = /** @class */ (function () {
                                 var lay = subTimeline.layers[i];
                                 var shouldDelete = lay.layerType === 'guide' || !lay.visible;
                                 if (shouldDelete) {
-                                    Logger_1.Logger.trace("[ImageUtil] Sanitizing: Deleting layer '".concat(lay.name, "' (visible=").concat(lay.visible, ", type=").concat(lay.layerType, ") in '").concat(itemName, "'"));
+                                    // Logger.trace(`[ImageUtil] Sanitizing: Deleting layer '${lay.name}' (visible=${lay.visible}, type=${lay.layerType}) in '${itemName}'`);
                                     subTimeline.deleteLayer(i);
                                     modified = true;
                                 }
@@ -2731,7 +2720,7 @@ var ImageUtil = /** @class */ (function () {
                     }
                 }
                 var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name));
-                return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y);
+                return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
             }
             finally {
                 try {
@@ -2808,7 +2797,7 @@ var ImageUtil = /** @class */ (function () {
                 if (dom.selection.length > 0) {
                     dom.clipCopy();
                     copySuccess = true;
-                    Logger_1.Logger.trace("[ImageUtil] exportShape: Success on attempt ".concat(attempt + 1));
+                    // Logger.trace(`[ImageUtil] exportShape: Success on attempt ${attempt+1}`);
                     break;
                 }
                 else {
@@ -2879,7 +2868,7 @@ var ImageUtil = /** @class */ (function () {
                 }
             }
             var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
-            return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y);
+            return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
         }
         finally {
             try {
@@ -2993,7 +2982,7 @@ var ImageUtil = /** @class */ (function () {
         // 5. Cleanup
         dom.exitEditMode();
         lib.deleteItem(tempSymbolName);
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, -offset.y);
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
     };
     /**
      * Calculates the Attachment Offset using the "Smart Pivot" algorithm.
@@ -3022,7 +3011,7 @@ var ImageUtil = /** @class */ (function () {
         var finalX = localRx + localCenterX;
         var finalY = localRy + localCenterY;
         // Debug logging for specific problematic items
-        if (debugName && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('arm') >= 0) && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
+        if (debugName && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('arm') >= 0 || debugName.indexOf('torso') >= 0 || debugName.indexOf('dash') >= 0) && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
             Logger_1.Logger.trace("[Offset] ".concat(debugName, ": WorldVec=(").concat(dx.toFixed(1), ", ").concat(dy.toFixed(1), ") -> LocalVec=(").concat(localRx.toFixed(1), ", ").concat(localRy.toFixed(1), ") Final=(").concat(finalX.toFixed(1), ", ").concat(finalY.toFixed(1), ")"));
         }
         return { x: finalX, y: finalY };
@@ -3063,7 +3052,7 @@ var ImageUtil = /** @class */ (function () {
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
         }
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, offsetY);
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY, localCenterX, localCenterY);
     };
     ImageUtil.exportInstanceContents = function (imagePath, dom, scale, exportImages, anchorX, anchorY) {
         var rect = dom.getSelectionRect();
@@ -3075,7 +3064,7 @@ var ImageUtil = /** @class */ (function () {
         var centerY = rect.top + height / 2;
         var offsetX = centerX - (anchorX + rect.left);
         var offsetY = centerY - (anchorY + rect.top);
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, offsetY);
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY, centerX, centerY);
     };
     return ImageUtil;
 }());

@@ -106,14 +106,14 @@ export class ConvertUtil {
         }
 
         if (labels.length === 0) {
-            Logger.trace(`No labels found for ${item.name}, using default full timeline.`);
+            // Logger.trace(`No labels found for ${item.name}, using default full timeline.`);
             labels.push({
                 endFrameIdx: item.timeline.frameCount - 1,
                 startFrameIdx: 0,
                 name: 'default'
             });
         } else {
-            Logger.trace(`Found ${labels.length} labels for ${item.name}: ${labels.map(l => `${l.name}(${l.startFrameIdx}-${l.endFrameIdx})`).join(', ')}`);
+            // Logger.trace(`Found ${labels.length} labels for ${item.name}: ${labels.map(l => `${l.name}(${l.startFrameIdx}-${l.endFrameIdx})`).join(', ')}`);
         }
 
         return labels;

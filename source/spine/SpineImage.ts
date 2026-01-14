@@ -5,6 +5,8 @@ export class SpineImage {
         public height: number,
         public scale: number,
         public x: number,
-        public y: number
+        public y: number,
+        public imageCenterOffsetX: number = 0,
+        public imageCenterOffsetY: number = 0
     ) {}
 }
