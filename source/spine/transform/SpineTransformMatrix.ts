@@ -111,6 +111,11 @@ export class SpineTransformMatrix implements SpineTransform {
         // shearY = y_angle - rotation - 90
         let shearY = angleY - rotation - 90;
 
+        // Sign Inversion for Spine Compatibility
+        // Empirical testing shows Animate Skew X (-20) requires Spine Shear Y (+20).
+        // Our calculation yields -20. Thus, we negate.
+        shearY = -shearY;
+
         // Normalize
         while (rotation <= -180) rotation += 360;
         while (rotation > 180) rotation -= 360;
