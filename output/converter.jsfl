@@ -31,6 +31,7 @@ var Converter = /** @class */ (function () {
         this._config = config;
     }
     Converter.prototype.convertElementSlot = function (context, exportTarget, imageExportFactory) {
+        var _a;
         // 1. Get Base Name (for PNG path and initial cache key)
         var baseImageName = context.global.shapesCache.get(exportTarget);
         if (baseImageName == null) {
@@ -64,13 +65,14 @@ var Converter = /** @class */ (function () {
         // 4. Goal for Flipped Bone (ScaleY = -1): Bone axis points Down. Visually Down -> local Y should be POSITIVE relative to bone.
         //    So JSON.y should be positive (e.g. 50).
         //    So attachment.y should be -50. (attachment.y = -requiredOffset.y).
-        var det = element.matrix.a * element.matrix.d - element.matrix.b * element.matrix.c;
+        // const det = element.matrix.a * element.matrix.d - element.matrix.b * element.matrix.c;
         var spineOffsetX = requiredOffset.x;
-        var spineOffsetY = (det < 0) ? -requiredOffset.y : requiredOffset.y;
+        // const spineOffsetY = (det < 0) ? -requiredOffset.y : requiredOffset.y; 
+        var spineOffsetY = requiredOffset.y;
         // 4. Resolve Variant
         var finalAttachmentName = baseImageName;
         // Increase tolerance to avoid micro-variants due to floating point jitter
-        var TOLERANCE = 1.0;
+        var TOLERANCE = 2.0;
         var variants = context.global.attachmentVariants.get(baseImageName);
         if (!variants) {
             variants = [];
@@ -79,9 +81,16 @@ var Converter = /** @class */ (function () {
             context.global.attachmentVariants.set(baseImageName, variants);
         }
         var found = false;
+        var closestDelta = { dx: 0, dy: 0, dist: 99999 };
         for (var _i = 0, variants_1 = variants; _i < variants_1.length; _i++) {
             var v = variants_1[_i];
-            if (Math.abs(v.x - spineOffsetX) < TOLERANCE && Math.abs(v.y - spineOffsetY) < TOLERANCE) {
+            var dx = Math.abs(v.x - spineOffsetX);
+            var dy = Math.abs(v.y - spineOffsetY);
+            var dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < closestDelta.dist) {
+                closestDelta = { dx: dx, dy: dy, dist: dist };
+            }
+            if (dx < TOLERANCE && dy < TOLERANCE) {
                 finalAttachmentName = v.name;
                 found = true;
                 break;
@@ -91,9 +100,15 @@ var Converter = /** @class */ (function () {
             // Create new variant
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
-            // Log creation of new variants for debugging
-            if (baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('arm') >= 0 || baseImageName.indexOf('head') >= 0) {
-                Logger_1.Logger.trace("[Converter] Created pivot variant: ".concat(finalAttachmentName, " offset=(").concat(spineOffsetX.toFixed(1), ", ").concat(spineOffsetY.toFixed(1), "). Delta vs base: dx=").concat((spineOffsetX - variants[0].x).toFixed(2), ", dy=").concat((spineOffsetY - variants[0].y).toFixed(2)));
+            // Detailed Logging for Debugging
+            var isInteresting = baseImageName.indexOf('weapon') >= 0 || baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('skin_1') >= 0;
+            if (isInteresting) {
+                Logger_1.Logger.warning("[Variant] Created new attachment variant: ".concat(finalAttachmentName));
+                Logger_1.Logger.warning("   > Input Element: ".concat(element.name, " (Lib: ").concat((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name, ")"));
+                Logger_1.Logger.warning("   > Matrix: a=".concat(element.matrix.a.toFixed(4), ", b=").concat(element.matrix.b.toFixed(4), ", c=").concat(element.matrix.c.toFixed(4), ", d=").concat(element.matrix.d.toFixed(4), ", tx=").concat(element.matrix.tx, ", ty=").concat(element.matrix.ty));
+                Logger_1.Logger.warning("   > Calculated Offset: x=".concat(spineOffsetX.toFixed(2), ", y=").concat(spineOffsetY.toFixed(2)));
+                Logger_1.Logger.warning("   > Delta from closest existing variant: dist=".concat(closestDelta.dist.toFixed(2), " (dx=").concat(closestDelta.dx.toFixed(2), ", dy=").concat(closestDelta.dy.toFixed(2), ")"));
+                Logger_1.Logger.warning("   > Tolerance was: ".concat(TOLERANCE));
             }
         }
         var subcontext = context.createSlot(context.element);
@@ -116,6 +131,17 @@ var Converter = /** @class */ (function () {
         attachment.scaleY = 1 / spineImage.scale;
         attachment.x = spineOffsetX;
         attachment.y = spineOffsetY;
+        // Debug logging for Dash scaling issues
+        if (baseImageName.indexOf('dash') >= 0) {
+            Logger_1.Logger.trace("[DashDebug] Exporting ".concat(attachmentName));
+            Logger_1.Logger.trace("   > SpineImage Scale: ".concat(spineImage.scale));
+            Logger_1.Logger.trace("   > Attachment Scale: ".concat(attachment.scaleX.toFixed(3), ", ").concat(attachment.scaleY.toFixed(3)));
+            Logger_1.Logger.trace("   > Attachment Pos: ".concat(attachment.x.toFixed(2), ", ").concat(attachment.y.toFixed(2)));
+            var em = element.matrix;
+            var elemScaleX = Math.sqrt(em.a * em.a + em.b * em.b);
+            var elemScaleY = Math.sqrt(em.c * em.c + em.d * em.d);
+            Logger_1.Logger.trace("   > Element Matrix Scale: Sx=".concat(elemScaleX.toFixed(3), ", Sy=").concat(elemScaleY.toFixed(3)));
+        }
         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, slot, context, attachment, context.time);
     };
     Converter.prototype.convertBitmapElementSlot = function (context) {
@@ -244,9 +270,19 @@ var Converter = /** @class */ (function () {
             var layers = item.timeline.layers;
             for (var i = layers.length - 1; i >= 0; i--) {
                 var layer = layers[i];
-                // Logger.trace(`[Converter] Processing layer '${layer.name}' (type:${layer.layerType}, visible:${layer.visible}) in symbol '${item.name}'`);
+                // Detailed debug for missing skin_1 weapon
+                var isSkin1Weapon = item.name.indexOf('skin_1') >= 0 && (layer.name.toLowerCase().indexOf('weapon') >= 0);
+                if (isSkin1Weapon) {
+                    Logger_1.Logger.trace("[LayerCheck] Found weapon layer '".concat(layer.name, "' in symbol '").concat(item.name, "'"));
+                    Logger_1.Logger.trace("   > Type: ".concat(layer.layerType));
+                    Logger_1.Logger.trace("   > Visible: ".concat(layer.visible));
+                    Logger_1.Logger.trace("   > Frame Count: ".concat(layer.frames.length));
+                }
                 // Skip hidden layers to prevent exporting reference art or disabled content
                 if (!layer.visible) {
+                    if (isSkin1Weapon) {
+                        Logger_1.Logger.warning("[LayerCheck] SKIPPING HIDDEN WEAPON LAYER in ".concat(item.name, "!"));
+                    }
                     // Logger.trace(`[Converter] Skipping hidden layer: '${layer.name}' in symbol '${item.name}'`);
                     continue;
                 }
@@ -275,7 +311,8 @@ var Converter = /** @class */ (function () {
         }
     };
     Converter.prototype.convertElementLayer = function (context, layer, factory) {
-        var _a = context.global, label = _a.label, stageType = _a.stageType, frameRate = _a.frameRate;
+        var _a, _b;
+        var _c = context.global, label = _c.label, stageType = _c.stageType, frameRate = _c.frameRate;
         var start = 0, end = layer.frames.length - 1;
         if (context.parent == null && label != null && stageType === "animation" /* ConverterStageType.ANIMATION */) {
             start = label.startFrameIdx;
@@ -294,6 +331,10 @@ var Converter = /** @class */ (function () {
             }
             // Handle empty keyframes (end of visibility) by setting attachment to null
             if (frame.elements.length === 0) {
+                // Debug logging for missing weapon in idle
+                if (layer.name.toLowerCase().indexOf('weapon') >= 0 && ((_b = (_a = context.element) === null || _a === void 0 ? void 0 : _a.libraryItem) === null || _b === void 0 ? void 0 : _b.name.indexOf('skin_1')) >= 0) {
+                    Logger_1.Logger.trace("[FrameCheck] Empty/Null frame encountered for skin_1 weapon on layer '".concat(layer.name, "' at frame ").concat(i, "."));
+                }
                 var slots = context.global.layersCache.get(context.layer);
                 if (slots && stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     for (var _i = 0, slots_1 = slots; _i < slots_1.length; _i++) {
@@ -2253,17 +2294,19 @@ var SpineTransformMatrix = /** @class */ (function () {
         while (shearY > 180)
             shearY -= 360;
         // Debug logging for specific items
-        if (debugName.indexOf('arm') >= 0 || debugName.indexOf('weapon') >= 0 || debugName.indexOf('dash') >= 0 || debugName.indexOf('torso') >= 0) {
-            if (Math.abs(shearY) > 0.1 || scaleY < 0) {
-                Logger_1.Logger.trace("[Decompose-V2] ".concat(debugName, ": Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
-            }
+        if (debugName.indexOf('skin_1') >= 0 && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('dash') >= 0)) {
+            Logger_1.Logger.trace("[Decompose-V2] ".concat(debugName, ": Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
+        }
+        else if (debugName.indexOf('dash') >= 0 && Math.abs(scaleX) > 1.5) {
+            // Log abnormally large dash scales
+            Logger_1.Logger.trace("[Decompose-V2] LARGE DASH: ".concat(debugName, ": Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
         }
         return {
-            rotation: rotation,
-            scaleX: scaleX,
-            scaleY: scaleY,
+            rotation: Math.round(rotation * 10000) / 10000,
+            scaleX: Math.round(scaleX * 10000) / 10000,
+            scaleY: Math.round(scaleY * 10000) / 10000,
             shearX: 0,
-            shearY: shearY
+            shearY: Math.round(shearY * 10000) / 10000
         };
     };
     SpineTransformMatrix.Y_DIRECTION = -1;

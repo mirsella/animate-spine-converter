@@ -74,14 +74,15 @@ export class Converter {
         // 4. Goal for Flipped Bone (ScaleY = -1): Bone axis points Down. Visually Down -> local Y should be POSITIVE relative to bone.
         //    So JSON.y should be positive (e.g. 50).
         //    So attachment.y should be -50. (attachment.y = -requiredOffset.y).
-        const det = element.matrix.a * element.matrix.d - element.matrix.b * element.matrix.c;
+        // const det = element.matrix.a * element.matrix.d - element.matrix.b * element.matrix.c;
         const spineOffsetX = requiredOffset.x;
-        const spineOffsetY = (det < 0) ? -requiredOffset.y : requiredOffset.y; 
+        // const spineOffsetY = (det < 0) ? -requiredOffset.y : requiredOffset.y; 
+        const spineOffsetY = requiredOffset.y;
         
         // 4. Resolve Variant
         let finalAttachmentName = baseImageName;
         // Increase tolerance to avoid micro-variants due to floating point jitter
-        const TOLERANCE = 1.0; 
+        const TOLERANCE = 2.0; 
         
         let variants = context.global.attachmentVariants.get(baseImageName);
         if (!variants) {
@@ -92,8 +93,18 @@ export class Converter {
         }
         
         let found = false;
+        let closestDelta = { dx: 0, dy: 0, dist: 99999 };
+
         for (const v of variants) {
-            if (Math.abs(v.x - spineOffsetX) < TOLERANCE && Math.abs(v.y - spineOffsetY) < TOLERANCE) {
+            const dx = Math.abs(v.x - spineOffsetX);
+            const dy = Math.abs(v.y - spineOffsetY);
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            
+            if (dist < closestDelta.dist) {
+                closestDelta = { dx, dy, dist };
+            }
+
+            if (dx < TOLERANCE && dy < TOLERANCE) {
                 finalAttachmentName = v.name;
                 found = true;
                 break;
@@ -105,9 +116,15 @@ export class Converter {
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
             
-            // Log creation of new variants for debugging
-            if (baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('arm') >= 0 || baseImageName.indexOf('head') >= 0) {
-                Logger.trace(`[Converter] Created pivot variant: ${finalAttachmentName} offset=(${spineOffsetX.toFixed(1)}, ${spineOffsetY.toFixed(1)}). Delta vs base: dx=${(spineOffsetX - variants[0].x).toFixed(2)}, dy=${(spineOffsetY - variants[0].y).toFixed(2)}`);
+            // Detailed Logging for Debugging
+            const isInteresting = baseImageName.indexOf('weapon') >= 0 || baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('skin_1') >= 0;
+            if (isInteresting) {
+                Logger.warning(`[Variant] Created new attachment variant: ${finalAttachmentName}`);
+                Logger.warning(`   > Input Element: ${element.name} (Lib: ${element.libraryItem?.name})`);
+                Logger.warning(`   > Matrix: a=${element.matrix.a.toFixed(4)}, b=${element.matrix.b.toFixed(4)}, c=${element.matrix.c.toFixed(4)}, d=${element.matrix.d.toFixed(4)}, tx=${element.matrix.tx}, ty=${element.matrix.ty}`);
+                Logger.warning(`   > Calculated Offset: x=${spineOffsetX.toFixed(2)}, y=${spineOffsetY.toFixed(2)}`);
+                Logger.warning(`   > Delta from closest existing variant: dist=${closestDelta.dist.toFixed(2)} (dx=${closestDelta.dx.toFixed(2)}, dy=${closestDelta.dy.toFixed(2)})`);
+                Logger.warning(`   > Tolerance was: ${TOLERANCE}`);
             }
         }
 
@@ -135,6 +152,18 @@ export class Converter {
         attachment.scaleY = 1 / spineImage.scale;
         attachment.x = spineOffsetX;
         attachment.y = spineOffsetY;
+
+        // Debug logging for Dash scaling issues
+        if (baseImageName.indexOf('dash') >= 0) {
+            Logger.trace(`[DashDebug] Exporting ${attachmentName}`);
+            Logger.trace(`   > SpineImage Scale: ${spineImage.scale}`);
+            Logger.trace(`   > Attachment Scale: ${attachment.scaleX.toFixed(3)}, ${attachment.scaleY.toFixed(3)}`);
+            Logger.trace(`   > Attachment Pos: ${attachment.x.toFixed(2)}, ${attachment.y.toFixed(2)}`);
+            const em = element.matrix;
+            const elemScaleX = Math.sqrt(em.a*em.a + em.b*em.b);
+            const elemScaleY = Math.sqrt(em.c*em.c + em.d*em.d);
+            Logger.trace(`   > Element Matrix Scale: Sx=${elemScaleX.toFixed(3)}, Sy=${elemScaleY.toFixed(3)}`);
+        }
 
         SpineAnimationHelper.applySlotAttachment(
             context.global.animation,
@@ -287,10 +316,21 @@ export class Converter {
             const layers = item.timeline.layers;
             for (let i = layers.length - 1; i >= 0; i--) {
                 const layer = layers[i];
-                // Logger.trace(`[Converter] Processing layer '${layer.name}' (type:${layer.layerType}, visible:${layer.visible}) in symbol '${item.name}'`);
                 
+                // Detailed debug for missing skin_1 weapon
+                const isSkin1Weapon = item.name.indexOf('skin_1') >= 0 && (layer.name.toLowerCase().indexOf('weapon') >= 0);
+                if (isSkin1Weapon) {
+                     Logger.trace(`[LayerCheck] Found weapon layer '${layer.name}' in symbol '${item.name}'`);
+                     Logger.trace(`   > Type: ${layer.layerType}`);
+                     Logger.trace(`   > Visible: ${layer.visible}`);
+                     Logger.trace(`   > Frame Count: ${layer.frames.length}`);
+                }
+
                 // Skip hidden layers to prevent exporting reference art or disabled content
                 if (!layer.visible) {
+                    if (isSkin1Weapon) {
+                        Logger.warning(`[LayerCheck] SKIPPING HIDDEN WEAPON LAYER in ${item.name}!`);
+                    }
                     // Logger.trace(`[Converter] Skipping hidden layer: '${layer.name}' in symbol '${item.name}'`);
                     continue;
                 }
@@ -337,6 +377,11 @@ export class Converter {
             
             // Handle empty keyframes (end of visibility) by setting attachment to null
             if (frame.elements.length === 0) {
+                // Debug logging for missing weapon in idle
+                if (layer.name.toLowerCase().indexOf('weapon') >= 0 && context.element?.libraryItem?.name.indexOf('skin_1') >= 0) {
+                     Logger.trace(`[FrameCheck] Empty/Null frame encountered for skin_1 weapon on layer '${layer.name}' at frame ${i}.`);
+                }
+
                 const slots = context.global.layersCache.get(context.layer);
                 if (slots && stageType === ConverterStageType.ANIMATION) {
                     for (const s of slots) SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context.switchContextFrame(frame), null, time);
