@@ -80,7 +80,8 @@ export class Converter {
         
         // 4. Resolve Variant
         let finalAttachmentName = baseImageName;
-        const TOLERANCE = 0.05;
+        // Increase tolerance to avoid micro-variants due to floating point jitter
+        const TOLERANCE = 1.0; 
         
         let variants = context.global.attachmentVariants.get(baseImageName);
         if (!variants) {
@@ -105,8 +106,8 @@ export class Converter {
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
             
             // Log creation of new variants for debugging
-            if (baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('arm') >= 0) {
-                Logger.trace(`[Converter] Created pivot variant: ${finalAttachmentName} offset=(${spineOffsetX.toFixed(1)}, ${spineOffsetY.toFixed(1)})`);
+            if (baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('arm') >= 0 || baseImageName.indexOf('head') >= 0) {
+                Logger.trace(`[Converter] Created pivot variant: ${finalAttachmentName} offset=(${spineOffsetX.toFixed(1)}, ${spineOffsetY.toFixed(1)}). Delta vs base: dx=${(spineOffsetX - variants[0].x).toFixed(2)}, dy=${(spineOffsetY - variants[0].y).toFixed(2)}`);
             }
         }
 

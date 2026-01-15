@@ -69,7 +69,8 @@ var Converter = /** @class */ (function () {
         var spineOffsetY = (det < 0) ? -requiredOffset.y : requiredOffset.y;
         // 4. Resolve Variant
         var finalAttachmentName = baseImageName;
-        var TOLERANCE = 0.05;
+        // Increase tolerance to avoid micro-variants due to floating point jitter
+        var TOLERANCE = 1.0;
         var variants = context.global.attachmentVariants.get(baseImageName);
         if (!variants) {
             variants = [];
@@ -91,8 +92,8 @@ var Converter = /** @class */ (function () {
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
             // Log creation of new variants for debugging
-            if (baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('arm') >= 0) {
-                Logger_1.Logger.trace("[Converter] Created pivot variant: ".concat(finalAttachmentName, " offset=(").concat(spineOffsetX.toFixed(1), ", ").concat(spineOffsetY.toFixed(1), ")"));
+            if (baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('arm') >= 0 || baseImageName.indexOf('head') >= 0) {
+                Logger_1.Logger.trace("[Converter] Created pivot variant: ".concat(finalAttachmentName, " offset=(").concat(spineOffsetX.toFixed(1), ", ").concat(spineOffsetY.toFixed(1), "). Delta vs base: dx=").concat((spineOffsetX - variants[0].x).toFixed(2), ", dy=").concat((spineOffsetY - variants[0].y).toFixed(2)));
             }
         }
         var subcontext = context.createSlot(context.element);
@@ -2238,9 +2239,10 @@ var SpineTransformMatrix = /** @class */ (function () {
         // shearY = y_angle - rotation - 90
         var shearY = angleY - rotation - 90;
         // Sign Inversion for Spine Compatibility
-        // Empirical testing shows Animate Skew X (-20) requires Spine Shear Y (+20).
-        // Our calculation yields -20. Thus, we negate.
-        shearY = -shearY;
+        // Empirical testing:
+        // V1: shearY = -shearY (User reported "skewed the right amount but to the other direction")
+        // V2: Removed negation.
+        // shearY = -shearY;
         // Normalize
         while (rotation <= -180)
             rotation += 360;
