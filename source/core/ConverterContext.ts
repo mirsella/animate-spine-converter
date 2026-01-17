@@ -26,6 +26,9 @@ export class ConverterContext {
     public slot:SpineSlot;
     public time:number;
 
+    // Added for debug logging
+    public absoluteFrameIndex: number = 0; 
+
     /**
      * Offset to shift children from Parent Registration Point to Parent Anchor Point.
      * Calculated as: -Parent.transformationPoint
