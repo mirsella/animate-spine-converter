@@ -73,8 +73,8 @@ var Converter = /** @class */ (function () {
         // Flipped bones (ScaleY=-1) need normal Y because the bone scale flips it back.
         var spineOffsetY = (det < 0) ? requiredOffset.y : -requiredOffset.y;
         var finalAttachmentName = baseImageName;
-        // Increased tolerance to prevent micro-jitter variants (User reported "small jumps")
-        var TOLERANCE = 3.0;
+        // Tolerance can be lower now that sign logic is fixed
+        var TOLERANCE = 1.0;
         var variants = context.global.attachmentVariants.get(baseImageName);
         if (!variants) {
             variants = [];
@@ -95,10 +95,6 @@ var Converter = /** @class */ (function () {
             if (dx < TOLERANCE && dy < TOLERANCE) {
                 finalAttachmentName = v.name;
                 found = true;
-                // Log "Near Miss" if it was close to the edge, to monitor if 3.0 is safe or too loose
-                if (baseImageName.indexOf('weapon') >= 0 && dist > 0.1) {
-                    Logger_1.Logger.trace("[VariantMatch] Reusing '".concat(v.name, "' for '").concat(element.name, "'. Delta: ").concat(dist.toFixed(3), " < Tol ").concat(TOLERANCE));
-                }
                 break;
             }
         }
@@ -107,17 +103,24 @@ var Converter = /** @class */ (function () {
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
             // Detailed Logging for Debugging
-            var isInteresting = baseImageName.indexOf('weapon') >= 0 || baseImageName.indexOf('dash') >= 0;
+            var isInteresting = baseImageName.indexOf('weapon') >= 0 || baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('skin_1') >= 0;
             if (isInteresting) {
                 Logger_1.Logger.warning("[Variant] Created new attachment variant: ".concat(finalAttachmentName, " (Frame ").concat(context.absoluteFrameIndex, ")"));
                 Logger_1.Logger.warning("   > Input Element: ".concat(element.name, " (Lib: ").concat((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name, ")"));
                 Logger_1.Logger.warning("   > Matrix: a=".concat(element.matrix.a.toFixed(4), ", b=").concat(element.matrix.b.toFixed(4), ", c=").concat(element.matrix.c.toFixed(4), ", d=").concat(element.matrix.d.toFixed(4), " (Det: ").concat(det.toFixed(4), ")"));
                 Logger_1.Logger.warning("   > Calculated Offset: x=".concat(spineOffsetX.toFixed(3), ", y=").concat(spineOffsetY.toFixed(3)));
-                if (variants.length > 1) { // >1 because we just pushed the new one
+                if (variants.length > 0) {
                     // Log the one we *almost* matched to see why it failed
-                    var closest = variants[variants.length - 2]; // The one before the push, roughly
+                    var closest = variants.reduce(function (prev, curr) {
+                        var dPrev = Math.sqrt(Math.pow(prev.x - spineOffsetX, 2) + Math.pow(prev.y - spineOffsetY, 2));
+                        var dCurr = Math.sqrt(Math.pow(curr.x - spineOffsetX, 2) + Math.pow(curr.y - spineOffsetY, 2));
+                        return (dPrev < dCurr) ? prev : curr;
+                    });
                     Logger_1.Logger.warning("   > Closest Existing: ".concat(closest.name, " at (").concat(closest.x.toFixed(3), ", ").concat(closest.y.toFixed(3), ")"));
                     Logger_1.Logger.warning("   > Delta: dist=".concat(closestDelta.dist.toFixed(4), " (dx=").concat(closestDelta.dx.toFixed(4), ", dy=").concat(closestDelta.dy.toFixed(4), ") > Tolerance ").concat(TOLERANCE));
+                }
+                else {
+                    Logger_1.Logger.warning("   > No existing variants (First occurrence).");
                 }
             }
         }
@@ -328,8 +331,8 @@ var Converter = /** @class */ (function () {
         }
     };
     Converter.prototype.convertElementLayer = function (context, layer, factory) {
-        var _a, _b, _c, _d;
-        var _e = context.global, label = _e.label, stageType = _e.stageType, frameRate = _e.frameRate;
+        var _a, _b;
+        var _c = context.global, label = _c.label, stageType = _c.stageType, frameRate = _c.frameRate;
         var start = 0, end = layer.frames.length - 1;
         if (context.parent == null && label != null && stageType === "animation" /* ConverterStageType.ANIMATION */) {
             start = label.startFrameIdx;
@@ -362,28 +365,9 @@ var Converter = /** @class */ (function () {
                 }
                 continue;
             }
-            // Detect Driver Element for Packed Layers (Multiple elements on one frame)
-            var driverIdx = frame.elements.length - 1; // Default to last (legacy behavior)
+            // WARN: Multiple elements on the same frame = likely invisible assets in Spine
             if (frame.elements.length > 1) {
-                // Detailed Conflict Logging
-                Logger_1.Logger.warning("[LayerConflict] Layer '".concat(layer.name, "' Frame ").concat(i, " has ").concat(frame.elements.length, " elements. Analyzing potential drivers:"));
-                // Heuristic: Pick the element with the largest area (width * height)
-                var maxArea = -1;
-                for (var k = 0; k < frame.elements.length; k++) {
-                    var el = frame.elements[k];
-                    var area = (el.width || 0) * (el.height || 0);
-                    var elName = el.name || ((_c = el.libraryItem) === null || _c === void 0 ? void 0 : _c.name) || 'Unknown';
-                    // Log candidate
-                    Logger_1.Logger.warning("   - Candidate [".concat(k, "]: '").concat(elName, "' (Area: ").concat(area.toFixed(0), ")"));
-                    // Use >= to prefer later elements if areas are equal (z-order)
-                    if (area >= maxArea) {
-                        maxArea = area;
-                        driverIdx = k;
-                    }
-                }
-                var driverEl = frame.elements[driverIdx];
-                var driverName = driverEl.name || ((_d = driverEl.libraryItem) === null || _d === void 0 ? void 0 : _d.name) || 'Unknown';
-                Logger_1.Logger.warning("   => SELECTED DRIVER: [".concat(driverIdx, "] '").concat(driverName, "' (Area: ").concat(maxArea.toFixed(0), ")"));
+                Logger_1.Logger.warning("[LayerIssue] Layer '".concat(layer.name, "' Frame ").concat(i, " has ").concat(frame.elements.length, " elements. Spine Slots support only 1 active attachment. Likely only the last element will be visible."));
             }
             // Iterate elements on the frame
             for (var eIdx = 0; eIdx < frame.elements.length; eIdx++) {
@@ -432,10 +416,7 @@ var Converter = /** @class */ (function () {
                 else {
                     this._document.getTimeline().currentFrame = i;
                 }
-                // Only the Driver Element gets to update the Bone Transform on the Timeline
-                // This ensures the Bone isn't overwritten by "garbage" elements on the same frame.
-                var isDriver = (eIdx === driverIdx);
-                var sub = context.switchContextFrame(frame).createBone(el, time, isDriver);
+                var sub = context.switchContextFrame(frame).createBone(el, time);
                 // Recurse into symbol if needed
                 // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
                 // However, we must ensure we don't lose our place in the current timeline loop.
@@ -634,17 +615,13 @@ var ConverterContext = /** @class */ (function () {
         }
         return this;
     };
-    ConverterContext.prototype.createBone = function (element, time, isRef) {
-        if (isRef === void 0) { isRef = true; }
+    ConverterContext.prototype.createBone = function (element, time) {
         var boneName = ConvertUtil_1.ConvertUtil.createBoneName(element, this);
         var referenceTransform = this.global.assetTransforms.get(boneName);
         // Pass reference transform to constructor to handle flipping continuity
         var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element, referenceTransform);
         // Update the cache with the current transform for the next frame
-        // Only update if this is the Reference/Driver element for the frame
-        if (isRef) {
-            this.global.assetTransforms.set(boneName, transform);
-        }
+        this.global.assetTransforms.set(boneName, transform);
         var context = new ConverterContext();
         context.bone = this.global.skeleton.createBone(boneName, this.bone);
         context.clipping = this.clipping;
@@ -672,7 +649,7 @@ var ConverterContext = /** @class */ (function () {
             x: -element.transformationPoint.x,
             y: -element.transformationPoint.y
         };
-        if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */ && isRef) {
+        if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */) {
             var boneTransform = __assign(__assign({}, transform), { x: transform.x + this.parentOffset.x, y: transform.y + this.parentOffset.y });
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneAnimation(context.global.animation, context.bone, context, boneTransform, context.time);
         }
