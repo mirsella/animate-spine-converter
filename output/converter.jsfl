@@ -66,15 +66,13 @@ var Converter = /** @class */ (function () {
         //    So JSON.y should be positive (e.g. 50).
         //    So attachment.y should be -50. (attachment.y = -requiredOffset.y).
         // const det = element.matrix.a * element.matrix.d - element.matrix.b * element.matrix.c;
-        // 4. Resolve Variant
-        var det = element.matrix.a * element.matrix.d - element.matrix.b * element.matrix.c;
         var spineOffsetX = requiredOffset.x;
-        // Correct logic: Normal bones (ScaleY=1) need inverted Y for Spine (Y-Up).
-        // Flipped bones (ScaleY=-1) need normal Y because the bone scale flips it back.
-        var spineOffsetY = (det < 0) ? requiredOffset.y : -requiredOffset.y;
+        // const spineOffsetY = (det < 0) ? -requiredOffset.y : requiredOffset.y; 
+        var spineOffsetY = requiredOffset.y;
+        // 4. Resolve Variant
         var finalAttachmentName = baseImageName;
-        // Tolerance can be lower now that sign logic is fixed
-        var TOLERANCE = 1.0;
+        // Increase tolerance to avoid micro-variants due to floating point jitter
+        var TOLERANCE = 2.0;
         var variants = context.global.attachmentVariants.get(baseImageName);
         if (!variants) {
             variants = [];
@@ -105,29 +103,12 @@ var Converter = /** @class */ (function () {
             // Detailed Logging for Debugging
             var isInteresting = baseImageName.indexOf('weapon') >= 0 || baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('skin_1') >= 0;
             if (isInteresting) {
-                Logger_1.Logger.warning("[Variant] Created new attachment variant: ".concat(finalAttachmentName, " (Frame ").concat(context.absoluteFrameIndex, ")"));
+                Logger_1.Logger.warning("[Variant] Created new attachment variant: ".concat(finalAttachmentName));
                 Logger_1.Logger.warning("   > Input Element: ".concat(element.name, " (Lib: ").concat((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name, ")"));
-                Logger_1.Logger.warning("   > Matrix: a=".concat(element.matrix.a.toFixed(4), ", b=").concat(element.matrix.b.toFixed(4), ", c=").concat(element.matrix.c.toFixed(4), ", d=").concat(element.matrix.d.toFixed(4), " (Det: ").concat(det.toFixed(4), ")"));
-                Logger_1.Logger.warning("   > Calculated Offset: x=".concat(spineOffsetX.toFixed(3), ", y=").concat(spineOffsetY.toFixed(3)));
-                if (variants.length > 0) {
-                    // Log the one we *almost* matched to see why it failed
-                    var closest = variants.reduce(function (prev, curr) {
-                        var dPrev = Math.sqrt(Math.pow(prev.x - spineOffsetX, 2) + Math.pow(prev.y - spineOffsetY, 2));
-                        var dCurr = Math.sqrt(Math.pow(curr.x - spineOffsetX, 2) + Math.pow(curr.y - spineOffsetY, 2));
-                        return (dPrev < dCurr) ? prev : curr;
-                    });
-                    Logger_1.Logger.warning("   > Closest Existing: ".concat(closest.name, " at (").concat(closest.x.toFixed(3), ", ").concat(closest.y.toFixed(3), ")"));
-                    Logger_1.Logger.warning("   > Delta: dist=".concat(closestDelta.dist.toFixed(4), " (dx=").concat(closestDelta.dx.toFixed(4), ", dy=").concat(closestDelta.dy.toFixed(4), ") > Tolerance ").concat(TOLERANCE));
-                }
-                else {
-                    Logger_1.Logger.warning("   > No existing variants (First occurrence).");
-                }
-            }
-        }
-        else {
-            // It was found/reused. Log specifically for the problematic "Missing Weapon" to prove it exists and where it is.
-            if (baseImageName.indexOf('skin_1') >= 0 && baseImageName.indexOf('weapon') >= 0) {
-                Logger_1.Logger.trace("[WeaponTrace] Frame ".concat(context.absoluteFrameIndex, ": Reusing ").concat(finalAttachmentName, " at (").concat(spineOffsetX.toFixed(2), ", ").concat(spineOffsetY.toFixed(2), ") Det=").concat(det.toFixed(2)));
+                Logger_1.Logger.warning("   > Matrix: a=".concat(element.matrix.a.toFixed(4), ", b=").concat(element.matrix.b.toFixed(4), ", c=").concat(element.matrix.c.toFixed(4), ", d=").concat(element.matrix.d.toFixed(4), ", tx=").concat(element.matrix.tx, ", ty=").concat(element.matrix.ty));
+                Logger_1.Logger.warning("   > Calculated Offset: x=".concat(spineOffsetX.toFixed(2), ", y=").concat(spineOffsetY.toFixed(2)));
+                Logger_1.Logger.warning("   > Delta from closest existing variant: dist=".concat(closestDelta.dist.toFixed(2), " (dx=").concat(closestDelta.dx.toFixed(2), ", dy=").concat(closestDelta.dy.toFixed(2), ")"));
+                Logger_1.Logger.warning("   > Tolerance was: ".concat(TOLERANCE));
             }
         }
         var subcontext = context.createSlot(context.element);
@@ -152,12 +133,11 @@ var Converter = /** @class */ (function () {
         attachment.y = spineOffsetY;
         // Debug logging for Dash scaling issues
         if (baseImageName.indexOf('dash') >= 0) {
-            Logger_1.Logger.trace("[DashDebug] Frame ".concat(context.absoluteFrameIndex, ": Exporting ").concat(attachmentName));
+            Logger_1.Logger.trace("[DashDebug] Exporting ".concat(attachmentName));
             Logger_1.Logger.trace("   > SpineImage Scale: ".concat(spineImage.scale));
             Logger_1.Logger.trace("   > Attachment Scale: ".concat(attachment.scaleX.toFixed(3), ", ").concat(attachment.scaleY.toFixed(3)));
             Logger_1.Logger.trace("   > Attachment Pos: ".concat(attachment.x.toFixed(2), ", ").concat(attachment.y.toFixed(2)));
             var em = element.matrix;
-            Logger_1.Logger.trace("   > Raw Matrix: a=".concat(em.a.toFixed(3), ", b=").concat(em.b.toFixed(3), ", c=").concat(em.c.toFixed(3), ", d=").concat(em.d.toFixed(3)));
             var elemScaleX = Math.sqrt(em.a * em.a + em.b * em.b);
             var elemScaleY = Math.sqrt(em.c * em.c + em.d * em.d);
             Logger_1.Logger.trace("   > Element Matrix Scale: Sx=".concat(elemScaleX.toFixed(3), ", Sy=").concat(elemScaleY.toFixed(3)));
@@ -342,7 +322,6 @@ var Converter = /** @class */ (function () {
             var frame = layer.frames[i];
             if (!frame)
                 continue;
-            context.absoluteFrameIndex = i;
             var time = (i - start) / frameRate;
             // Export events from comments
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
@@ -364,10 +343,6 @@ var Converter = /** @class */ (function () {
                     }
                 }
                 continue;
-            }
-            // WARN: Multiple elements on the same frame = likely invisible assets in Spine
-            if (frame.elements.length > 1) {
-                Logger_1.Logger.warning("[LayerIssue] Layer '".concat(layer.name, "' Frame ").concat(i, " has ").concat(frame.elements.length, " elements. Spine Slots support only 1 active attachment. Likely only the last element will be visible."));
             }
             // Iterate elements on the frame
             for (var eIdx = 0; eIdx < frame.elements.length; eIdx++) {
@@ -587,8 +562,6 @@ var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTra
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
 var ConverterContext = /** @class */ (function () {
     function ConverterContext() {
-        // Added for debug logging
-        this.absoluteFrameIndex = 0;
         /**
          * Offset to shift children from Parent Registration Point to Parent Anchor Point.
          * Calculated as: -Parent.transformationPoint
@@ -2322,7 +2295,7 @@ var SpineTransformMatrix = /** @class */ (function () {
             shearY -= 360;
         // Debug logging for specific items
         if (debugName.indexOf('skin_1') >= 0 && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('dash') >= 0)) {
-            Logger_1.Logger.trace("[Decompose-V2] ".concat(debugName, ": Input(a=").concat(a.toFixed(3), ", b=").concat(mat.b.toFixed(3), ", c=").concat(mat.c.toFixed(3), ", d=").concat(d.toFixed(3), ") -> Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
+            Logger_1.Logger.trace("[Decompose-V2] ".concat(debugName, ": Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
         }
         else if (debugName.indexOf('dash') >= 0 && Math.abs(scaleX) > 1.5) {
             // Log abnormally large dash scales

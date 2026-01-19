@@ -75,16 +75,14 @@ export class Converter {
         //    So JSON.y should be positive (e.g. 50).
         //    So attachment.y should be -50. (attachment.y = -requiredOffset.y).
         // const det = element.matrix.a * element.matrix.d - element.matrix.b * element.matrix.c;
-        // 4. Resolve Variant
-        const det = element.matrix.a * element.matrix.d - element.matrix.b * element.matrix.c;
         const spineOffsetX = requiredOffset.x;
-        // Correct logic: Normal bones (ScaleY=1) need inverted Y for Spine (Y-Up).
-        // Flipped bones (ScaleY=-1) need normal Y because the bone scale flips it back.
-        const spineOffsetY = (det < 0) ? requiredOffset.y : -requiredOffset.y;
+        // const spineOffsetY = (det < 0) ? -requiredOffset.y : requiredOffset.y; 
+        const spineOffsetY = requiredOffset.y;
         
+        // 4. Resolve Variant
         let finalAttachmentName = baseImageName;
-        // Tolerance can be lower now that sign logic is fixed
-        const TOLERANCE = 1.0; 
+        // Increase tolerance to avoid micro-variants due to floating point jitter
+        const TOLERANCE = 2.0; 
         
         let variants = context.global.attachmentVariants.get(baseImageName);
         if (!variants) {
@@ -121,28 +119,13 @@ export class Converter {
             // Detailed Logging for Debugging
             const isInteresting = baseImageName.indexOf('weapon') >= 0 || baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('skin_1') >= 0;
             if (isInteresting) {
-                Logger.warning(`[Variant] Created new attachment variant: ${finalAttachmentName} (Frame ${context.absoluteFrameIndex})`);
+                Logger.warning(`[Variant] Created new attachment variant: ${finalAttachmentName}`);
                 Logger.warning(`   > Input Element: ${element.name} (Lib: ${element.libraryItem?.name})`);
-                Logger.warning(`   > Matrix: a=${element.matrix.a.toFixed(4)}, b=${element.matrix.b.toFixed(4)}, c=${element.matrix.c.toFixed(4)}, d=${element.matrix.d.toFixed(4)} (Det: ${det.toFixed(4)})`);
-                Logger.warning(`   > Calculated Offset: x=${spineOffsetX.toFixed(3)}, y=${spineOffsetY.toFixed(3)}`);
-                if (variants.length > 0) {
-                     // Log the one we *almost* matched to see why it failed
-                    const closest = variants.reduce((prev, curr) => {
-                        const dPrev = Math.sqrt(Math.pow(prev.x - spineOffsetX, 2) + Math.pow(prev.y - spineOffsetY, 2));
-                        const dCurr = Math.sqrt(Math.pow(curr.x - spineOffsetX, 2) + Math.pow(curr.y - spineOffsetY, 2));
-                        return (dPrev < dCurr) ? prev : curr;
-                    });
-                    Logger.warning(`   > Closest Existing: ${closest.name} at (${closest.x.toFixed(3)}, ${closest.y.toFixed(3)})`);
-                    Logger.warning(`   > Delta: dist=${closestDelta.dist.toFixed(4)} (dx=${closestDelta.dx.toFixed(4)}, dy=${closestDelta.dy.toFixed(4)}) > Tolerance ${TOLERANCE}`);
-                } else {
-                    Logger.warning(`   > No existing variants (First occurrence).`);
-                }
+                Logger.warning(`   > Matrix: a=${element.matrix.a.toFixed(4)}, b=${element.matrix.b.toFixed(4)}, c=${element.matrix.c.toFixed(4)}, d=${element.matrix.d.toFixed(4)}, tx=${element.matrix.tx}, ty=${element.matrix.ty}`);
+                Logger.warning(`   > Calculated Offset: x=${spineOffsetX.toFixed(2)}, y=${spineOffsetY.toFixed(2)}`);
+                Logger.warning(`   > Delta from closest existing variant: dist=${closestDelta.dist.toFixed(2)} (dx=${closestDelta.dx.toFixed(2)}, dy=${closestDelta.dy.toFixed(2)})`);
+                Logger.warning(`   > Tolerance was: ${TOLERANCE}`);
             }
-        } else {
-             // It was found/reused. Log specifically for the problematic "Missing Weapon" to prove it exists and where it is.
-             if (baseImageName.indexOf('skin_1') >= 0 && baseImageName.indexOf('weapon') >= 0) {
-                 Logger.trace(`[WeaponTrace] Frame ${context.absoluteFrameIndex}: Reusing ${finalAttachmentName} at (${spineOffsetX.toFixed(2)}, ${spineOffsetY.toFixed(2)}) Det=${det.toFixed(2)}`);
-             }
         }
 
         const subcontext = context.createSlot(context.element);
@@ -172,12 +155,11 @@ export class Converter {
 
         // Debug logging for Dash scaling issues
         if (baseImageName.indexOf('dash') >= 0) {
-            Logger.trace(`[DashDebug] Frame ${context.absoluteFrameIndex}: Exporting ${attachmentName}`);
+            Logger.trace(`[DashDebug] Exporting ${attachmentName}`);
             Logger.trace(`   > SpineImage Scale: ${spineImage.scale}`);
             Logger.trace(`   > Attachment Scale: ${attachment.scaleX.toFixed(3)}, ${attachment.scaleY.toFixed(3)}`);
             Logger.trace(`   > Attachment Pos: ${attachment.x.toFixed(2)}, ${attachment.y.toFixed(2)}`);
             const em = element.matrix;
-            Logger.trace(`   > Raw Matrix: a=${em.a.toFixed(3)}, b=${em.b.toFixed(3)}, c=${em.c.toFixed(3)}, d=${em.d.toFixed(3)}`);
             const elemScaleX = Math.sqrt(em.a*em.a + em.b*em.b);
             const elemScaleY = Math.sqrt(em.c*em.c + em.d*em.d);
             Logger.trace(`   > Element Matrix Scale: Sx=${elemScaleX.toFixed(3)}, Sy=${elemScaleY.toFixed(3)}`);
@@ -385,7 +367,6 @@ export class Converter {
             const frame = layer.frames[i];
             if (!frame) continue;
             
-            context.absoluteFrameIndex = i;
             const time = (i - start) / frameRate;
             
             // Export events from comments
@@ -406,11 +387,6 @@ export class Converter {
                     for (const s of slots) SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context.switchContextFrame(frame), null, time);
                 }
                 continue;
-            }
-
-            // WARN: Multiple elements on the same frame = likely invisible assets in Spine
-            if (frame.elements.length > 1) {
-                Logger.warning(`[LayerIssue] Layer '${layer.name}' Frame ${i} has ${frame.elements.length} elements. Spine Slots support only 1 active attachment. Likely only the last element will be visible.`);
             }
             
             // Iterate elements on the frame

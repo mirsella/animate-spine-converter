@@ -126,7 +126,7 @@ export class SpineTransformMatrix implements SpineTransform {
 
         // Debug logging for specific items
         if (debugName.indexOf('skin_1') >= 0 && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('dash') >= 0)) {
-             Logger.trace(`[Decompose-V2] ${debugName}: Input(a=${a.toFixed(3)}, b=${mat.b.toFixed(3)}, c=${mat.c.toFixed(3)}, d=${d.toFixed(3)}) -> Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
+             Logger.trace(`[Decompose-V2] ${debugName}: Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
         } else if (debugName.indexOf('dash') >= 0 && Math.abs(scaleX) > 1.5) {
              // Log abnormally large dash scales
              Logger.trace(`[Decompose-V2] LARGE DASH: ${debugName}: Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
