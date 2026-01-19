@@ -31,7 +31,6 @@ var Converter = /** @class */ (function () {
         this._config = config;
     }
     Converter.prototype.convertElementSlot = function (context, exportTarget, imageExportFactory) {
-        var _a;
         // 1. Get Base Name (for PNG path and initial cache key)
         var baseImageName = context.global.shapesCache.get(exportTarget);
         if (baseImageName == null) {
@@ -82,6 +81,7 @@ var Converter = /** @class */ (function () {
         }
         var found = false;
         var closestDelta = { dx: 0, dy: 0, dist: 99999 };
+        var matchedVariant = null;
         for (var _i = 0, variants_1 = variants; _i < variants_1.length; _i++) {
             var v = variants_1[_i];
             var dx = Math.abs(v.x - spineOffsetX);
@@ -92,24 +92,41 @@ var Converter = /** @class */ (function () {
             }
             if (dx < TOLERANCE && dy < TOLERANCE) {
                 finalAttachmentName = v.name;
+                matchedVariant = v;
                 found = true;
                 break;
             }
         }
+        // --- HIGH FIDELITY DEBUG LOGGING ---
+        var debugName = baseImageName.toLowerCase();
+        // Filter for the problematic items specifically
+        var isDebugTarget = (debugName.indexOf('weapon') >= 0 || debugName.indexOf('torso') >= 0 || debugName.indexOf('dash') >= 0)
+            && (debugName.indexOf('skin_1') >= 0 || debugName.indexOf('skin_3') >= 0);
+        if (isDebugTarget) {
+            var em = element.matrix;
+            var det = em.a * em.d - em.b * em.c;
+            var time = context.time.toFixed(3);
+            // Log Header for this frame/element
+            Logger_1.Logger.trace("[FrameCheck] T=".concat(time, " | Element: ").concat(element.name || baseImageName));
+            // Log Matrix & Determinant (Flip Check)
+            Logger_1.Logger.trace("   > Matrix: a=".concat(em.a.toFixed(3), " b=").concat(em.b.toFixed(3), " c=").concat(em.c.toFixed(3), " d=").concat(em.d.toFixed(3), " tx=").concat(em.tx.toFixed(1), " ty=").concat(em.ty.toFixed(1), " | Det=").concat(det.toFixed(3)));
+            // Log Offset Calculation
+            Logger_1.Logger.trace("   > Required Offset: x=".concat(spineOffsetX.toFixed(2), ", y=").concat(spineOffsetY.toFixed(2)));
+            // Log Variant Logic
+            if (found) {
+                Logger_1.Logger.trace("   > Matched Variant: '".concat(matchedVariant.name, "' (Diff: ").concat(closestDelta.dist.toFixed(3), ")"));
+            }
+            else {
+                Logger_1.Logger.warning("   >>> NEW VARIANT TRIGGERED <<<");
+                Logger_1.Logger.warning("   > Closest was: ".concat(closestDelta.dist.toFixed(3), " (Limit: ").concat(TOLERANCE, ")"));
+                Logger_1.Logger.warning("   > Creating: ".concat(baseImageName + '_' + (variants.length + 1)));
+            }
+        }
+        // -----------------------------------
         if (!found) {
             // Create new variant
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
-            // Detailed Logging for Debugging
-            var isInteresting = baseImageName.indexOf('weapon') >= 0 || baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('skin_1') >= 0;
-            if (isInteresting) {
-                Logger_1.Logger.warning("[Variant] Created new attachment variant: ".concat(finalAttachmentName));
-                Logger_1.Logger.warning("   > Input Element: ".concat(element.name, " (Lib: ").concat((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name, ")"));
-                Logger_1.Logger.warning("   > Matrix: a=".concat(element.matrix.a.toFixed(4), ", b=").concat(element.matrix.b.toFixed(4), ", c=").concat(element.matrix.c.toFixed(4), ", d=").concat(element.matrix.d.toFixed(4), ", tx=").concat(element.matrix.tx, ", ty=").concat(element.matrix.ty));
-                Logger_1.Logger.warning("   > Calculated Offset: x=".concat(spineOffsetX.toFixed(2), ", y=").concat(spineOffsetY.toFixed(2)));
-                Logger_1.Logger.warning("   > Delta from closest existing variant: dist=".concat(closestDelta.dist.toFixed(2), " (dx=").concat(closestDelta.dx.toFixed(2), ", dy=").concat(closestDelta.dy.toFixed(2), ")"));
-                Logger_1.Logger.warning("   > Tolerance was: ".concat(TOLERANCE));
-            }
         }
         var subcontext = context.createSlot(context.element);
         var slot = subcontext.slot;
@@ -132,16 +149,18 @@ var Converter = /** @class */ (function () {
         attachment.x = spineOffsetX;
         attachment.y = spineOffsetY;
         // Debug logging for Dash scaling issues
+        /*
         if (baseImageName.indexOf('dash') >= 0) {
-            Logger_1.Logger.trace("[DashDebug] Exporting ".concat(attachmentName));
-            Logger_1.Logger.trace("   > SpineImage Scale: ".concat(spineImage.scale));
-            Logger_1.Logger.trace("   > Attachment Scale: ".concat(attachment.scaleX.toFixed(3), ", ").concat(attachment.scaleY.toFixed(3)));
-            Logger_1.Logger.trace("   > Attachment Pos: ".concat(attachment.x.toFixed(2), ", ").concat(attachment.y.toFixed(2)));
-            var em = element.matrix;
-            var elemScaleX = Math.sqrt(em.a * em.a + em.b * em.b);
-            var elemScaleY = Math.sqrt(em.c * em.c + em.d * em.d);
-            Logger_1.Logger.trace("   > Element Matrix Scale: Sx=".concat(elemScaleX.toFixed(3), ", Sy=").concat(elemScaleY.toFixed(3)));
+            Logger.trace(`[DashDebug] Exporting ${attachmentName}`);
+            Logger.trace(`   > SpineImage Scale: ${spineImage.scale}`);
+            Logger.trace(`   > Attachment Scale: ${attachment.scaleX.toFixed(3)}, ${attachment.scaleY.toFixed(3)}`);
+            Logger.trace(`   > Attachment Pos: ${attachment.x.toFixed(2)}, ${attachment.y.toFixed(2)}`);
+            const em = element.matrix;
+            const elemScaleX = Math.sqrt(em.a*em.a + em.b*em.b);
+            const elemScaleY = Math.sqrt(em.c*em.c + em.d*em.d);
+            Logger.trace(`   > Element Matrix Scale: Sx=${elemScaleX.toFixed(3)}, Sy=${elemScaleY.toFixed(3)}`);
         }
+        */
         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, slot, context, attachment, context.time);
     };
     Converter.prototype.convertBitmapElementSlot = function (context) {
@@ -941,11 +960,12 @@ exports.SpineAnimation = SpineAnimation;
 /*!**********************************************!*\
   !*** ./source/spine/SpineAnimationHelper.ts ***!
   \**********************************************/
-/***/ (function(__unused_webpack_module, exports) {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
 
 exports.SpineAnimationHelper = void 0;
+var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var SpineAnimationHelper = /** @class */ (function () {
     function SpineAnimationHelper() {
     }
@@ -953,8 +973,33 @@ var SpineAnimationHelper = /** @class */ (function () {
         var timeline = animation.createBoneTimeline(bone);
         var curve = SpineAnimationHelper.obtainFrameCurve(context);
         var rotateTimeline = timeline.createTimeline("rotate" /* SpineTimelineType.ROTATE */);
+        // Rotation Unwrapping (Shortest Path)
+        // Ensure that the new angle is continuous relative to the previous keyframe
+        var angle = transform.rotation - bone.rotation;
+        if (rotateTimeline.frames.length > 0) {
+            var prevFrame = rotateTimeline.frames[rotateTimeline.frames.length - 1];
+            // Only apply unwrapping if we are moving forward in time (sequential export)
+            if (time > prevFrame.time) {
+                var prevAngle = prevFrame.angle;
+                var originalAngle = angle;
+                while (angle - prevAngle > 180)
+                    angle -= 360;
+                while (angle - prevAngle < -180)
+                    angle += 360;
+                // Debug Logging for "Jump" detection
+                if (Math.abs(angle - originalAngle) > 0.01 && bone.name.indexOf('weapon') >= 0) {
+                    Logger_1.Logger.trace("[RotationUnwrap] Bone: ".concat(bone.name, " | Time: ").concat(time.toFixed(3), " | Prev: ").concat(prevAngle.toFixed(1), " | Raw: ").concat(originalAngle.toFixed(1), " -> Unwrapped: ").concat(angle.toFixed(1)));
+                }
+            }
+        }
+        else {
+            // Initial frame check (if it's not 0)
+            if (Math.abs(angle) > 180 && bone.name.indexOf('weapon') >= 0) {
+                Logger_1.Logger.trace("[RotationStart] Bone: ".concat(bone.name, " | Time: ").concat(time.toFixed(3), " | Initial Angle Large: ").concat(angle.toFixed(1)));
+            }
+        }
         var rotateFrame = rotateTimeline.createFrame(time, curve);
-        rotateFrame.angle = transform.rotation - bone.rotation;
+        rotateFrame.angle = angle;
         var translateTimeline = timeline.createTimeline("translate" /* SpineTimelineType.TRANSLATE */);
         var translateFrame = translateTimeline.createFrame(time, curve);
         translateFrame.x = transform.x - bone.x;
@@ -1008,19 +1053,26 @@ var SpineAnimationHelper = /** @class */ (function () {
         }
         //-----------------------------------
         if (frame != null) {
-            var points = frame.getCustomEase();
+            // const points = frame.getCustomEase();
             if (frame.tweenType === 'none') {
                 return 'stepped';
             }
+            // Force Linear for baked animations (frame-by-frame export)
+            // We are sampling the matrix at every frame, so the interpolation is already "baked" into the keyframe values.
+            // Applying a Bezier curve to a 1-frame interval causes stuttering (scalloped motion).
+            return null;
+            /*
             if (frame.tweenEasing === 0 || points == null || points.length !== 4) {
                 return null;
             }
+
             return {
                 cx1: points[1].x,
                 cy1: points[1].y,
                 cx2: points[2].x,
                 cy2: points[2].y
             };
+            */
         }
         //-----------------------------------
         return null;
@@ -2184,12 +2236,11 @@ exports.SpineTimelineGroupSlot = SpineTimelineGroupSlot;
 /*!********************************************************!*\
   !*** ./source/spine/transform/SpineTransformMatrix.ts ***!
   \********************************************************/
-/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+/***/ (function(__unused_webpack_module, exports) {
 
 
 
 exports.SpineTransformMatrix = void 0;
-var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/Logger.ts");
 var SpineTransformMatrix = /** @class */ (function () {
     function SpineTransformMatrix(element, reference) {
         if (reference === void 0) { reference = null; }
@@ -2294,13 +2345,14 @@ var SpineTransformMatrix = /** @class */ (function () {
         while (shearY > 180)
             shearY -= 360;
         // Debug logging for specific items
+        /*
         if (debugName.indexOf('skin_1') >= 0 && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('dash') >= 0)) {
-            Logger_1.Logger.trace("[Decompose-V2] ".concat(debugName, ": Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
+             Logger.trace(`[Decompose-V2] ${debugName}: Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
+        } else if (debugName.indexOf('dash') >= 0 && Math.abs(scaleX) > 1.5) {
+             // Log abnormally large dash scales
+             Logger.trace(`[Decompose-V2] LARGE DASH: ${debugName}: Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
         }
-        else if (debugName.indexOf('dash') >= 0 && Math.abs(scaleX) > 1.5) {
-            // Log abnormally large dash scales
-            Logger_1.Logger.trace("[Decompose-V2] LARGE DASH: ".concat(debugName, ": Det=").concat(det.toFixed(3), " Rot=").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
-        }
+        */
         return {
             rotation: Math.round(rotation * 10000) / 10000,
             scaleX: Math.round(scaleX * 10000) / 10000,
@@ -2516,7 +2568,7 @@ var ImageUtil = /** @class */ (function () {
         var localCenterX = w / 2;
         var localCenterY = h / 2;
         var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name));
-        return new SpineImage_1.SpineImage(imagePath, w, h, 1, offset.x, -offset.y, localCenterX, localCenterY);
+        return new SpineImage_1.SpineImage(imagePath, w, h, 1, offset.x, offset.y, localCenterX, localCenterY);
     };
     ImageUtil.exportLibraryItem = function (imagePath, element, scale, exportImages) {
         Logger_1.Logger.assert(element.libraryItem != null, "exportLibraryItem: element has no libraryItem");
@@ -2778,7 +2830,7 @@ var ImageUtil = /** @class */ (function () {
                     }
                 }
                 var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name));
-                return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
+                return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
             }
             finally {
                 try {
@@ -2926,7 +2978,7 @@ var ImageUtil = /** @class */ (function () {
                 }
             }
             var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
-            return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
+            return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
         }
         finally {
             try {
@@ -3040,7 +3092,7 @@ var ImageUtil = /** @class */ (function () {
         // 5. Cleanup
         dom.exitEditMode();
         lib.deleteItem(tempSymbolName);
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
     };
     /**
      * Calculates the Attachment Offset using the "Smart Pivot" algorithm.
@@ -3110,7 +3162,7 @@ var ImageUtil = /** @class */ (function () {
             tempDoc.exportPNG(imagePath, true, true);
             tempDoc.close(false);
         }
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY, localCenterX, localCenterY);
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, offsetY, localCenterX, localCenterY);
     };
     ImageUtil.exportInstanceContents = function (imagePath, dom, scale, exportImages, anchorX, anchorY) {
         var rect = dom.getSelectionRect();
@@ -3122,7 +3174,7 @@ var ImageUtil = /** @class */ (function () {
         var centerY = rect.top + height / 2;
         var offsetX = centerX - (anchorX + rect.left);
         var offsetY = centerY - (anchorY + rect.top);
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, -offsetY, centerX, centerY);
+        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offsetX, offsetY, centerX, centerY);
     };
     return ImageUtil;
 }());

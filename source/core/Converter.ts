@@ -94,6 +94,7 @@ export class Converter {
         
         let found = false;
         let closestDelta = { dx: 0, dy: 0, dist: 99999 };
+        let matchedVariant = null;
 
         for (const v of variants) {
             const dx = Math.abs(v.x - spineOffsetX);
@@ -106,26 +107,47 @@ export class Converter {
 
             if (dx < TOLERANCE && dy < TOLERANCE) {
                 finalAttachmentName = v.name;
+                matchedVariant = v;
                 found = true;
                 break;
             }
         }
         
+        // --- HIGH FIDELITY DEBUG LOGGING ---
+        const debugName = baseImageName.toLowerCase();
+        // Filter for the problematic items specifically
+        const isDebugTarget = (debugName.indexOf('weapon') >= 0 || debugName.indexOf('torso') >= 0 || debugName.indexOf('dash') >= 0) 
+                              && (debugName.indexOf('skin_1') >= 0 || debugName.indexOf('skin_3') >= 0);
+
+        if (isDebugTarget) {
+            const em = element.matrix;
+            const det = em.a * em.d - em.b * em.c;
+            const time = context.time.toFixed(3);
+            
+            // Log Header for this frame/element
+            Logger.trace(`[FrameCheck] T=${time} | Element: ${element.name || baseImageName}`);
+            
+            // Log Matrix & Determinant (Flip Check)
+            Logger.trace(`   > Matrix: a=${em.a.toFixed(3)} b=${em.b.toFixed(3)} c=${em.c.toFixed(3)} d=${em.d.toFixed(3)} tx=${em.tx.toFixed(1)} ty=${em.ty.toFixed(1)} | Det=${det.toFixed(3)}`);
+            
+            // Log Offset Calculation
+            Logger.trace(`   > Required Offset: x=${spineOffsetX.toFixed(2)}, y=${spineOffsetY.toFixed(2)}`);
+            
+            // Log Variant Logic
+            if (found) {
+                Logger.trace(`   > Matched Variant: '${matchedVariant.name}' (Diff: ${closestDelta.dist.toFixed(3)})`);
+            } else {
+                Logger.warning(`   >>> NEW VARIANT TRIGGERED <<<`);
+                Logger.warning(`   > Closest was: ${closestDelta.dist.toFixed(3)} (Limit: ${TOLERANCE})`);
+                Logger.warning(`   > Creating: ${baseImageName + '_' + (variants.length + 1)}`);
+            }
+        }
+        // -----------------------------------
+
         if (!found) {
             // Create new variant
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
-            
-            // Detailed Logging for Debugging
-            const isInteresting = baseImageName.indexOf('weapon') >= 0 || baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('skin_1') >= 0;
-            if (isInteresting) {
-                Logger.warning(`[Variant] Created new attachment variant: ${finalAttachmentName}`);
-                Logger.warning(`   > Input Element: ${element.name} (Lib: ${element.libraryItem?.name})`);
-                Logger.warning(`   > Matrix: a=${element.matrix.a.toFixed(4)}, b=${element.matrix.b.toFixed(4)}, c=${element.matrix.c.toFixed(4)}, d=${element.matrix.d.toFixed(4)}, tx=${element.matrix.tx}, ty=${element.matrix.ty}`);
-                Logger.warning(`   > Calculated Offset: x=${spineOffsetX.toFixed(2)}, y=${spineOffsetY.toFixed(2)}`);
-                Logger.warning(`   > Delta from closest existing variant: dist=${closestDelta.dist.toFixed(2)} (dx=${closestDelta.dx.toFixed(2)}, dy=${closestDelta.dy.toFixed(2)})`);
-                Logger.warning(`   > Tolerance was: ${TOLERANCE}`);
-            }
         }
 
         const subcontext = context.createSlot(context.element);
@@ -154,6 +176,7 @@ export class Converter {
         attachment.y = spineOffsetY;
 
         // Debug logging for Dash scaling issues
+        /*
         if (baseImageName.indexOf('dash') >= 0) {
             Logger.trace(`[DashDebug] Exporting ${attachmentName}`);
             Logger.trace(`   > SpineImage Scale: ${spineImage.scale}`);
@@ -164,6 +187,7 @@ export class Converter {
             const elemScaleY = Math.sqrt(em.c*em.c + em.d*em.d);
             Logger.trace(`   > Element Matrix Scale: Sx=${elemScaleX.toFixed(3)}, Sy=${elemScaleY.toFixed(3)}`);
         }
+        */
 
         SpineAnimationHelper.applySlotAttachment(
             context.global.animation,

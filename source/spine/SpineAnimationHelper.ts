@@ -14,8 +14,34 @@ export class SpineAnimationHelper {
         const curve = SpineAnimationHelper.obtainFrameCurve(context);
 
         const rotateTimeline = timeline.createTimeline(SpineTimelineType.ROTATE);
+        
+        // Rotation Unwrapping (Shortest Path)
+        // Ensure that the new angle is continuous relative to the previous keyframe
+        let angle = transform.rotation - bone.rotation;
+        if (rotateTimeline.frames.length > 0) {
+            const prevFrame = rotateTimeline.frames[rotateTimeline.frames.length - 1];
+            // Only apply unwrapping if we are moving forward in time (sequential export)
+            if (time > prevFrame.time) {
+                const prevAngle = prevFrame.angle;
+                const originalAngle = angle;
+                
+                while (angle - prevAngle > 180) angle -= 360;
+                while (angle - prevAngle < -180) angle += 360;
+
+                // Debug Logging for "Jump" detection
+                if (Math.abs(angle - originalAngle) > 0.01 && bone.name.indexOf('weapon') >= 0) {
+                    Logger.trace(`[RotationUnwrap] Bone: ${bone.name} | Time: ${time.toFixed(3)} | Prev: ${prevAngle.toFixed(1)} | Raw: ${originalAngle.toFixed(1)} -> Unwrapped: ${angle.toFixed(1)}`);
+                }
+            }
+        } else {
+             // Initial frame check (if it's not 0)
+             if (Math.abs(angle) > 180 && bone.name.indexOf('weapon') >= 0) {
+                  Logger.trace(`[RotationStart] Bone: ${bone.name} | Time: ${time.toFixed(3)} | Initial Angle Large: ${angle.toFixed(1)}`);
+             }
+        }
+
         const rotateFrame = rotateTimeline.createFrame(time, curve);
-        rotateFrame.angle = transform.rotation - bone.rotation;
+        rotateFrame.angle = angle;
 
         const translateTimeline = timeline.createTimeline(SpineTimelineType.TRANSLATE);
         const translateFrame = translateTimeline.createFrame(time, curve);
@@ -83,12 +109,18 @@ export class SpineAnimationHelper {
         //-----------------------------------
 
         if (frame != null) {
-            const points = frame.getCustomEase();
+            // const points = frame.getCustomEase();
 
             if (frame.tweenType === 'none') {
                 return 'stepped';
             }
 
+            // Force Linear for baked animations (frame-by-frame export)
+            // We are sampling the matrix at every frame, so the interpolation is already "baked" into the keyframe values.
+            // Applying a Bezier curve to a 1-frame interval causes stuttering (scalloped motion).
+            return null;
+
+            /*
             if (frame.tweenEasing === 0 || points == null || points.length !== 4) {
                 return null;
             }
@@ -99,6 +131,7 @@ export class SpineAnimationHelper {
                 cx2: points[2].x,
                 cy2: points[2].y
             };
+            */
         }
 
         //-----------------------------------

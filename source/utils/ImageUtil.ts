@@ -33,7 +33,7 @@ export class ImageUtil {
             element.name || element.libraryItem?.name
         );
 
-        return new SpineImage(imagePath, w, h, 1, offset.x, -offset.y, localCenterX, localCenterY);
+        return new SpineImage(imagePath, w, h, 1, offset.x, offset.y, localCenterX, localCenterY);
     }
 
     public static exportLibraryItem(imagePath:string, element:FlashElement, scale:number, exportImages:boolean):SpineImage {
@@ -314,7 +314,7 @@ export class ImageUtil {
                     element.name || element.libraryItem?.name
                 );
 
-                return new SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
+                return new SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
 
             } finally {
                 try {
@@ -479,7 +479,7 @@ export class ImageUtil {
                 localCenterX, localCenterY
             );
 
-            return new SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
+            return new SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
         } finally {
             try {
                 tempDoc.close(false);
@@ -610,7 +610,7 @@ export class ImageUtil {
         dom.exitEditMode();
         lib.deleteItem(tempSymbolName);
         
-        return new SpineImage(imagePath, w, h, scale, offset.x, -offset.y, localCenterX, localCenterY);
+        return new SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
     }
 
     /**
@@ -701,7 +701,7 @@ export class ImageUtil {
              tempDoc.close(false);
         }
         
-        return new SpineImage(imagePath, w, h, scale, offsetX, -offsetY, localCenterX, localCenterY);
+        return new SpineImage(imagePath, w, h, scale, offsetX, offsetY, localCenterX, localCenterY);
     }
     
     public static exportInstanceContents(imagePath:string, dom:FlashDocument, scale:number, exportImages:boolean, anchorX:number, anchorY:number):SpineImage {
@@ -714,6 +714,6 @@ export class ImageUtil {
          const centerY = rect.top + height / 2;
          const offsetX = centerX - (anchorX + rect.left);
          const offsetY = centerY - (anchorY + rect.top);
-         return new SpineImage(imagePath, w, h, scale, offsetX, -offsetY, centerX, centerY);
+         return new SpineImage(imagePath, w, h, scale, offsetX, offsetY, centerX, centerY);
     }
 }
