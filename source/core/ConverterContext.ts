@@ -61,7 +61,7 @@ export class ConverterContext {
         return this;
     }
 
-    public createBone(element:FlashElement, time:number):ConverterContext {
+    public createBone(element:FlashElement, time:number, isRef:boolean = true):ConverterContext {
         const boneName = ConvertUtil.createBoneName(element, this);
         const referenceTransform = this.global.assetTransforms.get(boneName);
         
@@ -69,7 +69,10 @@ export class ConverterContext {
         const transform = new SpineTransformMatrix(element, referenceTransform);
         
         // Update the cache with the current transform for the next frame
-        this.global.assetTransforms.set(boneName, transform);
+        // Only update if this is the Reference/Driver element for the frame
+        if (isRef) {
+            this.global.assetTransforms.set(boneName, transform);
+        }
 
         const context = new ConverterContext();
 
@@ -111,7 +114,7 @@ export class ConverterContext {
             y: -element.transformationPoint.y
         };
 
-        if (context.global.stageType === ConverterStageType.ANIMATION) {
+        if (context.global.stageType === ConverterStageType.ANIMATION && isRef) {
             const boneTransform = {
                 ...transform,
                 x: transform.x + this.parentOffset.x,

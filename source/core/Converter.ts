@@ -83,8 +83,8 @@ export class Converter {
         const spineOffsetY = (det < 0) ? requiredOffset.y : -requiredOffset.y;
         
         let finalAttachmentName = baseImageName;
-        // Tolerance can be lower now that sign logic is fixed
-        const TOLERANCE = 1.0; 
+        // Increased tolerance to prevent micro-jitter variants (User reported "small jumps")
+        const TOLERANCE = 3.0; 
         
         let variants = context.global.attachmentVariants.get(baseImageName);
         if (!variants) {
@@ -109,6 +109,11 @@ export class Converter {
             if (dx < TOLERANCE && dy < TOLERANCE) {
                 finalAttachmentName = v.name;
                 found = true;
+                
+                // Log "Near Miss" if it was close to the edge, to monitor if 3.0 is safe or too loose
+                if (baseImageName.indexOf('weapon') >= 0 && dist > 0.1) {
+                     Logger.trace(`[VariantMatch] Reusing '${v.name}' for '${element.name}'. Delta: ${dist.toFixed(3)} < Tol ${TOLERANCE}`);
+                }
                 break;
             }
         }
@@ -119,23 +124,17 @@ export class Converter {
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
             
             // Detailed Logging for Debugging
-            const isInteresting = baseImageName.indexOf('weapon') >= 0 || baseImageName.indexOf('dash') >= 0 || baseImageName.indexOf('torso') >= 0 || baseImageName.indexOf('skin_1') >= 0;
+            const isInteresting = baseImageName.indexOf('weapon') >= 0 || baseImageName.indexOf('dash') >= 0;
             if (isInteresting) {
                 Logger.warning(`[Variant] Created new attachment variant: ${finalAttachmentName} (Frame ${context.absoluteFrameIndex})`);
                 Logger.warning(`   > Input Element: ${element.name} (Lib: ${element.libraryItem?.name})`);
                 Logger.warning(`   > Matrix: a=${element.matrix.a.toFixed(4)}, b=${element.matrix.b.toFixed(4)}, c=${element.matrix.c.toFixed(4)}, d=${element.matrix.d.toFixed(4)} (Det: ${det.toFixed(4)})`);
                 Logger.warning(`   > Calculated Offset: x=${spineOffsetX.toFixed(3)}, y=${spineOffsetY.toFixed(3)}`);
-                if (variants.length > 0) {
+                if (variants.length > 1) { // >1 because we just pushed the new one
                      // Log the one we *almost* matched to see why it failed
-                    const closest = variants.reduce((prev, curr) => {
-                        const dPrev = Math.sqrt(Math.pow(prev.x - spineOffsetX, 2) + Math.pow(prev.y - spineOffsetY, 2));
-                        const dCurr = Math.sqrt(Math.pow(curr.x - spineOffsetX, 2) + Math.pow(curr.y - spineOffsetY, 2));
-                        return (dPrev < dCurr) ? prev : curr;
-                    });
+                    const closest = variants[variants.length - 2]; // The one before the push, roughly
                     Logger.warning(`   > Closest Existing: ${closest.name} at (${closest.x.toFixed(3)}, ${closest.y.toFixed(3)})`);
                     Logger.warning(`   > Delta: dist=${closestDelta.dist.toFixed(4)} (dx=${closestDelta.dx.toFixed(4)}, dy=${closestDelta.dy.toFixed(4)}) > Tolerance ${TOLERANCE}`);
-                } else {
-                    Logger.warning(`   > No existing variants (First occurrence).`);
                 }
             }
         } else {
@@ -408,9 +407,33 @@ export class Converter {
                 continue;
             }
 
-            // WARN: Multiple elements on the same frame = likely invisible assets in Spine
+            // Detect Driver Element for Packed Layers (Multiple elements on one frame)
+            let driverIdx = frame.elements.length - 1; // Default to last (legacy behavior)
+            
             if (frame.elements.length > 1) {
-                Logger.warning(`[LayerIssue] Layer '${layer.name}' Frame ${i} has ${frame.elements.length} elements. Spine Slots support only 1 active attachment. Likely only the last element will be visible.`);
+                // Detailed Conflict Logging
+                Logger.warning(`[LayerConflict] Layer '${layer.name}' Frame ${i} has ${frame.elements.length} elements. Analyzing potential drivers:`);
+                
+                // Heuristic: Pick the element with the largest area (width * height)
+                let maxArea = -1;
+                for (let k = 0; k < frame.elements.length; k++) {
+                    const el = frame.elements[k];
+                    const area = (el.width || 0) * (el.height || 0);
+                    const elName = el.name || el.libraryItem?.name || 'Unknown';
+                    
+                    // Log candidate
+                    Logger.warning(`   - Candidate [${k}]: '${elName}' (Area: ${area.toFixed(0)})`);
+
+                    // Use >= to prefer later elements if areas are equal (z-order)
+                    if (area >= maxArea) {
+                        maxArea = area;
+                        driverIdx = k;
+                    }
+                }
+                
+                const driverEl = frame.elements[driverIdx];
+                const driverName = driverEl.name || driverEl.libraryItem?.name || 'Unknown';
+                Logger.warning(`   => SELECTED DRIVER: [${driverIdx}] '${driverName}' (Area: ${maxArea.toFixed(0)})`);
             }
             
             // Iterate elements on the frame
@@ -469,7 +492,10 @@ export class Converter {
                     this._document.getTimeline().currentFrame = i;
                 }
 
-                const sub = context.switchContextFrame(frame).createBone(el, time);
+                // Only the Driver Element gets to update the Bone Transform on the Timeline
+                // This ensures the Bone isn't overwritten by "garbage" elements on the same frame.
+                const isDriver = (eIdx === driverIdx);
+                const sub = context.switchContextFrame(frame).createBone(el, time, isDriver);
                 
                 // Recurse into symbol if needed
                 // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
