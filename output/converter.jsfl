@@ -54,7 +54,19 @@ var Converter = /** @class */ (function () {
         // 3. Calculate Required Offset for THIS instance (Variant Check)
         var element = context.element;
         // Re-calculate using current matrix and the cached image's local center
-        var requiredOffset = ImageUtil_1.ImageUtil.calculateAttachmentOffset(element.matrix, element.x, element.y, element.transformX, element.transformY, spineImage.imageCenterOffsetX, spineImage.imageCenterOffsetY, element.name);
+        // If Layer Parenting is active (matrixOverride present), use it to calculate offset relative to Global Registration Point
+        var calcMatrix = context.matrixOverride || element.matrix;
+        var regX = element.x;
+        var regY = element.y;
+        var transX = element.transformX;
+        var transY = element.transformY;
+        if (context.matrixOverride && context.positionOverride) {
+            regX = calcMatrix.tx;
+            regY = calcMatrix.ty;
+            transX = context.positionOverride.x;
+            transY = context.positionOverride.y;
+        }
+        var requiredOffset = ImageUtil_1.ImageUtil.calculateAttachmentOffset(calcMatrix, regX, regY, transX, transY, spineImage.imageCenterOffsetX, spineImage.imageCenterOffsetY, baseImageName);
         // Consistent Inversion for Spine Y-Up
         // Derivation: 
         // 1. requiredOffset.y is in Animate Y-Down space (positive = visually Down).
@@ -103,15 +115,19 @@ var Converter = /** @class */ (function () {
         var isDebugTarget = (debugName.indexOf('weapon') >= 0 || debugName.indexOf('torso') >= 0 || debugName.indexOf('dash') >= 0)
             && (debugName.indexOf('skin_1') >= 0 || debugName.indexOf('skin_3') >= 0);
         if (isDebugTarget) {
-            var em = element.matrix;
+            var em = calcMatrix; // Use the calculated matrix being used for logic
             var det = em.a * em.d - em.b * em.c;
             var time = context.time.toFixed(3);
             // Log Header for this frame/element
             Logger_1.Logger.trace("[FrameCheck] T=".concat(time, " | Element: ").concat(element.name || baseImageName));
             // Log Matrix & Determinant (Flip Check)
-            Logger_1.Logger.trace("   > Matrix: a=".concat(em.a.toFixed(3), " b=").concat(em.b.toFixed(3), " c=").concat(em.c.toFixed(3), " d=").concat(em.d.toFixed(3), " tx=").concat(em.tx.toFixed(1), " ty=").concat(em.ty.toFixed(1), " | Det=").concat(det.toFixed(3)));
+            Logger_1.Logger.trace("   > Calc Matrix: a=".concat(em.a.toFixed(3), " b=").concat(em.b.toFixed(3), " c=").concat(em.c.toFixed(3), " d=").concat(em.d.toFixed(3), " tx=").concat(em.tx.toFixed(1), " ty=").concat(em.ty.toFixed(1), " | Det=").concat(det.toFixed(3)));
+            // Log Pivot Info
+            if (context.positionOverride) {
+                Logger_1.Logger.trace("   > Global Pivot Override: (".concat(transX.toFixed(2), ", ").concat(transY.toFixed(2), ") [vs Local: (").concat(element.transformX.toFixed(2), ", ").concat(element.transformY.toFixed(2), ")]"));
+            }
             // Log Offset Calculation
-            Logger_1.Logger.trace("   > Required Offset: x=".concat(spineOffsetX.toFixed(2), ", y=").concat(spineOffsetY.toFixed(2)));
+            Logger_1.Logger.trace("   > Attachment Offset: x=".concat(spineOffsetX.toFixed(2), ", y=").concat(spineOffsetY.toFixed(2)));
             // Log Variant Logic
             if (found) {
                 Logger_1.Logger.trace("   > Matched Variant: '".concat(matchedVariant.name, "' (Diff: ").concat(closestDelta.dist.toFixed(3), ")"));
@@ -419,27 +435,44 @@ var Converter = /** @class */ (function () {
                 }
                 // Combine Parent Matrix with Child Matrix (which may have been updated to interpolated proxy)
                 var finalMatrixOverride = null;
+                var finalPositionOverride = null;
                 if (parentMat) {
                     finalMatrixOverride = this.concatMatrix(el.matrix, parentMat);
+                    // Transformation Point (Pivot) is in Parent Space (relative to Parent's Origin).
+                    // We must transform it to Global Space (relative to Stage Origin) to position the Bone correctly.
+                    // P_global = P_local * ParentMatrix
+                    finalPositionOverride = {
+                        x: el.transformX * parentMat.a + el.transformY * parentMat.c + parentMat.tx,
+                        y: el.transformX * parentMat.b + el.transformY * parentMat.d + parentMat.ty
+                    };
                 }
                 // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
                 var debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
-                if ((debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0) && layer.name.toLowerCase().indexOf('weapon') >= 0) {
-                    var local = el.matrix;
-                    var logPrefix = "[ParentFix] F=".concat(i, " | ").concat(layer.name);
-                    if (parentMat && finalMatrixOverride) {
-                        Logger_1.Logger.trace("".concat(logPrefix, " | COMBINED"));
-                        Logger_1.Logger.trace("   > Local:  tx=".concat(local.tx.toFixed(2), " ty=").concat(local.ty.toFixed(2), " a=").concat(local.a.toFixed(3), " d=").concat(local.d.toFixed(3)));
-                        Logger_1.Logger.trace("   > Parent: tx=".concat(parentMat.tx.toFixed(2), " ty=").concat(parentMat.ty.toFixed(2), " a=").concat(parentMat.a.toFixed(3), " d=").concat(parentMat.d.toFixed(3)));
-                        Logger_1.Logger.trace("   > Final:  tx=".concat(finalMatrixOverride.tx.toFixed(2), " ty=").concat(finalMatrixOverride.ty.toFixed(2), " a=").concat(finalMatrixOverride.a.toFixed(3), " d=").concat(finalMatrixOverride.d.toFixed(3)));
+                // Broaden filter for debugging any potential issues, can restrict later
+                var isDebugTarget = (debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0) && layer.name.toLowerCase().indexOf('weapon') >= 0;
+                if (isDebugTarget) {
+                    var logPrefix = "[ParentFix] F=".concat(i, " | Layer: ").concat(layer.name, " | Item: ").concat(debugItem);
+                    if (parentMat) {
+                        var local = el.matrix;
+                        var parentName = layer.parentLayer ? layer.parentLayer.name : 'Unknown';
+                        Logger_1.Logger.trace("".concat(logPrefix, " | PARENTING ACTIVE (Parent: ").concat(parentName, ")"));
+                        Logger_1.Logger.trace("   > Local Matrix:  tx=".concat(local.tx.toFixed(2), " ty=").concat(local.ty.toFixed(2), " a=").concat(local.a.toFixed(3), " b=").concat(local.b.toFixed(3), " c=").concat(local.c.toFixed(3), " d=").concat(local.d.toFixed(3)));
+                        Logger_1.Logger.trace("   > Parent Matrix: tx=".concat(parentMat.tx.toFixed(2), " ty=").concat(parentMat.ty.toFixed(2), " a=").concat(parentMat.a.toFixed(3), " b=").concat(parentMat.b.toFixed(3), " c=").concat(parentMat.c.toFixed(3), " d=").concat(parentMat.d.toFixed(3)));
+                        if (finalMatrixOverride) {
+                            Logger_1.Logger.trace("   > Global Matrix: tx=".concat(finalMatrixOverride.tx.toFixed(2), " ty=").concat(finalMatrixOverride.ty.toFixed(2), " a=").concat(finalMatrixOverride.a.toFixed(3), " b=").concat(finalMatrixOverride.b.toFixed(3), " c=").concat(finalMatrixOverride.c.toFixed(3), " d=").concat(finalMatrixOverride.d.toFixed(3)));
+                        }
+                        if (finalPositionOverride) {
+                            Logger_1.Logger.trace("   > Pivot Transform:");
+                            Logger_1.Logger.trace("     Local:  (".concat(el.transformX.toFixed(2), ", ").concat(el.transformY.toFixed(2), ")"));
+                            Logger_1.Logger.trace("     Global: (".concat(finalPositionOverride.x.toFixed(2), ", ").concat(finalPositionOverride.y.toFixed(2), ")"));
+                        }
                     }
                     else {
-                        Logger_1.Logger.trace("".concat(logPrefix, " | LOCAL ONLY (ParentMat=").concat(parentMat ? 'Yes' : 'No', ")"));
-                        Logger_1.Logger.trace("   > Local:  tx=".concat(local.tx.toFixed(2), " ty=").concat(local.ty.toFixed(2)));
+                        Logger_1.Logger.trace("".concat(logPrefix, " | NO PARENT"));
                     }
                 }
                 // ---------------------------------------------
-                var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride);
+                var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
                 // Recurse into symbol if needed
                 // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
                 // However, we must ensure we don't lose our place in the current timeline loop.
@@ -665,6 +698,8 @@ var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTra
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
 var ConverterContext = /** @class */ (function () {
     function ConverterContext() {
+        this.matrixOverride = null;
+        this.positionOverride = null;
         /**
          * Offset to shift children from Parent Registration Point to Parent Anchor Point.
          * Calculated as: -Parent.transformationPoint
@@ -691,15 +726,19 @@ var ConverterContext = /** @class */ (function () {
         }
         return this;
     };
-    ConverterContext.prototype.createBone = function (element, time, matrixOverride) {
+    ConverterContext.prototype.createBone = function (element, time, matrixOverride, positionOverride) {
         if (matrixOverride === void 0) { matrixOverride = null; }
+        if (positionOverride === void 0) { positionOverride = null; }
         var boneName = ConvertUtil_1.ConvertUtil.createBoneName(element, this);
         var referenceTransform = this.global.assetTransforms.get(boneName);
         // Pass reference transform to constructor to handle flipping continuity
-        var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element, referenceTransform, matrixOverride);
+        var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element, referenceTransform, matrixOverride, positionOverride);
         // Update the cache with the current transform for the next frame
         this.global.assetTransforms.set(boneName, transform);
         var context = new ConverterContext();
+        // Propagate overrides to children context if needed, or store for Slot creation
+        context.matrixOverride = matrixOverride;
+        context.positionOverride = positionOverride;
         context.bone = this.global.skeleton.createBone(boneName, this.bone);
         context.clipping = this.clipping;
         context.slot = null;
@@ -2327,13 +2366,20 @@ exports.SpineTimelineGroupSlot = SpineTimelineGroupSlot;
 
 exports.SpineTransformMatrix = void 0;
 var SpineTransformMatrix = /** @class */ (function () {
-    function SpineTransformMatrix(element, reference, matrixOverride) {
+    function SpineTransformMatrix(element, reference, matrixOverride, positionOverride) {
         if (reference === void 0) { reference = null; }
         if (matrixOverride === void 0) { matrixOverride = null; }
+        if (positionOverride === void 0) { positionOverride = null; }
         var _a;
         // Position: The Spine bone must be positioned at the Transformation Point.
-        this.x = element.transformX;
-        this.y = element.transformY;
+        if (positionOverride) {
+            this.x = positionOverride.x;
+            this.y = positionOverride.y;
+        }
+        else {
+            this.x = element.transformX;
+            this.y = element.transformY;
+        }
         var name = element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
         // Decompose the matrix
         // Use override if provided (e.g. for Layer Parenting resolution)

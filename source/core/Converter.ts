@@ -57,13 +57,29 @@ export class Converter {
         // 3. Calculate Required Offset for THIS instance (Variant Check)
         const element = context.element;
         // Re-calculate using current matrix and the cached image's local center
+        // If Layer Parenting is active (matrixOverride present), use it to calculate offset relative to Global Registration Point
+        const calcMatrix = context.matrixOverride || element.matrix;
+        
+        let regX = element.x;
+        let regY = element.y;
+        let transX = element.transformX;
+        let transY = element.transformY;
+
+        if (context.matrixOverride && context.positionOverride) {
+            regX = calcMatrix.tx;
+            regY = calcMatrix.ty;
+            transX = context.positionOverride.x;
+            transY = context.positionOverride.y;
+        }
+
         const requiredOffset = ImageUtil.calculateAttachmentOffset(
-            element.matrix,
-            element.x, element.y,
-            element.transformX, element.transformY,
+            calcMatrix,
+            regX, regY,
+            transX, transY,
             spineImage.imageCenterOffsetX, spineImage.imageCenterOffsetY,
-            element.name 
+            baseImageName
         );
+
         
         // Consistent Inversion for Spine Y-Up
         // Derivation: 
@@ -120,7 +136,7 @@ export class Converter {
                               && (debugName.indexOf('skin_1') >= 0 || debugName.indexOf('skin_3') >= 0);
 
         if (isDebugTarget) {
-            const em = element.matrix;
+            const em = calcMatrix; // Use the calculated matrix being used for logic
             const det = em.a * em.d - em.b * em.c;
             const time = context.time.toFixed(3);
             
@@ -128,10 +144,15 @@ export class Converter {
             Logger.trace(`[FrameCheck] T=${time} | Element: ${element.name || baseImageName}`);
             
             // Log Matrix & Determinant (Flip Check)
-            Logger.trace(`   > Matrix: a=${em.a.toFixed(3)} b=${em.b.toFixed(3)} c=${em.c.toFixed(3)} d=${em.d.toFixed(3)} tx=${em.tx.toFixed(1)} ty=${em.ty.toFixed(1)} | Det=${det.toFixed(3)}`);
+            Logger.trace(`   > Calc Matrix: a=${em.a.toFixed(3)} b=${em.b.toFixed(3)} c=${em.c.toFixed(3)} d=${em.d.toFixed(3)} tx=${em.tx.toFixed(1)} ty=${em.ty.toFixed(1)} | Det=${det.toFixed(3)}`);
             
+            // Log Pivot Info
+            if (context.positionOverride) {
+                Logger.trace(`   > Global Pivot Override: (${transX.toFixed(2)}, ${transY.toFixed(2)}) [vs Local: (${element.transformX.toFixed(2)}, ${element.transformY.toFixed(2)})]`);
+            }
+
             // Log Offset Calculation
-            Logger.trace(`   > Required Offset: x=${spineOffsetX.toFixed(2)}, y=${spineOffsetY.toFixed(2)}`);
+            Logger.trace(`   > Attachment Offset: x=${spineOffsetX.toFixed(2)}, y=${spineOffsetY.toFixed(2)}`);
             
             // Log Variant Logic
             if (found) {
@@ -479,28 +500,52 @@ export class Converter {
 
                 // Combine Parent Matrix with Child Matrix (which may have been updated to interpolated proxy)
                 let finalMatrixOverride: FlashMatrix = null;
+                let finalPositionOverride: {x:number, y:number} = null;
+
                 if (parentMat) {
                     finalMatrixOverride = this.concatMatrix(el.matrix, parentMat);
+                    
+                    // Transformation Point (Pivot) is in Parent Space (relative to Parent's Origin).
+                    // We must transform it to Global Space (relative to Stage Origin) to position the Bone correctly.
+                    // P_global = P_local * ParentMatrix
+                    finalPositionOverride = {
+                        x: el.transformX * parentMat.a + el.transformY * parentMat.c + parentMat.tx,
+                        y: el.transformX * parentMat.b + el.transformY * parentMat.d + parentMat.ty
+                    };
                 }
 
                 // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
                 const debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
-                if ((debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0) && layer.name.toLowerCase().indexOf('weapon') >= 0) {
-                    const local = el.matrix;
-                    const logPrefix = `[ParentFix] F=${i} | ${layer.name}`;
-                    if (parentMat && finalMatrixOverride) {
-                        Logger.trace(`${logPrefix} | COMBINED`);
-                        Logger.trace(`   > Local:  tx=${local.tx.toFixed(2)} ty=${local.ty.toFixed(2)} a=${local.a.toFixed(3)} d=${local.d.toFixed(3)}`);
-                        Logger.trace(`   > Parent: tx=${parentMat.tx.toFixed(2)} ty=${parentMat.ty.toFixed(2)} a=${parentMat.a.toFixed(3)} d=${parentMat.d.toFixed(3)}`);
-                        Logger.trace(`   > Final:  tx=${finalMatrixOverride.tx.toFixed(2)} ty=${finalMatrixOverride.ty.toFixed(2)} a=${finalMatrixOverride.a.toFixed(3)} d=${finalMatrixOverride.d.toFixed(3)}`);
+                // Broaden filter for debugging any potential issues, can restrict later
+                const isDebugTarget = (debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0) && layer.name.toLowerCase().indexOf('weapon') >= 0;
+                
+                if (isDebugTarget) {
+                    const logPrefix = `[ParentFix] F=${i} | Layer: ${layer.name} | Item: ${debugItem}`;
+                    
+                    if (parentMat) {
+                        const local = el.matrix;
+                        const parentName = layer.parentLayer ? layer.parentLayer.name : 'Unknown';
+                        
+                        Logger.trace(`${logPrefix} | PARENTING ACTIVE (Parent: ${parentName})`);
+                        Logger.trace(`   > Local Matrix:  tx=${local.tx.toFixed(2)} ty=${local.ty.toFixed(2)} a=${local.a.toFixed(3)} b=${local.b.toFixed(3)} c=${local.c.toFixed(3)} d=${local.d.toFixed(3)}`);
+                        Logger.trace(`   > Parent Matrix: tx=${parentMat.tx.toFixed(2)} ty=${parentMat.ty.toFixed(2)} a=${parentMat.a.toFixed(3)} b=${parentMat.b.toFixed(3)} c=${parentMat.c.toFixed(3)} d=${parentMat.d.toFixed(3)}`);
+                        
+                        if (finalMatrixOverride) {
+                            Logger.trace(`   > Global Matrix: tx=${finalMatrixOverride.tx.toFixed(2)} ty=${finalMatrixOverride.ty.toFixed(2)} a=${finalMatrixOverride.a.toFixed(3)} b=${finalMatrixOverride.b.toFixed(3)} c=${finalMatrixOverride.c.toFixed(3)} d=${finalMatrixOverride.d.toFixed(3)}`);
+                        }
+                        
+                        if (finalPositionOverride) {
+                            Logger.trace(`   > Pivot Transform:`);
+                            Logger.trace(`     Local:  (${el.transformX.toFixed(2)}, ${el.transformY.toFixed(2)})`);
+                            Logger.trace(`     Global: (${finalPositionOverride.x.toFixed(2)}, ${finalPositionOverride.y.toFixed(2)})`);
+                        }
                     } else {
-                        Logger.trace(`${logPrefix} | LOCAL ONLY (ParentMat=${parentMat ? 'Yes' : 'No'})`);
-                        Logger.trace(`   > Local:  tx=${local.tx.toFixed(2)} ty=${local.ty.toFixed(2)}`);
+                        Logger.trace(`${logPrefix} | NO PARENT`);
                     }
                 }
                 // ---------------------------------------------
 
-                const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride);
+                const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
                 
                 // Recurse into symbol if needed
                 // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.

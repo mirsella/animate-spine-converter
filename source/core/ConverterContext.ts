@@ -25,6 +25,8 @@ export class ConverterContext {
     public clipping:SpineClippingAttachment;
     public slot:SpineSlot;
     public time:number;
+    public matrixOverride:FlashMatrix = null;
+    public positionOverride:{x:number, y:number} = null;
 
     /**
      * Offset to shift children from Parent Registration Point to Parent Anchor Point.
@@ -58,17 +60,21 @@ export class ConverterContext {
         return this;
     }
 
-    public createBone(element:FlashElement, time:number, matrixOverride:FlashMatrix = null):ConverterContext {
+    public createBone(element:FlashElement, time:number, matrixOverride:FlashMatrix = null, positionOverride:{x:number, y:number} = null):ConverterContext {
         const boneName = ConvertUtil.createBoneName(element, this);
         const referenceTransform = this.global.assetTransforms.get(boneName);
         
         // Pass reference transform to constructor to handle flipping continuity
-        const transform = new SpineTransformMatrix(element, referenceTransform, matrixOverride);
+        const transform = new SpineTransformMatrix(element, referenceTransform, matrixOverride, positionOverride);
         
         // Update the cache with the current transform for the next frame
         this.global.assetTransforms.set(boneName, transform);
 
         const context = new ConverterContext();
+        
+        // Propagate overrides to children context if needed, or store for Slot creation
+        context.matrixOverride = matrixOverride;
+        context.positionOverride = positionOverride;
 
         context.bone = this.global.skeleton.createBone(boneName, this.bone);
         context.clipping = this.clipping;

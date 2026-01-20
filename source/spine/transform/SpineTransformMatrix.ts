@@ -13,10 +13,15 @@ export class SpineTransformMatrix implements SpineTransform {
     public shearX:number;
     public shearY:number;
 
-    public constructor(element:FlashElement, reference: { rotation: number, scaleX: number, scaleY: number } = null, matrixOverride: FlashMatrix = null) {
+    public constructor(element:FlashElement, reference: { rotation: number, scaleX: number, scaleY: number } = null, matrixOverride: FlashMatrix = null, positionOverride: {x:number, y:number} = null) {
         // Position: The Spine bone must be positioned at the Transformation Point.
-        this.x = element.transformX;
-        this.y = element.transformY;
+        if (positionOverride) {
+            this.x = positionOverride.x;
+            this.y = positionOverride.y;
+        } else {
+            this.x = element.transformX;
+            this.y = element.transformY;
+        }
 
         const name = element.name || element.libraryItem?.name || '<anon>';
 
