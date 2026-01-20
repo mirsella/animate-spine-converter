@@ -362,7 +362,22 @@ export class Converter {
         }
 
         try {
-            const layers = item.timeline.layers;
+            // Use the ACTIVE timeline to ensure layer references are fresh and valid
+            // Accessing item.timeline directly can sometimes yield stale Layer references without parentLayer populated
+            const timeline = this._document.getTimeline(); 
+            const layers = timeline.layers;
+
+            // Debug Hierarchy
+            const isDebugTarget = (item.name.indexOf('skin_1') >= 0 || item.name.indexOf('skin_3') >= 0);
+            if (isDebugTarget) {
+                 Logger.trace(`[Hierarchy] Dumping layers for ${item.name}:`);
+                 for (let k = 0; k < layers.length; k++) {
+                     const l = layers[k];
+                     const pName = l.parentLayer ? l.parentLayer.name : "NULL";
+                     Logger.trace(`   - Layer ${k}: '${l.name}' -> Parent: '${pName}'`);
+                 }
+            }
+
             for (let i = layers.length - 1; i >= 0; i--) {
                 const layer = layers[i];
                 

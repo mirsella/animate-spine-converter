@@ -307,7 +307,20 @@ var Converter = /** @class */ (function () {
             this._document.library.editItem(item.name);
         }
         try {
-            var layers = item.timeline.layers;
+            // Use the ACTIVE timeline to ensure layer references are fresh and valid
+            // Accessing item.timeline directly can sometimes yield stale Layer references without parentLayer populated
+            var timeline = this._document.getTimeline();
+            var layers = timeline.layers;
+            // Debug Hierarchy
+            var isDebugTarget = (item.name.indexOf('skin_1') >= 0 || item.name.indexOf('skin_3') >= 0);
+            if (isDebugTarget) {
+                Logger_1.Logger.trace("[Hierarchy] Dumping layers for ".concat(item.name, ":"));
+                for (var k = 0; k < layers.length; k++) {
+                    var l = layers[k];
+                    var pName = l.parentLayer ? l.parentLayer.name : "NULL";
+                    Logger_1.Logger.trace("   - Layer ".concat(k, ": '").concat(l.name, "' -> Parent: '").concat(pName, "'"));
+                }
+            }
             for (var i = layers.length - 1; i >= 0; i--) {
                 var layer = layers[i];
                 // Detailed debug for missing skin_1 weapon
