@@ -366,6 +366,13 @@ var Converter = /** @class */ (function () {
             // Iterate elements on the frame
             for (var eIdx = 0; eIdx < frame.elements.length; eIdx++) {
                 var el = frame.elements[eIdx];
+                // Calculate Parent Matrix if Layer Parenting is active
+                // This must be done before selecting the child element because it changes selection
+                var parentMat = null;
+                if (layer.parentLayer) {
+                    this._document.getTimeline().currentFrame = i;
+                    parentMat = this.getLayerParentMatrix(layer, i);
+                }
                 // INTERPOLATION HANDLING
                 if (i !== frame.startFrame) {
                     this._document.getTimeline().currentFrame = i;
@@ -410,7 +417,29 @@ var Converter = /** @class */ (function () {
                 else {
                     this._document.getTimeline().currentFrame = i;
                 }
-                var sub = context.switchContextFrame(frame).createBone(el, time);
+                // Combine Parent Matrix with Child Matrix (which may have been updated to interpolated proxy)
+                var finalMatrixOverride = null;
+                if (parentMat) {
+                    finalMatrixOverride = this.concatMatrix(el.matrix, parentMat);
+                }
+                // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
+                var debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
+                if ((debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0) && layer.name.toLowerCase().indexOf('weapon') >= 0) {
+                    var local = el.matrix;
+                    var logPrefix = "[ParentFix] F=".concat(i, " | ").concat(layer.name);
+                    if (parentMat && finalMatrixOverride) {
+                        Logger_1.Logger.trace("".concat(logPrefix, " | COMBINED"));
+                        Logger_1.Logger.trace("   > Local:  tx=".concat(local.tx.toFixed(2), " ty=").concat(local.ty.toFixed(2), " a=").concat(local.a.toFixed(3), " d=").concat(local.d.toFixed(3)));
+                        Logger_1.Logger.trace("   > Parent: tx=".concat(parentMat.tx.toFixed(2), " ty=").concat(parentMat.ty.toFixed(2), " a=").concat(parentMat.a.toFixed(3), " d=").concat(parentMat.d.toFixed(3)));
+                        Logger_1.Logger.trace("   > Final:  tx=".concat(finalMatrixOverride.tx.toFixed(2), " ty=").concat(finalMatrixOverride.ty.toFixed(2), " a=").concat(finalMatrixOverride.a.toFixed(3), " d=").concat(finalMatrixOverride.d.toFixed(3)));
+                    }
+                    else {
+                        Logger_1.Logger.trace("".concat(logPrefix, " | LOCAL ONLY (ParentMat=").concat(parentMat ? 'Yes' : 'No', ")"));
+                        Logger_1.Logger.trace("   > Local:  tx=".concat(local.tx.toFixed(2), " ty=").concat(local.ty.toFixed(2)));
+                    }
+                }
+                // ---------------------------------------------
+                var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride);
                 // Recurse into symbol if needed
                 // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
                 // However, we must ensure we don't lose our place in the current timeline loop.
@@ -478,6 +507,61 @@ var Converter = /** @class */ (function () {
             }
         }
         return false;
+    };
+    Converter.prototype.concatMatrix = function (m1, m2) {
+        return {
+            a: m1.a * m2.a + m1.b * m2.c,
+            b: m1.a * m2.b + m1.b * m2.d,
+            c: m1.c * m2.a + m1.d * m2.c,
+            d: m1.c * m2.b + m1.d * m2.d,
+            tx: m1.tx * m2.a + m1.ty * m2.c + m2.tx,
+            ty: m1.tx * m2.b + m1.ty * m2.d + m2.ty
+        };
+    };
+    Converter.prototype.getLayerParentMatrix = function (layer, frameIndex) {
+        if (!layer.parentLayer)
+            return { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+        // Recursive call for grandparent
+        var parentGlobal = this.getLayerParentMatrix(layer.parentLayer, frameIndex);
+        // Get the parent layer's element at this frame
+        // Note: layer.frames[frameIndex] might refer to a keyframe starting earlier
+        var parentFrame = layer.parentLayer.frames[frameIndex];
+        if (!parentFrame || parentFrame.elements.length === 0) {
+            return parentGlobal; // Parent missing? Return grandparent or Identity
+        }
+        // We must SELECT the parent element to get its interpolated matrix if it is tweening
+        // This is expensive but necessary for Layer Parenting + Tweens
+        var wasLocked = layer.parentLayer.locked;
+        var wasVisible = layer.parentLayer.visible;
+        layer.parentLayer.locked = false;
+        layer.parentLayer.visible = true;
+        var el = parentFrame.elements[0];
+        // Find layer index to select it properly (JSFL quirk)
+        var layerIdx = -1;
+        var layers = this._document.getTimeline().layers;
+        for (var k = 0; k < layers.length; k++) {
+            if (layers[k] === layer.parentLayer) {
+                layerIdx = k;
+                break;
+            }
+        }
+        if (layerIdx !== -1) {
+            this._document.getTimeline().setSelectedLayers(layerIdx);
+            this._document.getTimeline().setSelectedFrames(frameIndex, frameIndex + 1);
+            // Select element to get interpolated properties
+            this._document.selectNone();
+            el.selected = true;
+            var finalMat = el.matrix;
+            if (this._document.selection.length > 0) {
+                // Use the selection proxy
+                finalMat = this._document.selection[0].matrix;
+            }
+            // Restore state
+            layer.parentLayer.locked = wasLocked;
+            layer.parentLayer.visible = wasVisible;
+            return this.concatMatrix(finalMat, parentGlobal);
+        }
+        return parentGlobal;
     };
     Converter.prototype.convertSelection = function () {
         var skeleton = (this._config.mergeSkeletons ? new SpineSkeleton_1.SpineSkeleton() : null);
@@ -607,11 +691,12 @@ var ConverterContext = /** @class */ (function () {
         }
         return this;
     };
-    ConverterContext.prototype.createBone = function (element, time) {
+    ConverterContext.prototype.createBone = function (element, time, matrixOverride) {
+        if (matrixOverride === void 0) { matrixOverride = null; }
         var boneName = ConvertUtil_1.ConvertUtil.createBoneName(element, this);
         var referenceTransform = this.global.assetTransforms.get(boneName);
         // Pass reference transform to constructor to handle flipping continuity
-        var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element, referenceTransform);
+        var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element, referenceTransform, matrixOverride);
         // Update the cache with the current transform for the next frame
         this.global.assetTransforms.set(boneName, transform);
         var context = new ConverterContext();
@@ -2242,15 +2327,18 @@ exports.SpineTimelineGroupSlot = SpineTimelineGroupSlot;
 
 exports.SpineTransformMatrix = void 0;
 var SpineTransformMatrix = /** @class */ (function () {
-    function SpineTransformMatrix(element, reference) {
+    function SpineTransformMatrix(element, reference, matrixOverride) {
         if (reference === void 0) { reference = null; }
+        if (matrixOverride === void 0) { matrixOverride = null; }
         var _a;
         // Position: The Spine bone must be positioned at the Transformation Point.
         this.x = element.transformX;
         this.y = element.transformY;
         var name = element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
         // Decompose the matrix
-        var decomposed = SpineTransformMatrix.decomposeMatrix(element.matrix, reference, name);
+        // Use override if provided (e.g. for Layer Parenting resolution)
+        var mat = matrixOverride || element.matrix;
+        var decomposed = SpineTransformMatrix.decomposeMatrix(mat, reference, name);
         this.rotation = decomposed.rotation;
         this.scaleX = decomposed.scaleX;
         this.scaleY = decomposed.scaleY;

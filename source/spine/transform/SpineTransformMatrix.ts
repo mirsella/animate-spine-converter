@@ -13,7 +13,7 @@ export class SpineTransformMatrix implements SpineTransform {
     public shearX:number;
     public shearY:number;
 
-    public constructor(element:FlashElement, reference: { rotation: number, scaleX: number, scaleY: number } = null) {
+    public constructor(element:FlashElement, reference: { rotation: number, scaleX: number, scaleY: number } = null, matrixOverride: FlashMatrix = null) {
         // Position: The Spine bone must be positioned at the Transformation Point.
         this.x = element.transformX;
         this.y = element.transformY;
@@ -21,7 +21,9 @@ export class SpineTransformMatrix implements SpineTransform {
         const name = element.name || element.libraryItem?.name || '<anon>';
 
         // Decompose the matrix
-        const decomposed = SpineTransformMatrix.decomposeMatrix(element.matrix, reference, name);
+        // Use override if provided (e.g. for Layer Parenting resolution)
+        const mat = matrixOverride || element.matrix;
+        const decomposed = SpineTransformMatrix.decomposeMatrix(mat, reference, name);
         
         this.rotation = decomposed.rotation;
         this.scaleX = decomposed.scaleX;

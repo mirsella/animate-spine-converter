@@ -58,12 +58,12 @@ export class ConverterContext {
         return this;
     }
 
-    public createBone(element:FlashElement, time:number):ConverterContext {
+    public createBone(element:FlashElement, time:number, matrixOverride:FlashMatrix = null):ConverterContext {
         const boneName = ConvertUtil.createBoneName(element, this);
         const referenceTransform = this.global.assetTransforms.get(boneName);
         
         // Pass reference transform to constructor to handle flipping continuity
-        const transform = new SpineTransformMatrix(element, referenceTransform);
+        const transform = new SpineTransformMatrix(element, referenceTransform, matrixOverride);
         
         // Update the cache with the current transform for the next frame
         this.global.assetTransforms.set(boneName, transform);

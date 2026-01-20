@@ -417,6 +417,14 @@ export class Converter {
             for (let eIdx = 0; eIdx < frame.elements.length; eIdx++) {
                 let el = frame.elements[eIdx];
                 
+                // Calculate Parent Matrix if Layer Parenting is active
+                // This must be done before selecting the child element because it changes selection
+                let parentMat: FlashMatrix = null;
+                if (layer.parentLayer) {
+                    this._document.getTimeline().currentFrame = i;
+                    parentMat = this.getLayerParentMatrix(layer, i);
+                }
+
                 // INTERPOLATION HANDLING
                 if (i !== frame.startFrame) {
                     this._document.getTimeline().currentFrame = i;
@@ -469,7 +477,30 @@ export class Converter {
                     this._document.getTimeline().currentFrame = i;
                 }
 
-                const sub = context.switchContextFrame(frame).createBone(el, time);
+                // Combine Parent Matrix with Child Matrix (which may have been updated to interpolated proxy)
+                let finalMatrixOverride: FlashMatrix = null;
+                if (parentMat) {
+                    finalMatrixOverride = this.concatMatrix(el.matrix, parentMat);
+                }
+
+                // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
+                const debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
+                if ((debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0) && layer.name.toLowerCase().indexOf('weapon') >= 0) {
+                    const local = el.matrix;
+                    const logPrefix = `[ParentFix] F=${i} | ${layer.name}`;
+                    if (parentMat && finalMatrixOverride) {
+                        Logger.trace(`${logPrefix} | COMBINED`);
+                        Logger.trace(`   > Local:  tx=${local.tx.toFixed(2)} ty=${local.ty.toFixed(2)} a=${local.a.toFixed(3)} d=${local.d.toFixed(3)}`);
+                        Logger.trace(`   > Parent: tx=${parentMat.tx.toFixed(2)} ty=${parentMat.ty.toFixed(2)} a=${parentMat.a.toFixed(3)} d=${parentMat.d.toFixed(3)}`);
+                        Logger.trace(`   > Final:  tx=${finalMatrixOverride.tx.toFixed(2)} ty=${finalMatrixOverride.ty.toFixed(2)} a=${finalMatrixOverride.a.toFixed(3)} d=${finalMatrixOverride.d.toFixed(3)}`);
+                    } else {
+                        Logger.trace(`${logPrefix} | LOCAL ONLY (ParentMat=${parentMat ? 'Yes' : 'No'})`);
+                        Logger.trace(`   > Local:  tx=${local.tx.toFixed(2)} ty=${local.ty.toFixed(2)}`);
+                    }
+                }
+                // ---------------------------------------------
+
+                const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride);
                 
                 // Recurse into symbol if needed
                 // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
@@ -539,6 +570,74 @@ export class Converter {
             } catch (e) { Logger.error(JsonEncoder.stringify(e)); }
         }
         return false;
+    }
+
+
+    private concatMatrix(m1: FlashMatrix, m2: FlashMatrix): FlashMatrix {
+        return {
+            a: m1.a * m2.a + m1.b * m2.c,
+            b: m1.a * m2.b + m1.b * m2.d,
+            c: m1.c * m2.a + m1.d * m2.c,
+            d: m1.c * m2.b + m1.d * m2.d,
+            tx: m1.tx * m2.a + m1.ty * m2.c + m2.tx,
+            ty: m1.tx * m2.b + m1.ty * m2.d + m2.ty
+        };
+    }
+
+    private getLayerParentMatrix(layer: FlashLayer, frameIndex: number): FlashMatrix {
+        if (!layer.parentLayer) return { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+
+        // Recursive call for grandparent
+        const parentGlobal = this.getLayerParentMatrix(layer.parentLayer, frameIndex);
+
+        // Get the parent layer's element at this frame
+        // Note: layer.frames[frameIndex] might refer to a keyframe starting earlier
+        const parentFrame = layer.parentLayer.frames[frameIndex];
+        if (!parentFrame || parentFrame.elements.length === 0) {
+            return parentGlobal; // Parent missing? Return grandparent or Identity
+        }
+
+        // We must SELECT the parent element to get its interpolated matrix if it is tweening
+        // This is expensive but necessary for Layer Parenting + Tweens
+        const wasLocked = layer.parentLayer.locked;
+        const wasVisible = layer.parentLayer.visible;
+        layer.parentLayer.locked = false;
+        layer.parentLayer.visible = true;
+
+        const el = parentFrame.elements[0];
+        
+        // Find layer index to select it properly (JSFL quirk)
+        let layerIdx = -1;
+        const layers = this._document.getTimeline().layers;
+        for (let k = 0; k < layers.length; k++) {
+            if (layers[k] === layer.parentLayer) {
+                layerIdx = k;
+                break;
+            }
+        }
+        
+        if (layerIdx !== -1) {
+            this._document.getTimeline().setSelectedLayers(layerIdx);
+            this._document.getTimeline().setSelectedFrames(frameIndex, frameIndex + 1);
+            
+            // Select element to get interpolated properties
+            this._document.selectNone();
+            el.selected = true;
+            
+            let finalMat = el.matrix;
+            if (this._document.selection.length > 0) {
+                // Use the selection proxy
+                finalMat = this._document.selection[0].matrix;
+            }
+            
+            // Restore state
+            layer.parentLayer.locked = wasLocked;
+            layer.parentLayer.visible = wasVisible;
+            
+            return this.concatMatrix(finalMat, parentGlobal);
+        }
+
+        return parentGlobal;
     }
 
     public convertSelection():SpineSkeleton[] {
