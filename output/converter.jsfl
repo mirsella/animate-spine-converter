@@ -1172,13 +1172,16 @@ var SpineAnimationHelper = /** @class */ (function () {
         if (rotateTimeline.frames.length > 0) {
             var prevFrame = rotateTimeline.frames[rotateTimeline.frames.length - 1];
             // Only apply unwrapping if we are moving forward in time (sequential export)
-            if (time > prevFrame.time) {
+            if (time >= prevFrame.time) {
                 var prevAngle = prevFrame.angle;
                 var originalAngle = angle;
-                while (angle - prevAngle > 180)
-                    angle -= 360;
-                while (angle - prevAngle < -180)
-                    angle += 360;
+                // Use a epsilon for time equality to avoid unwrapping the same keyframe twice
+                if (time > prevFrame.time) {
+                    while (angle - prevAngle > 180)
+                        angle -= 360;
+                    while (angle - prevAngle < -180)
+                        angle += 360;
+                }
                 // Debug Logging for "Jump" detection
                 if (Math.abs(angle - originalAngle) > 0.01 && bone.name.indexOf('weapon') >= 0) {
                     Logger_1.Logger.trace("[RotationUnwrap] Bone: ".concat(bone.name, " | Time: ").concat(time.toFixed(3), " | Prev: ").concat(prevAngle.toFixed(1), " | Raw: ").concat(originalAngle.toFixed(1), " -> Unwrapped: ").concat(angle.toFixed(1)));
