@@ -124,7 +124,12 @@ var Converter = /** @class */ (function () {
             Logger_1.Logger.trace("   > Calc Matrix: a=".concat(em.a.toFixed(3), " b=").concat(em.b.toFixed(3), " c=").concat(em.c.toFixed(3), " d=").concat(em.d.toFixed(3), " tx=").concat(em.tx.toFixed(1), " ty=").concat(em.ty.toFixed(1), " | Det=").concat(det.toFixed(3)));
             // Log Pivot Info
             if (context.positionOverride) {
-                Logger_1.Logger.trace("   > Global Pivot Override: (".concat(transX.toFixed(2), ", ").concat(transY.toFixed(2), ") [vs Local: (").concat(element.transformX.toFixed(2), ", ").concat(element.transformY.toFixed(2), ")]"));
+                Logger_1.Logger.trace("   > Global Pivot Override: (".concat(transX.toFixed(2), ", ").concat(transY.toFixed(2), ")"));
+                Logger_1.Logger.trace("     [Original Local: (".concat(element.transformX.toFixed(2), ", ").concat(element.transformY.toFixed(2), ")]"));
+                Logger_1.Logger.trace("     [Reg Point: (".concat(regX.toFixed(2), ", ").concat(regY.toFixed(2), ")]"));
+            }
+            else {
+                Logger_1.Logger.trace("   > Standard Pivot: (".concat(transX.toFixed(2), ", ").concat(transY.toFixed(2), ")"));
             }
             // Log Offset Calculation
             Logger_1.Logger.trace("   > Attachment Offset: x=".concat(spineOffsetX.toFixed(2), ", y=").concat(spineOffsetY.toFixed(2)));
@@ -449,7 +454,7 @@ var Converter = /** @class */ (function () {
                 // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
                 var debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
                 // Broaden filter for debugging any potential issues, can restrict later
-                var isDebugTarget = (debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0) && layer.name.toLowerCase().indexOf('weapon') >= 0;
+                var isDebugTarget = (debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0);
                 if (isDebugTarget) {
                     var logPrefix = "[ParentFix] F=".concat(i, " | Layer: ").concat(layer.name, " | Item: ").concat(debugItem);
                     if (parentMat) {
@@ -463,12 +468,12 @@ var Converter = /** @class */ (function () {
                         }
                         if (finalPositionOverride) {
                             Logger_1.Logger.trace("   > Pivot Transform:");
-                            Logger_1.Logger.trace("     Local:  (".concat(el.transformX.toFixed(2), ", ").concat(el.transformY.toFixed(2), ")"));
-                            Logger_1.Logger.trace("     Global: (".concat(finalPositionOverride.x.toFixed(2), ", ").concat(finalPositionOverride.y.toFixed(2), ")"));
+                            Logger_1.Logger.trace("     Local (el.transform): (".concat(el.transformX.toFixed(2), ", ").concat(el.transformY.toFixed(2), ")"));
+                            Logger_1.Logger.trace("     Global (Calculated):  (".concat(finalPositionOverride.x.toFixed(2), ", ").concat(finalPositionOverride.y.toFixed(2), ")"));
                         }
                     }
                     else {
-                        Logger_1.Logger.trace("".concat(logPrefix, " | NO PARENT"));
+                        Logger_1.Logger.trace("".concat(logPrefix, " | NO PARENT (or Parent Matrix Identity)"));
                     }
                 }
                 // ---------------------------------------------
@@ -571,12 +576,30 @@ var Converter = /** @class */ (function () {
         var el = parentFrame.elements[0];
         // Find layer index to select it properly (JSFL quirk)
         var layerIdx = -1;
+        var matchType = "None";
         var layers = this._document.getTimeline().layers;
         for (var k = 0; k < layers.length; k++) {
             if (layers[k] === layer.parentLayer) {
                 layerIdx = k;
+                matchType = "Ref";
                 break;
             }
+        }
+        // Fallback to name match if reference fails (JSFL quirk - happens because we iterate layers from a cached timeline)
+        if (layerIdx === -1) {
+            var pName_1 = layer.parentLayer.name;
+            for (var k = 0; k < layers.length; k++) {
+                if (layers[k].name === pName_1) {
+                    layerIdx = k;
+                    matchType = "Name";
+                    break;
+                }
+            }
+        }
+        // Debug detection logic (only for specific items to reduce noise)
+        var pName = layer.parentLayer.name;
+        if ((pName.indexOf('skin_1') >= 0 || pName.indexOf('skin_3') >= 0) && (pName.toLowerCase().indexOf('torso') >= 0 || pName.toLowerCase().indexOf('arm') >= 0)) {
+            Logger_1.Logger.trace("[ParentDetect] Finding parent '".concat(pName, "' for frame ").concat(frameIndex, ". Found: ").concat(layerIdx !== -1, " (Method: ").concat(matchType, ")"));
         }
         if (layerIdx !== -1) {
             this._document.getTimeline().setSelectedLayers(layerIdx);

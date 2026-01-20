@@ -148,7 +148,11 @@ export class Converter {
             
             // Log Pivot Info
             if (context.positionOverride) {
-                Logger.trace(`   > Global Pivot Override: (${transX.toFixed(2)}, ${transY.toFixed(2)}) [vs Local: (${element.transformX.toFixed(2)}, ${element.transformY.toFixed(2)})]`);
+                Logger.trace(`   > Global Pivot Override: (${transX.toFixed(2)}, ${transY.toFixed(2)})`);
+                Logger.trace(`     [Original Local: (${element.transformX.toFixed(2)}, ${element.transformY.toFixed(2)})]`);
+                Logger.trace(`     [Reg Point: (${regX.toFixed(2)}, ${regY.toFixed(2)})]`);
+            } else {
+                Logger.trace(`   > Standard Pivot: (${transX.toFixed(2)}, ${transY.toFixed(2)})`);
             }
 
             // Log Offset Calculation
@@ -517,7 +521,7 @@ export class Converter {
                 // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
                 const debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
                 // Broaden filter for debugging any potential issues, can restrict later
-                const isDebugTarget = (debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0) && layer.name.toLowerCase().indexOf('weapon') >= 0;
+                const isDebugTarget = (debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0);
                 
                 if (isDebugTarget) {
                     const logPrefix = `[ParentFix] F=${i} | Layer: ${layer.name} | Item: ${debugItem}`;
@@ -536,11 +540,11 @@ export class Converter {
                         
                         if (finalPositionOverride) {
                             Logger.trace(`   > Pivot Transform:`);
-                            Logger.trace(`     Local:  (${el.transformX.toFixed(2)}, ${el.transformY.toFixed(2)})`);
-                            Logger.trace(`     Global: (${finalPositionOverride.x.toFixed(2)}, ${finalPositionOverride.y.toFixed(2)})`);
+                            Logger.trace(`     Local (el.transform): (${el.transformX.toFixed(2)}, ${el.transformY.toFixed(2)})`);
+                            Logger.trace(`     Global (Calculated):  (${finalPositionOverride.x.toFixed(2)}, ${finalPositionOverride.y.toFixed(2)})`);
                         }
                     } else {
-                        Logger.trace(`${logPrefix} | NO PARENT`);
+                        Logger.trace(`${logPrefix} | NO PARENT (or Parent Matrix Identity)`);
                     }
                 }
                 // ---------------------------------------------
@@ -653,12 +657,32 @@ export class Converter {
         
         // Find layer index to select it properly (JSFL quirk)
         let layerIdx = -1;
+        let matchType = "None";
         const layers = this._document.getTimeline().layers;
         for (let k = 0; k < layers.length; k++) {
             if (layers[k] === layer.parentLayer) {
                 layerIdx = k;
+                matchType = "Ref";
                 break;
             }
+        }
+
+        // Fallback to name match if reference fails (JSFL quirk - happens because we iterate layers from a cached timeline)
+        if (layerIdx === -1) {
+            const pName = layer.parentLayer.name;
+            for (let k = 0; k < layers.length; k++) {
+                if (layers[k].name === pName) {
+                    layerIdx = k;
+                    matchType = "Name";
+                    break;
+                }
+            }
+        }
+        
+        // Debug detection logic (only for specific items to reduce noise)
+        const pName = layer.parentLayer.name;
+        if ((pName.indexOf('skin_1') >= 0 || pName.indexOf('skin_3') >= 0) && (pName.toLowerCase().indexOf('torso') >= 0 || pName.toLowerCase().indexOf('arm') >= 0)) {
+             Logger.trace(`[ParentDetect] Finding parent '${pName}' for frame ${frameIndex}. Found: ${layerIdx !== -1} (Method: ${matchType})`);
         }
         
         if (layerIdx !== -1) {
