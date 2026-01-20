@@ -18,6 +18,13 @@ export class SpineAnimationHelper {
         // Rotation Unwrapping (Shortest Path)
         // Ensure that the new angle is continuous relative to the previous keyframe
         let angle = transform.rotation - bone.rotation;
+
+        // Detailed Rotation Debug
+        const isDebugBone = bone.name.indexOf('weapon') >= 0 || bone.name.indexOf('torso') >= 0 || bone.name.indexOf('arm') >= 0;
+        if (isDebugBone) {
+             // Logger.trace(`[RotDetail] ${bone.name} T=${time.toFixed(3)} | MatrixRot=${transform.rotation.toFixed(2)} | BoneSetupRot=${bone.rotation.toFixed(2)} | Delta=${angle.toFixed(2)}`);
+        }
+
         if (rotateTimeline.frames.length > 0) {
             const prevFrame = rotateTimeline.frames[rotateTimeline.frames.length - 1];
             // Only apply unwrapping if we are moving forward in time (sequential export)
@@ -29,18 +36,18 @@ export class SpineAnimationHelper {
                 if (time > prevFrame.time) {
                     while (angle - prevAngle > 180) angle -= 360;
                     while (angle - prevAngle < -180) angle += 360;
-                }
 
-                // Debug Logging for "Jump" detection
-                if (Math.abs(angle - originalAngle) > 0.01 && bone.name.indexOf('weapon') >= 0) {
-                    Logger.trace(`[RotationUnwrap] Bone: ${bone.name} | Time: ${time.toFixed(3)} | Prev: ${prevAngle.toFixed(1)} | Raw: ${originalAngle.toFixed(1)} -> Unwrapped: ${angle.toFixed(1)}`);
+                    // Debug Logging for "Jump" detection or wrapping
+                    if (isDebugBone && Math.abs(angle - prevAngle) > 30) {
+                        Logger.trace(`[RotJump] ${bone.name} T=${time.toFixed(3)}: JUMP DETECTED! ${prevAngle.toFixed(1)} -> ${angle.toFixed(1)} (Orig: ${originalAngle.toFixed(1)})`);
+                    } else if (isDebugBone && originalAngle !== angle) {
+                        // Logger.trace(`[RotWrap] ${bone.name} T=${time.toFixed(3)}: Wrapped ${originalAngle.toFixed(1)} -> ${angle.toFixed(1)}`);
+                    }
                 }
             }
         } else {
              // Initial frame check (if it's not 0)
-             if (Math.abs(angle) > 180 && bone.name.indexOf('weapon') >= 0) {
-                  Logger.trace(`[RotationStart] Bone: ${bone.name} | Time: ${time.toFixed(3)} | Initial Angle Large: ${angle.toFixed(1)}`);
-             }
+             if (isDebugBone) Logger.trace(`[RotStart] ${bone.name} T=${time.toFixed(3)}: Start Angle ${angle.toFixed(1)} (Matrix: ${transform.rotation.toFixed(1)})`);
         }
 
         const rotateFrame = rotateTimeline.createFrame(time, curve);

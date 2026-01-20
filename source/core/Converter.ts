@@ -471,6 +471,8 @@ export class Converter {
                     parentMat = this.getLayerParentMatrix(layer, i);
                 }
 
+                let bakedData: { matrix: FlashMatrix, transformX: number, transformY: number } | null = null;
+
                 // INTERPOLATION HANDLING
                 if (i !== frame.startFrame) {
                     // Optimized Skip for Classic Tweens to allow Spine Bezier Interpolation
@@ -531,13 +533,61 @@ export class Converter {
                     }
                     
                     timeline.setSelectedFrames(i, i + 1); // Focus the specific frame
+
+                    // FORCE BAKING via Keyframe Conversion (Fix for Motion Tweens)
+                    // Motion Tweens often report static matrices for the 'base' element.
+                    // By converting the specific frame to a keyframe, we force Animate to bake the interpolation.
+                    let undoNeeded = false;
                     
-                    this._document.selectNone();
-                    // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance
-                    el.selected = true;
+                    // Debug: Capture pre-bake state to verify if baking actually changes values
+                    const preBakeTx = el.matrix.tx;
+                    const preBakeTy = el.matrix.ty;
+                    const preBakeRot = Math.atan2(el.matrix.b, el.matrix.a) * 180 / Math.PI;
+
+                    try {
+                        timeline.convertToKeyframes();
+                        undoNeeded = true;
+                        
+                        // Re-fetch element from the new keyframe
+                        const freshLayer = timeline.layers[layerIdx];
+                        const freshFrame = freshLayer.frames[i];
+                        if (freshFrame.elements.length > 0) {
+                            const bakedEl = freshFrame.elements[0];
+                            bakedData = {
+                                matrix: bakedEl.matrix,
+                                transformX: bakedEl.transformX,
+                                transformY: bakedEl.transformY
+                            };
+
+                            // Debug: Compare
+                            const postBakeTx = bakedEl.matrix.tx;
+                            const postBakeRot = Math.atan2(bakedEl.matrix.b, bakedEl.matrix.a) * 180 / Math.PI;
+                            
+                            const hasChanged = Math.abs(postBakeTx - preBakeTx) > 0.01 || Math.abs(postBakeRot - preBakeRot) > 0.01;
+                            
+                            if (hasChanged) {
+                                Logger.trace(`[Bake] Frame ${i} (${layer.name}): Interpolation Captured! Tx: ${preBakeTx.toFixed(1)}->${postBakeTx.toFixed(1)}, Rot: ${preBakeRot.toFixed(1)}->${postBakeRot.toFixed(1)}`);
+                            } else {
+                                // If values didn't change, it might be a hold frame or baking failed to capture difference
+                                // Logger.trace(`[Bake] Frame ${i} (${layer.name}): No change detected.`);
+                            }
+                        }
+                    } catch (e) {
+                         Logger.warning(`[Converter] Bake failed for frame ${i} (${layer.name}): ${e}`);
+                    }
+
+                    if (undoNeeded) {
+                        (this._document as any).undo();
+                    }
                     
-                    if (this._document.selection.length > 0) {
-                        el = this._document.selection[0];
+                    if (!bakedData) {
+                        this._document.selectNone();
+                        // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance
+                        el.selected = true;
+                        
+                        if (this._document.selection.length > 0) {
+                            el = this._document.selection[0];
+                        }
                     }
                     
                     layer.locked = wasLocked;
@@ -550,15 +600,26 @@ export class Converter {
                 let finalMatrixOverride: FlashMatrix = null;
                 let finalPositionOverride: {x:number, y:number} = null;
 
+                const sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
+                const sourceTransX = bakedData ? bakedData.transformX : el.transformX;
+                const sourceTransY = bakedData ? bakedData.transformY : el.transformY;
+
                 if (parentMat) {
-                    finalMatrixOverride = this.concatMatrix(el.matrix, parentMat);
+                    finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
                     
                     // Transformation Point (Pivot) is in Parent Space (relative to Parent's Origin).
                     // We must transform it to Global Space (relative to Stage Origin) to position the Bone correctly.
                     // P_global = P_local * ParentMatrix
                     finalPositionOverride = {
-                        x: el.transformX * parentMat.a + el.transformY * parentMat.c + parentMat.tx,
-                        y: el.transformX * parentMat.b + el.transformY * parentMat.d + parentMat.ty
+                        x: sourceTransX * parentMat.a + sourceTransY * parentMat.c + parentMat.tx,
+                        y: sourceTransX * parentMat.b + sourceTransY * parentMat.d + parentMat.ty
+                    };
+                } else if (bakedData) {
+                    // If we have baked data, we MUST use it as an override because 'el' is reverted to the static base state
+                    finalMatrixOverride = sourceMatrix;
+                    finalPositionOverride = {
+                        x: sourceTransX,
+                        y: sourceTransY
                     };
                 }
 

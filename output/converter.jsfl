@@ -415,6 +415,7 @@ var Converter = /** @class */ (function () {
                     this._document.getTimeline().currentFrame = i;
                     parentMat = this.getLayerParentMatrix(layer, i);
                 }
+                var bakedData = null;
                 // INTERPOLATION HANDLING
                 if (i !== frame.startFrame) {
                     // Optimized Skip for Classic Tweens to allow Spine Bezier Interpolation
@@ -472,11 +473,53 @@ var Converter = /** @class */ (function () {
                         timeline.setSelectedLayers(layerIdx);
                     }
                     timeline.setSelectedFrames(i, i + 1); // Focus the specific frame
-                    this._document.selectNone();
-                    // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance
-                    el.selected = true;
-                    if (this._document.selection.length > 0) {
-                        el = this._document.selection[0];
+                    // FORCE BAKING via Keyframe Conversion (Fix for Motion Tweens)
+                    // Motion Tweens often report static matrices for the 'base' element.
+                    // By converting the specific frame to a keyframe, we force Animate to bake the interpolation.
+                    var undoNeeded = false;
+                    // Debug: Capture pre-bake state to verify if baking actually changes values
+                    var preBakeTx = el.matrix.tx;
+                    var preBakeTy = el.matrix.ty;
+                    var preBakeRot = Math.atan2(el.matrix.b, el.matrix.a) * 180 / Math.PI;
+                    try {
+                        timeline.convertToKeyframes();
+                        undoNeeded = true;
+                        // Re-fetch element from the new keyframe
+                        var freshLayer = timeline.layers[layerIdx];
+                        var freshFrame = freshLayer.frames[i];
+                        if (freshFrame.elements.length > 0) {
+                            var bakedEl = freshFrame.elements[0];
+                            bakedData = {
+                                matrix: bakedEl.matrix,
+                                transformX: bakedEl.transformX,
+                                transformY: bakedEl.transformY
+                            };
+                            // Debug: Compare
+                            var postBakeTx = bakedEl.matrix.tx;
+                            var postBakeRot = Math.atan2(bakedEl.matrix.b, bakedEl.matrix.a) * 180 / Math.PI;
+                            var hasChanged = Math.abs(postBakeTx - preBakeTx) > 0.01 || Math.abs(postBakeRot - preBakeRot) > 0.01;
+                            if (hasChanged) {
+                                Logger_1.Logger.trace("[Bake] Frame ".concat(i, " (").concat(layer.name, "): Interpolation Captured! Tx: ").concat(preBakeTx.toFixed(1), "->").concat(postBakeTx.toFixed(1), ", Rot: ").concat(preBakeRot.toFixed(1), "->").concat(postBakeRot.toFixed(1)));
+                            }
+                            else {
+                                // If values didn't change, it might be a hold frame or baking failed to capture difference
+                                // Logger.trace(`[Bake] Frame ${i} (${layer.name}): No change detected.`);
+                            }
+                        }
+                    }
+                    catch (e) {
+                        Logger_1.Logger.warning("[Converter] Bake failed for frame ".concat(i, " (").concat(layer.name, "): ").concat(e));
+                    }
+                    if (undoNeeded) {
+                        this._document.undo();
+                    }
+                    if (!bakedData) {
+                        this._document.selectNone();
+                        // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance
+                        el.selected = true;
+                        if (this._document.selection.length > 0) {
+                            el = this._document.selection[0];
+                        }
                     }
                     layer.locked = wasLocked;
                     layer.visible = wasVisible;
@@ -487,14 +530,25 @@ var Converter = /** @class */ (function () {
                 // Combine Parent Matrix with Child Matrix (which may have been updated to interpolated proxy)
                 var finalMatrixOverride = null;
                 var finalPositionOverride = null;
+                var sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
+                var sourceTransX = bakedData ? bakedData.transformX : el.transformX;
+                var sourceTransY = bakedData ? bakedData.transformY : el.transformY;
                 if (parentMat) {
-                    finalMatrixOverride = this.concatMatrix(el.matrix, parentMat);
+                    finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
                     // Transformation Point (Pivot) is in Parent Space (relative to Parent's Origin).
                     // We must transform it to Global Space (relative to Stage Origin) to position the Bone correctly.
                     // P_global = P_local * ParentMatrix
                     finalPositionOverride = {
-                        x: el.transformX * parentMat.a + el.transformY * parentMat.c + parentMat.tx,
-                        y: el.transformX * parentMat.b + el.transformY * parentMat.d + parentMat.ty
+                        x: sourceTransX * parentMat.a + sourceTransY * parentMat.c + parentMat.tx,
+                        y: sourceTransX * parentMat.b + sourceTransY * parentMat.d + parentMat.ty
+                    };
+                }
+                else if (bakedData) {
+                    // If we have baked data, we MUST use it as an override because 'el' is reverted to the static base state
+                    finalMatrixOverride = sourceMatrix;
+                    finalPositionOverride = {
+                        x: sourceTransX,
+                        y: sourceTransY
                     };
                 }
                 // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
@@ -1169,6 +1223,11 @@ var SpineAnimationHelper = /** @class */ (function () {
         // Rotation Unwrapping (Shortest Path)
         // Ensure that the new angle is continuous relative to the previous keyframe
         var angle = transform.rotation - bone.rotation;
+        // Detailed Rotation Debug
+        var isDebugBone = bone.name.indexOf('weapon') >= 0 || bone.name.indexOf('torso') >= 0 || bone.name.indexOf('arm') >= 0;
+        if (isDebugBone) {
+            // Logger.trace(`[RotDetail] ${bone.name} T=${time.toFixed(3)} | MatrixRot=${transform.rotation.toFixed(2)} | BoneSetupRot=${bone.rotation.toFixed(2)} | Delta=${angle.toFixed(2)}`);
+        }
         if (rotateTimeline.frames.length > 0) {
             var prevFrame = rotateTimeline.frames[rotateTimeline.frames.length - 1];
             // Only apply unwrapping if we are moving forward in time (sequential export)
@@ -1181,18 +1240,20 @@ var SpineAnimationHelper = /** @class */ (function () {
                         angle -= 360;
                     while (angle - prevAngle < -180)
                         angle += 360;
-                }
-                // Debug Logging for "Jump" detection
-                if (Math.abs(angle - originalAngle) > 0.01 && bone.name.indexOf('weapon') >= 0) {
-                    Logger_1.Logger.trace("[RotationUnwrap] Bone: ".concat(bone.name, " | Time: ").concat(time.toFixed(3), " | Prev: ").concat(prevAngle.toFixed(1), " | Raw: ").concat(originalAngle.toFixed(1), " -> Unwrapped: ").concat(angle.toFixed(1)));
+                    // Debug Logging for "Jump" detection or wrapping
+                    if (isDebugBone && Math.abs(angle - prevAngle) > 30) {
+                        Logger_1.Logger.trace("[RotJump] ".concat(bone.name, " T=").concat(time.toFixed(3), ": JUMP DETECTED! ").concat(prevAngle.toFixed(1), " -> ").concat(angle.toFixed(1), " (Orig: ").concat(originalAngle.toFixed(1), ")"));
+                    }
+                    else if (isDebugBone && originalAngle !== angle) {
+                        // Logger.trace(`[RotWrap] ${bone.name} T=${time.toFixed(3)}: Wrapped ${originalAngle.toFixed(1)} -> ${angle.toFixed(1)}`);
+                    }
                 }
             }
         }
         else {
             // Initial frame check (if it's not 0)
-            if (Math.abs(angle) > 180 && bone.name.indexOf('weapon') >= 0) {
-                Logger_1.Logger.trace("[RotationStart] Bone: ".concat(bone.name, " | Time: ").concat(time.toFixed(3), " | Initial Angle Large: ").concat(angle.toFixed(1)));
-            }
+            if (isDebugBone)
+                Logger_1.Logger.trace("[RotStart] ".concat(bone.name, " T=").concat(time.toFixed(3), ": Start Angle ").concat(angle.toFixed(1), " (Matrix: ").concat(transform.rotation.toFixed(1), ")"));
         }
         var rotateFrame = rotateTimeline.createFrame(time, curve);
         rotateFrame.angle = angle;
