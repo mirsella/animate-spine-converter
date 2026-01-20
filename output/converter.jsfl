@@ -312,14 +312,22 @@ var Converter = /** @class */ (function () {
             var timeline = this._document.getTimeline();
             var layers = timeline.layers;
             // Debug Hierarchy
-            var isDebugTarget = (item.name.indexOf('skin_1') >= 0 || item.name.indexOf('skin_3') >= 0);
-            if (isDebugTarget) {
-                Logger_1.Logger.trace("[Hierarchy] Dumping layers for ".concat(item.name, ":"));
-                for (var k = 0; k < layers.length; k++) {
-                    var l = layers[k];
-                    var pName = l.parentLayer ? l.parentLayer.name : "NULL";
-                    Logger_1.Logger.trace("   - Layer ".concat(k, ": '").concat(l.name, "' -> Parent: '").concat(pName, "'"));
+            var doc = this._document;
+            // FORCE LOGGING to debug "asset" root symbol and potential duplicate layer names
+            Logger_1.Logger.trace("[Hierarchy] Dumping layers for ".concat(item.name, " (Timeline: ").concat(timeline.name, "). AdvancedLayers=").concat(doc.useAdvancedLayers));
+            for (var k = 0; k < layers.length; k++) {
+                var l = layers[k];
+                var pRef = l.parentLayer;
+                // Try legacy/undocumented accessor if property is null
+                if (!pRef && l.getParentLayer) {
+                    try {
+                        pRef = l.getParentLayer();
+                    }
+                    catch (e) { }
                 }
+                var pName = pRef ? pRef.name : "NULL";
+                var pType = pRef ? pRef.layerType : "-";
+                Logger_1.Logger.trace("   - Layer ".concat(k, ": '").concat(l.name, "' [").concat(l.layerType, "] -> Parent: '").concat(pName, "' [").concat(pType, "]"));
             }
             for (var i = layers.length - 1; i >= 0; i--) {
                 var layer = layers[i];
@@ -409,6 +417,31 @@ var Converter = /** @class */ (function () {
                 }
                 // INTERPOLATION HANDLING
                 if (i !== frame.startFrame) {
+                    // Optimized Skip for Classic Tweens to allow Spine Bezier Interpolation
+                    // We skip "Baking" (frame-by-frame export) if the tween is simple enough for Spine to handle.
+                    // This prevents "scalloped" motion and reduces file size.
+                    var isClassic = frame.tweenType === 'classic';
+                    // If parentLayer is present and is a guide, we MUST bake (Spine doesn't support Animate guides directly without constraints)
+                    var isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
+                    var isSupportedEase = true;
+                    // Complex custom eases (>4 points) cannot be represented by a single Bezier segment, so we must bake them.
+                    if (frame.hasCustomEase) {
+                        try {
+                            var pts = frame.getCustomEase();
+                            if (pts && pts.length > 4)
+                                isSupportedEase = false;
+                        }
+                        catch (e) {
+                            isSupportedEase = false;
+                        }
+                    }
+                    if (isClassic && !isGuided && isSupportedEase) {
+                        Logger_1.Logger.trace("[Interpolation] Frame ".concat(i, " (").concat(layer.name, "): Skipping Bake (Using Curve). Classic=").concat(isClassic, ", Guided=").concat(isGuided, ", Ease=").concat(isSupportedEase));
+                        continue; // Skip baking, let Spine interpolate from the keyframe
+                    }
+                    else {
+                        Logger_1.Logger.trace("[Interpolation] Frame ".concat(i, " (").concat(layer.name, "): BAKING. Classic=").concat(isClassic, ", Guided=").concat(isGuided, ", Ease=").concat(isSupportedEase));
+                    }
                     this._document.getTimeline().currentFrame = i;
                     var wasLocked = layer.locked;
                     var wasVisible = layer.visible;
@@ -1213,26 +1246,63 @@ var SpineAnimationHelper = /** @class */ (function () {
         }
         //-----------------------------------
         if (frame != null) {
-            // const points = frame.getCustomEase();
             if (frame.tweenType === 'none') {
                 return 'stepped';
             }
-            // Force Linear for baked animations (frame-by-frame export)
-            // We are sampling the matrix at every frame, so the interpolation is already "baked" into the keyframe values.
-            // Applying a Bezier curve to a 1-frame interval causes stuttering (scalloped motion).
-            return null;
-            /*
-            if (frame.tweenEasing === 0 || points == null || points.length !== 4) {
+            // If it's not a Classic Tween, we assume baking is required (Linear)
+            if (frame.tweenType !== 'classic') {
                 return null;
             }
-
-            return {
-                cx1: points[1].x,
-                cy1: points[1].y,
-                cx2: points[2].x,
-                cy2: points[2].y
-            };
-            */
+            // 1. Check Custom Ease
+            if (frame.hasCustomEase) {
+                var points = null;
+                try {
+                    points = frame.getCustomEase();
+                }
+                catch (e) { }
+                // Spine only supports 1 cubic bezier segment (4 points: P0, C1, C2, P3)
+                // If points > 4, it's a complex curve -> requires baking -> Linear
+                if (points && points.length === 4) {
+                    Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": Custom Ease applied. P1=(").concat(points[1].x.toFixed(3), ", ").concat(points[1].y.toFixed(3), ") P2=(").concat(points[2].x.toFixed(3), ", ").concat(points[2].y.toFixed(3), ")"));
+                    return {
+                        cx1: points[1].x,
+                        cy1: points[1].y,
+                        cx2: points[2].x,
+                        cy2: points[2].y
+                    };
+                }
+                Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": Custom Ease Rejected (Points: ").concat(points ? points.length : 'null', "). Force Linear/Bake."));
+                return null; // Force bake for complex custom ease
+            }
+            // 2. Check Standard Easing (-100 to 100)
+            if (frame.tweenEasing !== 0) {
+                var intensity = frame.tweenEasing; // -100 to 100
+                var k = Math.abs(intensity) / 100;
+                // Animate uses a Quadratic Bezier (1 control point Q1)
+                // We must elevate it to Cubic Bezier (2 control points C1, C2)
+                var q1y = 0.5;
+                if (intensity < 0) { // Ease In
+                    q1y = 0.5 * (1 - k);
+                }
+                else { // Ease Out
+                    q1y = 0.5 + 0.5 * k;
+                }
+                // Degree Elevation: Quadratic to Cubic
+                var c1x = (2 / 3) * 0.5; // 0.333...
+                var c1y = (2 / 3) * q1y;
+                var c2x = 1 - (1 / 3); // 0.666...
+                var c2y = 1 + (2 / 3) * (q1y - 1);
+                Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": Standard Ease ").concat(intensity, " -> Q1y=").concat(q1y.toFixed(3), " -> C1=(").concat(c1x.toFixed(3), ", ").concat(c1y.toFixed(3), ") C2=(").concat(c2x.toFixed(3), ", ").concat(c2y.toFixed(3), ")"));
+                return {
+                    cx1: c1x,
+                    cy1: c1y,
+                    cx2: c2x,
+                    cy2: c2y
+                };
+            }
+            // Default Linear
+            Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": No Easing (Linear)."));
+            return null;
         }
         //-----------------------------------
         return null;

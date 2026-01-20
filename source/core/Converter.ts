@@ -368,14 +368,20 @@ export class Converter {
             const layers = timeline.layers;
 
             // Debug Hierarchy
-            const isDebugTarget = (item.name.indexOf('skin_1') >= 0 || item.name.indexOf('skin_3') >= 0);
-            if (isDebugTarget) {
-                 Logger.trace(`[Hierarchy] Dumping layers for ${item.name}:`);
-                 for (let k = 0; k < layers.length; k++) {
-                     const l = layers[k];
-                     const pName = l.parentLayer ? l.parentLayer.name : "NULL";
-                     Logger.trace(`   - Layer ${k}: '${l.name}' -> Parent: '${pName}'`);
+            const doc = this._document as any;
+            // FORCE LOGGING to debug "asset" root symbol and potential duplicate layer names
+            Logger.trace(`[Hierarchy] Dumping layers for ${item.name} (Timeline: ${timeline.name}). AdvancedLayers=${doc.useAdvancedLayers}`);
+            for (let k = 0; k < layers.length; k++) {
+                 const l = layers[k];
+                 let pRef = l.parentLayer;
+                 // Try legacy/undocumented accessor if property is null
+                 if (!pRef && (l as any).getParentLayer) {
+                    try { pRef = (l as any).getParentLayer(); } catch(e) {}
                  }
+                 
+                 const pName = pRef ? pRef.name : "NULL";
+                 const pType = pRef ? pRef.layerType : "-";
+                 Logger.trace(`   - Layer ${k}: '${l.name}' [${l.layerType}] -> Parent: '${pName}' [${pType}]`);
             }
 
             for (let i = layers.length - 1; i >= 0; i--) {
@@ -467,6 +473,29 @@ export class Converter {
 
                 // INTERPOLATION HANDLING
                 if (i !== frame.startFrame) {
+                    // Optimized Skip for Classic Tweens to allow Spine Bezier Interpolation
+                    // We skip "Baking" (frame-by-frame export) if the tween is simple enough for Spine to handle.
+                    // This prevents "scalloped" motion and reduces file size.
+                    const isClassic = frame.tweenType === 'classic';
+                    // If parentLayer is present and is a guide, we MUST bake (Spine doesn't support Animate guides directly without constraints)
+                    const isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
+                    
+                    let isSupportedEase = true;
+                    // Complex custom eases (>4 points) cannot be represented by a single Bezier segment, so we must bake them.
+                    if (frame.hasCustomEase) {
+                        try {
+                            const pts = frame.getCustomEase();
+                            if (pts && pts.length > 4) isSupportedEase = false;
+                        } catch(e) { isSupportedEase = false; }
+                    }
+
+                    if (isClassic && !isGuided && isSupportedEase) {
+                        Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): Skipping Bake (Using Curve). Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
+                        continue; // Skip baking, let Spine interpolate from the keyframe
+                    } else {
+                        Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): BAKING. Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
+                    }
+
                     this._document.getTimeline().currentFrame = i;
                     
                     const wasLocked = layer.locked;

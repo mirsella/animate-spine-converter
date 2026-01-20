@@ -109,29 +109,70 @@ export class SpineAnimationHelper {
         //-----------------------------------
 
         if (frame != null) {
-            // const points = frame.getCustomEase();
-
             if (frame.tweenType === 'none') {
                 return 'stepped';
             }
 
-            // Force Linear for baked animations (frame-by-frame export)
-            // We are sampling the matrix at every frame, so the interpolation is already "baked" into the keyframe values.
-            // Applying a Bezier curve to a 1-frame interval causes stuttering (scalloped motion).
-            return null;
-
-            /*
-            if (frame.tweenEasing === 0 || points == null || points.length !== 4) {
+            // If it's not a Classic Tween, we assume baking is required (Linear)
+            if (frame.tweenType !== 'classic') {
                 return null;
             }
 
-            return {
-                cx1: points[1].x,
-                cy1: points[1].y,
-                cx2: points[2].x,
-                cy2: points[2].y
-            };
-            */
+            // 1. Check Custom Ease
+            if (frame.hasCustomEase) {
+                let points = null;
+                try { points = frame.getCustomEase(); } catch (e) {}
+                
+                // Spine only supports 1 cubic bezier segment (4 points: P0, C1, C2, P3)
+                // If points > 4, it's a complex curve -> requires baking -> Linear
+                if (points && points.length === 4) {
+                    Logger.trace(`[Curve] Frame ${frame.startFrame}: Custom Ease applied. P1=(${points[1].x.toFixed(3)}, ${points[1].y.toFixed(3)}) P2=(${points[2].x.toFixed(3)}, ${points[2].y.toFixed(3)})`);
+                    return {
+                        cx1: points[1].x,
+                        cy1: points[1].y,
+                        cx2: points[2].x,
+                        cy2: points[2].y
+                    };
+                }
+                Logger.trace(`[Curve] Frame ${frame.startFrame}: Custom Ease Rejected (Points: ${points ? points.length : 'null'}). Force Linear/Bake.`);
+                return null; // Force bake for complex custom ease
+            }
+
+            // 2. Check Standard Easing (-100 to 100)
+            if (frame.tweenEasing !== 0) {
+                const intensity = frame.tweenEasing; // -100 to 100
+                const k = Math.abs(intensity) / 100;
+                
+                // Animate uses a Quadratic Bezier (1 control point Q1)
+                // We must elevate it to Cubic Bezier (2 control points C1, C2)
+                
+                let q1y = 0.5;
+                if (intensity < 0) { // Ease In
+                    q1y = 0.5 * (1 - k);
+                } else { // Ease Out
+                    q1y = 0.5 + 0.5 * k;
+                }
+                
+                // Degree Elevation: Quadratic to Cubic
+                const c1x = (2/3) * 0.5; // 0.333...
+                const c1y = (2/3) * q1y;
+                
+                const c2x = 1 - (1/3); // 0.666...
+                const c2y = 1 + (2/3) * (q1y - 1);
+                
+                Logger.trace(`[Curve] Frame ${frame.startFrame}: Standard Ease ${intensity} -> Q1y=${q1y.toFixed(3)} -> C1=(${c1x.toFixed(3)}, ${c1y.toFixed(3)}) C2=(${c2x.toFixed(3)}, ${c2y.toFixed(3)})`);
+
+                return {
+                    cx1: c1x,
+                    cy1: c1y,
+                    cx2: c2x,
+                    cy2: c2y
+                };
+            }
+
+            // Default Linear
+            Logger.trace(`[Curve] Frame ${frame.startFrame}: No Easing (Linear).`);
+            return null; 
         }
 
         //-----------------------------------
