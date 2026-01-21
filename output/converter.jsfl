@@ -534,7 +534,13 @@ var Converter = /** @class */ (function () {
                             // eval("fl.getDocumentDOM().undo()");
                             // Or safer:
                             if (typeof __webpack_require__.g.fl !== 'undefined') {
-                                __webpack_require__.g.fl.getDocumentDOM().undo();
+                                try {
+                                    __webpack_require__.g.fl.getDocumentDOM().undo();
+                                    Logger_1.Logger.trace("[Bake] Undo successful via global fl.");
+                                }
+                                catch (e2) {
+                                    Logger_1.Logger.error("[Converter] Global Undo failed: ".concat(e2));
+                                }
                             }
                             else {
                                 Logger_1.Logger.error("[Converter] CRITICAL: Cannot Undo bake! Document structure compromised.");
@@ -561,6 +567,12 @@ var Converter = /** @class */ (function () {
                 var sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
                 var sourceTransX = bakedData ? bakedData.transformX : el.transformX;
                 var sourceTransY = bakedData ? bakedData.transformY : el.transformY;
+                // Debug Transform Point
+                var debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
+                var isDebugTarget = (debugItem.indexOf('skin_1') >= 0 && (debugItem.indexOf('weapon') >= 0 || debugItem.indexOf('torso') >= 0));
+                if (isDebugTarget) {
+                    Logger_1.Logger.trace("[Transform] ".concat(debugItem, " F=").concat(i, ": Tx=").concat(sourceMatrix.tx.toFixed(1), " Ty=").concat(sourceMatrix.ty.toFixed(1), " Px=").concat(sourceTransX.toFixed(1), " Py=").concat(sourceTransY.toFixed(1), " Baked=").concat(!!bakedData));
+                }
                 if (parentMat) {
                     finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
                     // Transformation Point (Pivot) is in Parent Space (relative to Parent's Origin).
@@ -580,9 +592,6 @@ var Converter = /** @class */ (function () {
                     };
                 }
                 // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
-                var debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
-                // Broaden filter for debugging any potential issues, can restrict later
-                var isDebugTarget = (debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0);
                 if (isDebugTarget) {
                     var logPrefix = "[ParentFix] F=".concat(i, " | Layer: ").concat(layer.name, " | Item: ").concat(debugItem);
                     if (parentMat) {
@@ -2558,11 +2567,12 @@ exports.SpineTimelineGroupSlot = SpineTimelineGroupSlot;
 /*!********************************************************!*\
   !*** ./source/spine/transform/SpineTransformMatrix.ts ***!
   \********************************************************/
-/***/ (function(__unused_webpack_module, exports) {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
 
 exports.SpineTransformMatrix = void 0;
+var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/Logger.ts");
 var SpineTransformMatrix = /** @class */ (function () {
     function SpineTransformMatrix(element, reference, matrixOverride, positionOverride) {
         if (reference === void 0) { reference = null; }
@@ -2667,24 +2677,39 @@ var SpineTransformMatrix = /** @class */ (function () {
         // V1: shearY = -shearY (User reported "skewed the right amount but to the other direction")
         // V2: Removed negation.
         // shearY = -shearY;
-        // Normalize
-        while (rotation <= -180)
-            rotation += 360;
-        while (rotation > 180)
-            rotation -= 360;
+        // Unwrap Rotation using Reference (Continuity)
+        var rotRaw = rotation;
+        if (reference) {
+            var diff = rotation - reference.rotation;
+            while (diff > 180) {
+                rotation -= 360;
+                diff -= 360;
+            }
+            while (diff < -180) {
+                rotation += 360;
+                diff += 360;
+            }
+        }
+        else {
+            // Default Normalize
+            while (rotation <= -180)
+                rotation += 360;
+            while (rotation > 180)
+                rotation -= 360;
+        }
         while (shearY <= -180)
             shearY += 360;
         while (shearY > 180)
             shearY -= 360;
         // Debug logging for specific items
-        /*
-        if (debugName.indexOf('skin_1') >= 0 && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('dash') >= 0)) {
-             Logger.trace(`[Decompose-V2] ${debugName}: Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
-        } else if (debugName.indexOf('dash') >= 0 && Math.abs(scaleX) > 1.5) {
-             // Log abnormally large dash scales
-             Logger.trace(`[Decompose-V2] LARGE DASH: ${debugName}: Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
+        if (debugName.indexOf('skin_1') >= 0 && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('torso') >= 0)) {
+            Logger_1.Logger.trace("[Decompose] ".concat(debugName, ":"));
+            Logger_1.Logger.trace("  > Input Matrix: a=".concat(mat.a.toFixed(3), " b=").concat(mat.b.toFixed(3), " c=").concat(mat.c.toFixed(3), " d=").concat(mat.d.toFixed(3), " tx=").concat(mat.tx.toFixed(1), " ty=").concat(mat.ty.toFixed(1)));
+            Logger_1.Logger.trace("  > Calc: Det=".concat(det.toFixed(3), " AngleX=").concat(angleX.toFixed(1), " AngleY=").concat(angleY.toFixed(1)));
+            if (reference)
+                Logger_1.Logger.trace("  > Ref: Rot=".concat(reference.rotation.toFixed(1)));
+            Logger_1.Logger.trace("  > Final: Rot=".concat(rotRaw.toFixed(1), "->").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
         }
-        */
         return {
             rotation: Math.round(rotation * 10000) / 10000,
             scaleX: Math.round(scaleX * 10000) / 10000,

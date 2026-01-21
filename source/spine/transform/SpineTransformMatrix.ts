@@ -124,22 +124,35 @@ export class SpineTransformMatrix implements SpineTransform {
         // V2: Removed negation.
         // shearY = -shearY;
 
-        // Normalize
-        while (rotation <= -180) rotation += 360;
-        while (rotation > 180) rotation -= 360;
+        // Unwrap Rotation using Reference (Continuity)
+        const rotRaw = rotation;
+        if (reference) {
+            let diff = rotation - reference.rotation;
+            while (diff > 180) {
+                rotation -= 360;
+                diff -= 360;
+            }
+            while (diff < -180) {
+                rotation += 360;
+                diff += 360;
+            }
+        } else {
+            // Default Normalize
+            while (rotation <= -180) rotation += 360;
+            while (rotation > 180) rotation -= 360;
+        }
         
         while (shearY <= -180) shearY += 360;
         while (shearY > 180) shearY -= 360;
 
         // Debug logging for specific items
-        /*
-        if (debugName.indexOf('skin_1') >= 0 && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('dash') >= 0)) {
-             Logger.trace(`[Decompose-V2] ${debugName}: Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
-        } else if (debugName.indexOf('dash') >= 0 && Math.abs(scaleX) > 1.5) {
-             // Log abnormally large dash scales
-             Logger.trace(`[Decompose-V2] LARGE DASH: ${debugName}: Det=${det.toFixed(3)} Rot=${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
+        if (debugName.indexOf('skin_1') >= 0 && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('torso') >= 0)) {
+            Logger.trace(`[Decompose] ${debugName}:`);
+            Logger.trace(`  > Input Matrix: a=${mat.a.toFixed(3)} b=${mat.b.toFixed(3)} c=${mat.c.toFixed(3)} d=${mat.d.toFixed(3)} tx=${mat.tx.toFixed(1)} ty=${mat.ty.toFixed(1)}`);
+            Logger.trace(`  > Calc: Det=${det.toFixed(3)} AngleX=${angleX.toFixed(1)} AngleY=${angleY.toFixed(1)}`);
+            if (reference) Logger.trace(`  > Ref: Rot=${reference.rotation.toFixed(1)}`);
+            Logger.trace(`  > Final: Rot=${rotRaw.toFixed(1)}->${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
         }
-        */
 
         return {
             rotation: Math.round(rotation * 10000) / 10000,

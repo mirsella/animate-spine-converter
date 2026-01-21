@@ -596,132 +596,141 @@ export class Converter {
                         try {
                             (this._document as any).undo(); 
                         } catch (e) {
-                            // If direct call fails, try the global 'fl' object which is available in JSFL runtime
-                            // We use 'eval' or similar to bypass TS checks for the global 'fl'
-                            // eslint-disable-next-line no-eval
-                            // eval("fl.getDocumentDOM().undo()");
-                            // Or safer:
-                            if (typeof (global as any).fl !== 'undefined') {
+                        // If direct call fails, try the global 'fl' object which is available in JSFL runtime
+                        // We use 'eval' or similar to bypass TS checks for the global 'fl'
+                        // eslint-disable-next-line no-eval
+                        // eval("fl.getDocumentDOM().undo()");
+                        // Or safer:
+                        if (typeof (global as any).fl !== 'undefined') {
+                            try {
                                 (global as any).fl.getDocumentDOM().undo();
-                            } else {
-                                Logger.error(`[Converter] CRITICAL: Cannot Undo bake! Document structure compromised.`);
+                                Logger.trace(`[Bake] Undo successful via global fl.`);
+                            } catch (e2) {
+                                Logger.error(`[Converter] Global Undo failed: ${e2}`);
                             }
+                        } else {
+                            Logger.error(`[Converter] CRITICAL: Cannot Undo bake! Document structure compromised.`);
                         }
                     }
-                    
-                    if (!bakedData) {
-                        this._document.selectNone();
-                        // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance
-                        el.selected = true;
-                        
-                        if (this._document.selection.length > 0) {
-                            el = this._document.selection[0];
-                        }
-                    }
-                    
-                    layer.locked = wasLocked;
-                    layer.visible = wasVisible;
-                } else {
-                    this._document.getTimeline().currentFrame = i;
                 }
+                
+                if (!bakedData) {
+                    this._document.selectNone();
+                    // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance
+                    el.selected = true;
+                    
+                    if (this._document.selection.length > 0) {
+                        el = this._document.selection[0];
+                    }
+                }
+                
+                layer.locked = wasLocked;
+                layer.visible = wasVisible;
+            } else {
+                this._document.getTimeline().currentFrame = i;
+            }
 
-                // Combine Parent Matrix with Child Matrix (which may have been updated to interpolated proxy)
-                let finalMatrixOverride: FlashMatrix = null;
-                let finalPositionOverride: {x:number, y:number} = null;
+            // Combine Parent Matrix with Child Matrix (which may have been updated to interpolated proxy)
+            let finalMatrixOverride: FlashMatrix = null;
+            let finalPositionOverride: {x:number, y:number} = null;
 
-                const sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
-                const sourceTransX = bakedData ? bakedData.transformX : el.transformX;
-                const sourceTransY = bakedData ? bakedData.transformY : el.transformY;
+            const sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
+            const sourceTransX = bakedData ? bakedData.transformX : el.transformX;
+            const sourceTransY = bakedData ? bakedData.transformY : el.transformY;
 
+            // Debug Transform Point
+            const debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
+            const isDebugTarget = (debugItem.indexOf('skin_1') >= 0 && (debugItem.indexOf('weapon') >= 0 || debugItem.indexOf('torso') >= 0));
+            if (isDebugTarget) {
+                 Logger.trace(`[Transform] ${debugItem} F=${i}: Tx=${sourceMatrix.tx.toFixed(1)} Ty=${sourceMatrix.ty.toFixed(1)} Px=${sourceTransX.toFixed(1)} Py=${sourceTransY.toFixed(1)} Baked=${!!bakedData}`);
+            }
+
+            if (parentMat) {
+                finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
+                
+                // Transformation Point (Pivot) is in Parent Space (relative to Parent's Origin).
+                // We must transform it to Global Space (relative to Stage Origin) to position the Bone correctly.
+                // P_global = P_local * ParentMatrix
+                finalPositionOverride = {
+                    x: sourceTransX * parentMat.a + sourceTransY * parentMat.c + parentMat.tx,
+                    y: sourceTransX * parentMat.b + sourceTransY * parentMat.d + parentMat.ty
+                };
+            } else if (bakedData) {
+                // If we have baked data, we MUST use it as an override because 'el' is reverted to the static base state
+                finalMatrixOverride = sourceMatrix;
+                finalPositionOverride = {
+                    x: sourceTransX,
+                    y: sourceTransY
+                };
+            }
+
+            // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
+            
+            if (isDebugTarget) {
+                const logPrefix = `[ParentFix] F=${i} | Layer: ${layer.name} | Item: ${debugItem}`;
+                
                 if (parentMat) {
-                    finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
+                    const local = el.matrix;
+                    const parentName = layer.parentLayer ? layer.parentLayer.name : 'Unknown';
                     
-                    // Transformation Point (Pivot) is in Parent Space (relative to Parent's Origin).
-                    // We must transform it to Global Space (relative to Stage Origin) to position the Bone correctly.
-                    // P_global = P_local * ParentMatrix
-                    finalPositionOverride = {
-                        x: sourceTransX * parentMat.a + sourceTransY * parentMat.c + parentMat.tx,
-                        y: sourceTransX * parentMat.b + sourceTransY * parentMat.d + parentMat.ty
-                    };
-                } else if (bakedData) {
-                    // If we have baked data, we MUST use it as an override because 'el' is reverted to the static base state
-                    finalMatrixOverride = sourceMatrix;
-                    finalPositionOverride = {
-                        x: sourceTransX,
-                        y: sourceTransY
-                    };
+                    Logger.trace(`${logPrefix} | PARENTING ACTIVE (Parent: ${parentName})`);
+                    Logger.trace(`   > Local Matrix:  tx=${local.tx.toFixed(2)} ty=${local.ty.toFixed(2)} a=${local.a.toFixed(3)} b=${local.b.toFixed(3)} c=${local.c.toFixed(3)} d=${local.d.toFixed(3)}`);
+                    Logger.trace(`   > Parent Matrix: tx=${parentMat.tx.toFixed(2)} ty=${parentMat.ty.toFixed(2)} a=${parentMat.a.toFixed(3)} b=${parentMat.b.toFixed(3)} c=${parentMat.c.toFixed(3)} d=${parentMat.d.toFixed(3)}`);
+                    
+                    if (finalMatrixOverride) {
+                        Logger.trace(`   > Global Matrix: tx=${finalMatrixOverride.tx.toFixed(2)} ty=${finalMatrixOverride.ty.toFixed(2)} a=${finalMatrixOverride.a.toFixed(3)} b=${finalMatrixOverride.b.toFixed(3)} c=${finalMatrixOverride.c.toFixed(3)} d=${finalMatrixOverride.d.toFixed(3)}`);
+                    }
+                    
+                    if (finalPositionOverride) {
+                        Logger.trace(`   > Pivot Transform:`);
+                        Logger.trace(`     Local (el.transform): (${el.transformX.toFixed(2)}, ${el.transformY.toFixed(2)})`);
+                        Logger.trace(`     Global (Calculated):  (${finalPositionOverride.x.toFixed(2)}, ${finalPositionOverride.y.toFixed(2)})`);
+                    }
+                } else {
+                    Logger.trace(`${logPrefix} | NO PARENT (or Parent Matrix Identity)`);
                 }
+            }
+            // ---------------------------------------------
 
-                // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
-                const debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
-                // Broaden filter for debugging any potential issues, can restrict later
-                const isDebugTarget = (debugItem.indexOf('skin_1') >= 0 || debugItem.indexOf('skin_3') >= 0);
-                
-                if (isDebugTarget) {
-                    const logPrefix = `[ParentFix] F=${i} | Layer: ${layer.name} | Item: ${debugItem}`;
-                    
-                    if (parentMat) {
-                        const local = el.matrix;
-                        const parentName = layer.parentLayer ? layer.parentLayer.name : 'Unknown';
-                        
-                        Logger.trace(`${logPrefix} | PARENTING ACTIVE (Parent: ${parentName})`);
-                        Logger.trace(`   > Local Matrix:  tx=${local.tx.toFixed(2)} ty=${local.ty.toFixed(2)} a=${local.a.toFixed(3)} b=${local.b.toFixed(3)} c=${local.c.toFixed(3)} d=${local.d.toFixed(3)}`);
-                        Logger.trace(`   > Parent Matrix: tx=${parentMat.tx.toFixed(2)} ty=${parentMat.ty.toFixed(2)} a=${parentMat.a.toFixed(3)} b=${parentMat.b.toFixed(3)} c=${parentMat.c.toFixed(3)} d=${parentMat.d.toFixed(3)}`);
-                        
-                        if (finalMatrixOverride) {
-                            Logger.trace(`   > Global Matrix: tx=${finalMatrixOverride.tx.toFixed(2)} ty=${finalMatrixOverride.ty.toFixed(2)} a=${finalMatrixOverride.a.toFixed(3)} b=${finalMatrixOverride.b.toFixed(3)} c=${finalMatrixOverride.c.toFixed(3)} d=${finalMatrixOverride.d.toFixed(3)}`);
-                        }
-                        
-                        if (finalPositionOverride) {
-                            Logger.trace(`   > Pivot Transform:`);
-                            Logger.trace(`     Local (el.transform): (${el.transformX.toFixed(2)}, ${el.transformY.toFixed(2)})`);
-                            Logger.trace(`     Global (Calculated):  (${finalPositionOverride.x.toFixed(2)}, ${finalPositionOverride.y.toFixed(2)})`);
-                        }
-                    } else {
-                        Logger.trace(`${logPrefix} | NO PARENT (or Parent Matrix Identity)`);
+            const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
+            
+            // Recurse into symbol if needed
+            // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
+            // However, we must ensure we don't lose our place in the current timeline loop.
+            factory(sub);
+            
+            // RESTORE CONTEXT CHECK
+            // If the factory call (e.g. ImageUtil.exportSymbol) changed the active edit context (returned to parent/root),
+            // we must re-enter the current symbol to continue processing its timeline correctly.
+            if (context.element && context.element.libraryItem) {
+                const targetName = context.element.libraryItem.name;
+                const dom = this._document;
+                // Check if current timeline matches our expected context
+                // Note: timeline.name matches the Symbol name for symbols.
+                const currentTl = dom.getTimeline();
+                if (currentTl.name !== targetName) {
+                    // Logger.trace(`[Converter] Context lost (Current: '${currentTl.name}', Expected: '${targetName}'). Restoring...`);
+                    if (dom.library.itemExists(targetName)) {
+                        dom.library.editItem(targetName);
                     }
                 }
-                // ---------------------------------------------
+            }
 
-                const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
-                
-                // Recurse into symbol if needed
-                // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
-                // However, we must ensure we don't lose our place in the current timeline loop.
-                factory(sub);
-                
-                // RESTORE CONTEXT CHECK
-                // If the factory call (e.g. ImageUtil.exportSymbol) changed the active edit context (returned to parent/root),
-                // we must re-enter the current symbol to continue processing its timeline correctly.
-                if (context.element && context.element.libraryItem) {
-                    const targetName = context.element.libraryItem.name;
-                    const dom = this._document;
-                    // Check if current timeline matches our expected context
-                    // Note: timeline.name matches the Symbol name for symbols.
-                    const currentTl = dom.getTimeline();
-                    if (currentTl.name !== targetName) {
-                        // Logger.trace(`[Converter] Context lost (Current: '${currentTl.name}', Expected: '${targetName}'). Restoring...`);
-                        if (dom.library.itemExists(targetName)) {
-                            dom.library.editItem(targetName);
-                        }
-                    }
-                }
-
-                // Restore timeline frame in case recursion changed it
-                if (this._document.getTimeline().currentFrame !== i) {
-                    this._document.getTimeline().currentFrame = i;
-                }
+            // Restore timeline frame in case recursion changed it
+            if (this._document.getTimeline().currentFrame !== i) {
+                this._document.getTimeline().currentFrame = i;
             }
         }
     }
+}
 
-    private convertElement(context:ConverterContext):void {
-        if (LibraryUtil.isPrimitiveLibraryItem(context.element.libraryItem, this._config)) {
-            this.convertPrimitiveElement(context);
-        } else {
-            this.convertCompositeElement(context);
-        }
+private convertElement(context:ConverterContext):void {
+    if (LibraryUtil.isPrimitiveLibraryItem(context.element.libraryItem, this._config)) {
+        this.convertPrimitiveElement(context);
+    } else {
+        this.convertCompositeElement(context);
     }
+}
 
     public prepareImagesExportPath(context:ConverterContext, image:string):string {
         const folder = this.resolveWorkingPath(context.global.skeleton.imagesPath);
