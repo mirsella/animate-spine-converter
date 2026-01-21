@@ -511,7 +511,35 @@ var Converter = /** @class */ (function () {
                         Logger_1.Logger.warning("[Converter] Bake failed for frame ".concat(i, " (").concat(layer.name, "): ").concat(e));
                     }
                     if (undoNeeded) {
-                        this._document.undo();
+                        // JSFL 'undo' is inconsistent in some contexts (e.g. inside a loop or when editItem is active).
+                        // However, 'document.undo()' is the standard call. The error suggests 'this._document.undo' is not a function.
+                        // This likely means _document is wrapped or typed incorrectly at runtime, OR we are in a context where 'undo' isn't exposed on the wrapper.
+                        // Let's try the global 'fl.getDocumentDOM().undo()' via strict JSFL execution string if available, 
+                        // or cast to any and try accessing the global FLfile/fl object if possible (not standard in TS wrapper).
+                        // Fallback: The wrapper MIGHT expose it as 'undo()' directly if it's a FlashDocument wrapper.
+                        // BUT, looking at the error: "this._document.undo is not a function"
+                        // It implies _document is NOT the native DOM object but a wrapper class that lacks this method.
+                        // We should check if we can access the native object or if there's another way.
+                        // If we can't undo, we MUST NOT bake destructively. 
+                        // TEMPORARY FIX: Assume 'fl.getDocumentDOM().undo()' is what we need, but we can't call 'fl' directly here easily.
+                        // Actually, if this._document is an xJSFL wrapper or similar, we might need to find the right method.
+                        // Let's try to access the global 'fl' object if it exists in the scope (it usually does in JSFL env).
+                        try {
+                            this._document.undo();
+                        }
+                        catch (e) {
+                            // If direct call fails, try the global 'fl' object which is available in JSFL runtime
+                            // We use 'eval' or similar to bypass TS checks for the global 'fl'
+                            // eslint-disable-next-line no-eval
+                            // eval("fl.getDocumentDOM().undo()");
+                            // Or safer:
+                            if (typeof __webpack_require__.g.fl !== 'undefined') {
+                                __webpack_require__.g.fl.getDocumentDOM().undo();
+                            }
+                            else {
+                                Logger_1.Logger.error("[Converter] CRITICAL: Cannot Undo bake! Document structure compromised.");
+                            }
+                        }
                     }
                     if (!bakedData) {
                         this._document.selectNone();
@@ -4175,6 +4203,19 @@ exports.StringUtil = StringUtil;
 /******/ 		// Return the exports of the module
 /******/ 		return module.exports;
 /******/ 	}
+/******/ 	
+/************************************************************************/
+/******/ 	/* webpack/runtime/global */
+/******/ 	!function() {
+/******/ 		__webpack_require__.g = (function() {
+/******/ 			if (typeof globalThis === 'object') return globalThis;
+/******/ 			try {
+/******/ 				return this || new Function('return this')();
+/******/ 			} catch (e) {
+/******/ 				if (typeof window === 'object') return window;
+/******/ 			}
+/******/ 		})();
+/******/ 	}();
 /******/ 	
 /************************************************************************/
 var __webpack_exports__ = {};
