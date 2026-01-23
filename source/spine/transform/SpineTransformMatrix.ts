@@ -149,7 +149,8 @@ export class SpineTransformMatrix implements SpineTransform {
         if (debugName.indexOf('skin_1') >= 0 && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('torso') >= 0)) {
             Logger.trace(`[Decompose] ${debugName}:`);
             Logger.trace(`  > Input Matrix: a=${mat.a.toFixed(3)} b=${mat.b.toFixed(3)} c=${mat.c.toFixed(3)} d=${mat.d.toFixed(3)} tx=${mat.tx.toFixed(1)} ty=${mat.ty.toFixed(1)}`);
-            Logger.trace(`  > Calc: Det=${det.toFixed(3)} AngleX=${angleX.toFixed(1)} AngleY=${angleY.toFixed(1)}`);
+            Logger.trace(`  > Basis: U_spine=(${a.toFixed(3)}, ${b.toFixed(3)}) V_spine=(${-c.toFixed(3)}, ${d.toFixed(3)})`);
+            Logger.trace(`  > Calc: Det=${det.toFixed(3)} AngleX=${angleX.toFixed(1)} AngleY=${angleY.toFixed(1)} (flipped=${scaleY < 0})`);
             if (reference) Logger.trace(`  > Ref: Rot=${reference.rotation.toFixed(1)}`);
             Logger.trace(`  > Final: Rot=${rotRaw.toFixed(1)}->${rotation.toFixed(1)} Sx=${scaleX.toFixed(2)} Sy=${scaleY.toFixed(2)} ShearY=${shearY.toFixed(1)}`);
         }

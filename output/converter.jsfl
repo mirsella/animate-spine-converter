@@ -421,7 +421,7 @@ var Converter = /** @class */ (function () {
                     // Optimized Skip for Classic Tweens to allow Spine Bezier Interpolation
                     // We skip "Baking" (frame-by-frame export) if the tween is simple enough for Spine to handle.
                     // This prevents "scalloped" motion and reduces file size.
-                    var isClassic = frame.tweenType === 'classic';
+                    var isTween = frame.tweenType === 'classic' || frame.tweenType === 'motion';
                     // If parentLayer is present and is a guide, we MUST bake (Spine doesn't support Animate guides directly without constraints)
                     var isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
                     var isSupportedEase = true;
@@ -429,19 +429,31 @@ var Converter = /** @class */ (function () {
                     if (frame.hasCustomEase) {
                         try {
                             var pts = frame.getCustomEase();
-                            if (pts && pts.length > 4)
+                            if (pts && pts.length > 4) {
                                 isSupportedEase = false;
+                                Logger_1.Logger.trace("[EaseCheck] Frame ".concat(i, " (").concat(layer.name, "): Custom Ease REJECTED. Points: ").concat(pts.length, " (>4)."));
+                            }
                         }
                         catch (e) {
                             isSupportedEase = false;
                         }
                     }
-                    if (isClassic && !isGuided && isSupportedEase) {
-                        Logger_1.Logger.trace("[Interpolation] Frame ".concat(i, " (").concat(layer.name, "): Skipping Bake (Using Curve). Classic=").concat(isClassic, ", Guided=").concat(isGuided, ", Ease=").concat(isSupportedEase));
+                    if (frame.tweenType === 'motion') {
+                        var motionCheck = SpineAnimationHelper_1.SpineAnimationHelper.checkMotionCurveComplexity(frame);
+                        if (motionCheck.complex) {
+                            isSupportedEase = false;
+                            Logger_1.Logger.trace("[EaseCheck] Frame ".concat(i, " (").concat(layer.name, "): Motion Tween REJECTED. Reason: ").concat(motionCheck.reason));
+                        }
+                        else {
+                            // Logger.trace(`[EaseCheck] Frame ${i} (${layer.name}): Motion Tween ACCEPTED. Curve available.`);
+                        }
+                    }
+                    if (isTween && !isGuided && isSupportedEase) {
+                        Logger_1.Logger.trace("[Interpolation] Frame ".concat(i, " (").concat(layer.name, "): Skipping Bake (Using Curve). Tween=").concat(isTween, ", Guided=").concat(isGuided, ", Ease=").concat(isSupportedEase));
                         continue; // Skip baking, let Spine interpolate from the keyframe
                     }
                     else {
-                        Logger_1.Logger.trace("[Interpolation] Frame ".concat(i, " (").concat(layer.name, "): BAKING. Classic=").concat(isClassic, ", Guided=").concat(isGuided, ", Ease=").concat(isSupportedEase));
+                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): BAKING. Tween=${isTween}, Guided=${isGuided}, Ease=${isSupportedEase}`);
                     }
                     this._document.getTimeline().currentFrame = i;
                     var wasLocked = layer.locked;
@@ -1255,7 +1267,7 @@ var SpineAnimationHelper = /** @class */ (function () {
     }
     SpineAnimationHelper.applyBoneAnimation = function (animation, bone, context, transform, time) {
         var timeline = animation.createBoneTimeline(bone);
-        var curve = SpineAnimationHelper.obtainFrameCurve(context);
+        // Curve lookup is now per-timeline type
         var rotateTimeline = timeline.createTimeline("rotate" /* SpineTimelineType.ROTATE */);
         // Rotation Unwrapping (Shortest Path)
         // Ensure that the new angle is continuous relative to the previous keyframe
@@ -1292,18 +1304,18 @@ var SpineAnimationHelper = /** @class */ (function () {
             if (isDebugBone)
                 Logger_1.Logger.trace("[RotStart] ".concat(bone.name, " T=").concat(time.toFixed(3), ": Start Angle ").concat(angle.toFixed(1), " (Matrix: ").concat(transform.rotation.toFixed(1), ")"));
         }
-        var rotateFrame = rotateTimeline.createFrame(time, curve);
+        var rotateFrame = rotateTimeline.createFrame(time, SpineAnimationHelper.obtainFrameCurve(context, "rotate" /* SpineTimelineType.ROTATE */));
         rotateFrame.angle = angle;
         var translateTimeline = timeline.createTimeline("translate" /* SpineTimelineType.TRANSLATE */);
-        var translateFrame = translateTimeline.createFrame(time, curve);
+        var translateFrame = translateTimeline.createFrame(time, SpineAnimationHelper.obtainFrameCurve(context, "translate" /* SpineTimelineType.TRANSLATE */));
         translateFrame.x = transform.x - bone.x;
         translateFrame.y = transform.y - bone.y;
         var scaleTimeline = timeline.createTimeline("scale" /* SpineTimelineType.SCALE */);
-        var scaleFrame = scaleTimeline.createFrame(time, curve);
+        var scaleFrame = scaleTimeline.createFrame(time, SpineAnimationHelper.obtainFrameCurve(context, "scale" /* SpineTimelineType.SCALE */));
         scaleFrame.x = transform.scaleX / bone.scaleX;
         scaleFrame.y = transform.scaleY / bone.scaleY;
         var shearTimeline = timeline.createTimeline("shear" /* SpineTimelineType.SHEAR */);
-        var shearFrame = shearTimeline.createFrame(time, curve);
+        var shearFrame = shearTimeline.createFrame(time, SpineAnimationHelper.obtainFrameCurve(context, "shear" /* SpineTimelineType.SHEAR */));
         shearFrame.x = transform.shearX - bone.shearX;
         shearFrame.y = transform.shearY - bone.shearY;
     };
@@ -1318,7 +1330,7 @@ var SpineAnimationHelper = /** @class */ (function () {
     };
     SpineAnimationHelper.applySlotAttachment = function (animation, slot, context, attachment, time) {
         var timeline = animation.createSlotTimeline(slot);
-        var curve = SpineAnimationHelper.obtainFrameCurve(context);
+        var curve = SpineAnimationHelper.obtainFrameCurve(context, "attachment" /* SpineTimelineType.ATTACHMENT */);
         var attachmentTimeline = timeline.createTimeline("attachment" /* SpineTimelineType.ATTACHMENT */);
         var attachmentFrame = attachmentTimeline.createFrame(time, curve);
         attachmentFrame.name = (attachment != null) ? attachment.name : null;
@@ -1328,12 +1340,12 @@ var SpineAnimationHelper = /** @class */ (function () {
     };
     SpineAnimationHelper.applySlotAnimation = function (animation, slot, context, color, time) {
         var timeline = animation.createSlotTimeline(slot);
-        var curve = SpineAnimationHelper.obtainFrameCurve(context);
+        var curve = SpineAnimationHelper.obtainFrameCurve(context, "color" /* SpineTimelineType.COLOR */);
         var colorTimeline = timeline.createTimeline("color" /* SpineTimelineType.COLOR */);
         var colorFrame = colorTimeline.createFrame(time, curve);
         colorFrame.color = color;
     };
-    SpineAnimationHelper.obtainFrameCurve = function (context) {
+    SpineAnimationHelper.obtainFrameCurve = function (context, timelineType) {
         var frame = context.frame;
         //-----------------------------------
         while (frame != null && frame.tweenType === 'none') {
@@ -1350,9 +1362,13 @@ var SpineAnimationHelper = /** @class */ (function () {
             if (frame.tweenType === 'none') {
                 return 'stepped';
             }
-            // If it's not a Classic Tween, we assume baking is required (Linear)
+            // Motion Tween Support
+            if (frame.tweenType === 'motion') {
+                return SpineAnimationHelper.getMotionTweenCurve(frame, timelineType).curve;
+            }
+            // Classic Tween Support (only 'classic' type)
             if (frame.tweenType !== 'classic') {
-                return null;
+                return null; // Force Linear for unsupported types (though Converter might force bake)
             }
             // 1. Check Custom Ease
             if (frame.hasCustomEase) {
@@ -1410,6 +1426,112 @@ var SpineAnimationHelper = /** @class */ (function () {
     };
     SpineAnimationHelper.applyEventAnimation = function (animation, event, time) {
         animation.createEvent(event, time);
+    };
+    SpineAnimationHelper.checkMotionCurveComplexity = function (frame) {
+        if (frame.tweenType !== 'motion')
+            return { complex: false };
+        // Check all major properties
+        var types = ["translate" /* SpineTimelineType.TRANSLATE */, "rotate" /* SpineTimelineType.ROTATE */, "scale" /* SpineTimelineType.SCALE */, "shear" /* SpineTimelineType.SHEAR */];
+        for (var _i = 0, types_1 = types; _i < types_1.length; _i++) {
+            var t = types_1[_i];
+            var result = SpineAnimationHelper.getMotionTweenCurve(frame, t);
+            if (result.complex)
+                return { complex: true, reason: "Complex curve on ".concat(t) };
+        }
+        return { complex: false };
+    };
+    SpineAnimationHelper.getMotionTweenCurve = function (frame, timelineType) {
+        try {
+            var xmlStr_1 = frame.getMotionObjectXML();
+            if (!xmlStr_1)
+                return { curve: null, complex: false };
+            // Simple XML Parsing via Regex
+            // We look for specific PropertyCurve(s) based on the timelineType
+            var targetProps = [];
+            switch (timelineType) {
+                case "translate" /* SpineTimelineType.TRANSLATE */:
+                    targetProps = ['X', 'Y'];
+                    break;
+                case "rotate" /* SpineTimelineType.ROTATE */:
+                    targetProps = ['RotationZ'];
+                    break;
+                case "scale" /* SpineTimelineType.SCALE */:
+                    targetProps = ['ScaleX', 'ScaleY'];
+                    break;
+                case "shear" /* SpineTimelineType.SHEAR */:
+                    targetProps = ['SkewX', 'SkewY'];
+                    break;
+                default: return { curve: null, complex: false };
+            }
+            var foundCurve = null;
+            var isComplex = false;
+            // Helper to parse points from a specific property block
+            var extractCurveFromProp = function (propName) {
+                var propRegex = new RegExp("<PropertyCurve[^>]*name=\"".concat(propName, "\"[^>]*>([\\s\\S]*?)<\\/PropertyCurve>"), 'i');
+                var match = xmlStr_1.match(propRegex);
+                if (!match)
+                    return null; // Linear/Default
+                var content = match[1];
+                // Find <Curve> block
+                var curveMatch = content.match(/<Curve[^>]*>([\s\S]*?)<\/Curve>/i);
+                if (!curveMatch)
+                    return null;
+                var pointRegex = /<Point\s+x="([^"]+)"\s+y="([^"]+)"/g;
+                var points = [];
+                var pMatch = pointRegex.exec(curveMatch[1]);
+                while (pMatch !== null) {
+                    points.push({ x: parseFloat(pMatch[1]), y: parseFloat(pMatch[2]) });
+                    pMatch = pointRegex.exec(curveMatch[1]);
+                }
+                // Logic: Spine supports 1 Cubic Bezier segment (4 points: Start, C1, C2, End)
+                // The points in XML are [Start, Handle1, Handle2, End] usually.
+                // Or [Start, End] for Linear.
+                if (points.length === 2)
+                    return null; // Linear (Start, End)
+                if (points.length === 4) {
+                    // Check if handles are valid (0 <= x <= 1)
+                    // Spine handles are relative to the time duration (0-1).
+                    // Animate handles might be absolute or relative. Usually relative in Motion XML.
+                    return {
+                        cx1: points[1].x,
+                        cy1: points[1].y,
+                        cx2: points[2].x,
+                        cy2: points[2].y
+                    };
+                }
+                // Debug log for rejected curve
+                // Logger.trace(`[MotionXML] Property ${propName}: Rejected curve with ${points.length} points.`);
+                return 'invalid'; // Too complex (multi-segment) -> Needs Baking
+            };
+            for (var _i = 0, targetProps_1 = targetProps; _i < targetProps_1.length; _i++) {
+                var prop = targetProps_1[_i];
+                var result = extractCurveFromProp(prop);
+                if (result === 'invalid') {
+                    isComplex = true;
+                    // We continue to see if we can find at least one valid curve for debug? 
+                    // No, if any property is complex, we probably should bake the whole thing or at least return complex flag.
+                    // But if we return complex=true, Converter will bake.
+                    return { curve: null, complex: true };
+                }
+                if (result) {
+                    if (foundCurve && JSON.stringify(foundCurve) !== JSON.stringify(result)) {
+                        // Inconsistent curves for X vs Y -> Fallback to Linear (or ideally Bake, but too late)
+                        // For now, use the first one found or Linear?
+                        // If inconsistent, we flag complex?
+                        isComplex = true;
+                        return { curve: null, complex: true };
+                    }
+                    else {
+                        foundCurve = result;
+                    }
+                }
+            }
+            return { curve: foundCurve, complex: isComplex };
+        }
+        catch (e) {
+            Logger_1.Logger.warning("[SpineAnimationHelper] Failed to parse MotionXML for frame: ".concat(e));
+            return { curve: null, complex: true }; // Error -> Bake
+        }
     };
     return SpineAnimationHelper;
 }());
@@ -2705,7 +2827,8 @@ var SpineTransformMatrix = /** @class */ (function () {
         if (debugName.indexOf('skin_1') >= 0 && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('torso') >= 0)) {
             Logger_1.Logger.trace("[Decompose] ".concat(debugName, ":"));
             Logger_1.Logger.trace("  > Input Matrix: a=".concat(mat.a.toFixed(3), " b=").concat(mat.b.toFixed(3), " c=").concat(mat.c.toFixed(3), " d=").concat(mat.d.toFixed(3), " tx=").concat(mat.tx.toFixed(1), " ty=").concat(mat.ty.toFixed(1)));
-            Logger_1.Logger.trace("  > Calc: Det=".concat(det.toFixed(3), " AngleX=").concat(angleX.toFixed(1), " AngleY=").concat(angleY.toFixed(1)));
+            Logger_1.Logger.trace("  > Basis: U_spine=(".concat(a.toFixed(3), ", ").concat(b.toFixed(3), ") V_spine=(").concat(-c.toFixed(3), ", ").concat(d.toFixed(3), ")"));
+            Logger_1.Logger.trace("  > Calc: Det=".concat(det.toFixed(3), " AngleX=").concat(angleX.toFixed(1), " AngleY=").concat(angleY.toFixed(1), " (flipped=").concat(scaleY < 0, ")"));
             if (reference)
                 Logger_1.Logger.trace("  > Ref: Rot=".concat(reference.rotation.toFixed(1)));
             Logger_1.Logger.trace("  > Final: Rot=".concat(rotRaw.toFixed(1), "->").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));

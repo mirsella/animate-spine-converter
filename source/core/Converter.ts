@@ -478,7 +478,7 @@ export class Converter {
                     // Optimized Skip for Classic Tweens to allow Spine Bezier Interpolation
                     // We skip "Baking" (frame-by-frame export) if the tween is simple enough for Spine to handle.
                     // This prevents "scalloped" motion and reduces file size.
-                    const isClassic = frame.tweenType === 'classic';
+                    const isTween = frame.tweenType === 'classic' || frame.tweenType === 'motion';
                     // If parentLayer is present and is a guide, we MUST bake (Spine doesn't support Animate guides directly without constraints)
                     const isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
                     
@@ -487,15 +487,28 @@ export class Converter {
                     if (frame.hasCustomEase) {
                         try {
                             const pts = frame.getCustomEase();
-                            if (pts && pts.length > 4) isSupportedEase = false;
+                            if (pts && pts.length > 4) {
+                                isSupportedEase = false;
+                                Logger.trace(`[EaseCheck] Frame ${i} (${layer.name}): Custom Ease REJECTED. Points: ${pts.length} (>4).`);
+                            }
                         } catch(e) { isSupportedEase = false; }
                     }
 
-                    if (isClassic && !isGuided && isSupportedEase) {
-                        Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): Skipping Bake (Using Curve). Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
+                    if (frame.tweenType === 'motion') {
+                        const motionCheck = SpineAnimationHelper.checkMotionCurveComplexity(frame);
+                        if (motionCheck.complex) {
+                            isSupportedEase = false;
+                            Logger.trace(`[EaseCheck] Frame ${i} (${layer.name}): Motion Tween REJECTED. Reason: ${motionCheck.reason}`);
+                        } else {
+                            // Logger.trace(`[EaseCheck] Frame ${i} (${layer.name}): Motion Tween ACCEPTED. Curve available.`);
+                        }
+                    }
+
+                    if (isTween && !isGuided && isSupportedEase) {
+                        Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): Skipping Bake (Using Curve). Tween=${isTween}, Guided=${isGuided}, Ease=${isSupportedEase}`);
                         continue; // Skip baking, let Spine interpolate from the keyframe
                     } else {
-                        Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): BAKING. Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
+                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): BAKING. Tween=${isTween}, Guided=${isGuided}, Ease=${isSupportedEase}`);
                     }
 
                     this._document.getTimeline().currentFrame = i;
