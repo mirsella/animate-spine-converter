@@ -32,73 +32,12 @@ export class Converter {
         this._config = config;
     }
 
-    private getElementCacheKey(target: FlashElement | FlashItem, context: ConverterContext): string {
-        // 1. Handle Library Items (Stable by Name)
-        if ((target as any).itemType) { 
-             return `Item:${(target as FlashItem).name}`;
-        }
-        
-        const el = target as FlashElement;
-        
-        // 2. Handle Symbol/Bitmap Instances (Cache by Library Item Name)
-        if ((el.elementType === 'instance' || (el as any).instanceType === 'bitmap') && el.libraryItem) {
-             return `Item:${el.libraryItem.name}`;
-        }
-        
-        // 3. Handle Shapes (Need Structural ID based on Hierarchy)
-        // If we are iterating a timeline, the Shape is defined by Timeline + Layer + Frame + Index
-        if (context) {
-            const layer = context.layer;
-            const frame = context.frame;
-            if (layer && frame) {
-                // Determine Timeline Name
-                // If we are inside 'editItem', document.getTimeline() is the active timeline.
-                // Assuming 'context.layer' belongs to the active timeline processing.
-                const timeline = this._document.getTimeline();
-                const timelineName = timeline.name; 
-                
-                const frameIdx = frame.startFrame;
-                
-                // Find index of element in frame to ensure uniqueness
-                let elIdx = 0;
-                if (frame.elements.length > 1) {
-                    // Try reference match first
-                    let found = false;
-                    for(let i=0; i<frame.elements.length; i++) {
-                        if (frame.elements[i] === el) {
-                            elIdx = i;
-                            found = true;
-                            break;
-                        }
-                    }
-                    // If reference match fails (JSFL instability), try to identify by properties?
-                    // For now, assume single-shape-per-frame or stable order is sufficient.
-                }
-                
-                return `Shape:${timelineName}:${layer.name}:${frameIdx}:${elIdx}`;
-            }
-        }
-        
-        // Fallback
-        return `Element:${el.name || 'unknown'}_${Math.random()}`; 
-    }
-
     private convertElementSlot(context:ConverterContext, exportTarget:FlashElement | FlashItem, imageExportFactory:ImageExportFactory):void {
         // 1. Get Base Name (for PNG path and initial cache key)
-        // Use a robust cache key that handles JSFL object identity issues
-        const cacheKey = this.getElementCacheKey(exportTarget, context);
-        
-        let baseImageName = context.global.shapesCache.get(cacheKey); // Use string key
-        
-        // Fallback: Check if it was cached by object reference (legacy compatibility or mixed usage)
-        if (baseImageName == null) {
-             baseImageName = context.global.shapesCache.get(exportTarget);
-        }
-
+        let baseImageName = context.global.shapesCache.get(exportTarget);
         if (baseImageName == null) {
             baseImageName = ConvertUtil.createAttachmentName(context.element, context);
-            context.global.shapesCache.set(cacheKey, baseImageName); // Set with string key
-            context.global.shapesCache.set(exportTarget, baseImageName); // Set with object key too just in case
+            context.global.shapesCache.set(exportTarget, baseImageName);
         }
 
         // 2. Ensure Image is Exported/Cached (to get dimensions and localCenter)
@@ -294,16 +233,9 @@ export class Converter {
     }
 
     private convertShapeMaskElementSlot(context:ConverterContext, matrix:FlashMatrix = null, controlOffset:{x:number, y:number} = null):void {
-        const cacheKey = this.getElementCacheKey(context.element, context);
-        let attachmentName = context.global.shapesCache.get(cacheKey);
-
-        if (attachmentName == null) {
-             attachmentName = context.global.shapesCache.get(context.element);
-        }
-
+        let attachmentName = context.global.shapesCache.get(context.element);
         if (attachmentName == null) {
             attachmentName = ConvertUtil.createAttachmentName(context.element, context);
-            context.global.shapesCache.set(cacheKey, attachmentName);
             context.global.shapesCache.set(context.element, attachmentName);
         }
 

@@ -18,7 +18,7 @@ import { ConverterStageType } from './ConverterStageType';
 
 export class ConverterContextGlobal extends ConverterContext {
     public imagesCache:ConverterMap<string, SpineImage>;
-    public shapesCache:ConverterMap<FlashElement | FlashItem | string, string>;
+    public shapesCache:ConverterMap<FlashElement | FlashItem, string>;
     public layersCache:ConverterMap<FlashLayer, SpineSlot[]>;
     public assetTransforms:ConverterMap<string, SpineTransformMatrix>;
     public attachmentVariants:ConverterMap<string, Array<{x:number, y:number, name:string}>>;
@@ -87,7 +87,7 @@ export class ConverterContextGlobal extends ConverterContext {
     public static initializeCache():ConverterContextGlobal {
         const context = new ConverterContextGlobal();
         context.imagesCache = new ConverterMap<string, SpineImage>();
-        context.shapesCache = new ConverterMap<FlashElement | FlashItem | string, string>();
+        context.shapesCache = new ConverterMap<FlashElement | FlashItem, string>();
         context.layersCache = new ConverterMap<FlashLayer, SpineSlot[]>();
         context.assetTransforms = new ConverterMap<string, SpineTransformMatrix>();
         context.attachmentVariants = new ConverterMap<string, Array<{x:number, y:number, name:string}>>();
