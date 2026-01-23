@@ -602,10 +602,10 @@ export class Converter {
                         // We should check if we can access the native object or if there's another way.
                         // If we can't undo, we MUST NOT bake destructively. 
                         
-                        // TEMPORARY FIX: Try to find 'undo' on document or global 'fl'
+                        // TEMPORARY FIX: Try multiple ways to find 'undo'
                         let undoSuccess = false;
                         try {
-                            if (typeof (this._document as any).undo === 'function') {
+                            if (this._document && typeof (this._document as any).undo === 'function') {
                                 (this._document as any).undo();
                                 undoSuccess = true;
                             }
@@ -613,15 +613,30 @@ export class Converter {
 
                         if (!undoSuccess) {
                             try {
+                                // Try eval to bypass any proxy/wrapper clashing with webpack global
+                                // eslint-disable-next-line no-eval
+                                eval("if(fl.getDocumentDOM() && fl.getDocumentDOM().undo) fl.getDocumentDOM().undo();");
+                                undoSuccess = true;
+                                Logger.trace(`[Bake] Undo successful via eval.`);
+                            } catch (e2) {
+                                Logger.error(`[Converter] Eval Undo failed: ${e2}`);
+                            }
+                        }
+
+                        if (!undoSuccess) {
+                            try {
                                 // @ts-ignore
                                 if (typeof fl !== 'undefined' && fl.getDocumentDOM) {
                                     // @ts-ignore
-                                    fl.getDocumentDOM().undo();
-                                    undoSuccess = true;
-                                    Logger.trace(`[Bake] Undo successful via global fl.`);
+                                    const currentDom = fl.getDocumentDOM() as any;
+                                    if (currentDom && currentDom.undo) {
+                                        currentDom.undo();
+                                        undoSuccess = true;
+                                        Logger.trace(`[Bake] Undo successful via global fl.`);
+                                    }
                                 }
-                            } catch (e2) {
-                                Logger.error(`[Converter] Global Undo failed: ${e2}`);
+                            } catch (e3) {
+                                Logger.error(`[Converter] Global Undo failed: ${e3}`);
                             }
                         }
                         

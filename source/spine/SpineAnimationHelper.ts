@@ -212,8 +212,12 @@ export class SpineAnimationHelper {
 
     private static getMotionTweenCurve(frame:any, timelineType:SpineTimelineType):{ curve: SpineCurveType, complex: boolean } {
         try {
+            if (!frame || typeof frame.getMotionObjectXML !== 'function') {
+                return { curve: null, complex: false };
+            }
+
             const xmlStr = frame.getMotionObjectXML();
-            if (!xmlStr) return { curve: null, complex: false };
+            if (!xmlStr || typeof xmlStr !== 'string') return { curve: null, complex: false };
 
             // Simple XML Parsing via Regex
             // We look for specific PropertyCurve(s) based on the timelineType
@@ -229,77 +233,51 @@ export class SpineAnimationHelper {
             let foundCurve:SpineCurveType = null;
             let isComplex = false;
 
-            // Helper to parse points from a specific property block
-            const extractCurveFromProp = (propName:string):SpineCurveType | 'invalid' => {
-                const propRegex = new RegExp(`<PropertyCurve[^>]*name="${propName}"[^>]*>([\\s\\S]*?)<\\/PropertyCurve>`, 'i');
-                const match = (xmlStr as string).match(propRegex);
-                if (!match) return null; // Linear/Default
+            for (const propName of targetProps) {
+                // Use a more robust regex and avoid nested functions to prevent clashing with obfuscated environments
+                const propRegex = new RegExp('<PropertyCurve[^>]*name="' + propName + '"[^>]*>([\\s\\S]*?)<\\/PropertyCurve>', 'i');
+                const propMatch = xmlStr.match(propRegex);
+                if (!propMatch) continue;
 
-                const content = match[1];
-                // Find <Curve> block
-                const curveMatch = content.match(/<Curve[^>]*>([\s\S]*?)<\/Curve>/i);
-                if (!curveMatch) return null;
+                const propContent = propMatch[1];
+                const curveMatch = propContent.match(/<Curve[^>]*>([\s\S]*?)<\/Curve>/i);
+                if (!curveMatch) continue;
 
+                const curveContent = curveMatch[1];
                 const pointRegex = /<Point\s+x="([^"]+)"\s+y="([^"]+)"/g;
                 const points:{x:number, y:number}[] = [];
                 
-                let pMatch = pointRegex.exec(curveMatch[1]);
-                while (pMatch !== null) {
-                    points.push({ x: parseFloat(pMatch[1]), y: parseFloat(pMatch[2]) });
-                    pMatch = pointRegex.exec(curveMatch[1]);
+                let pointMatch = pointRegex.exec(curveContent);
+                while (pointMatch !== null) {
+                    points.push({ x: parseFloat(pointMatch[1]), y: parseFloat(pointMatch[2]) });
+                    pointMatch = pointRegex.exec(curveContent);
                 }
 
-                // Logic: Spine supports 1 Cubic Bezier segment (4 points: Start, C1, C2, End)
-                // The points in XML are [Start, Handle1, Handle2, End] usually.
-                // Or [Start, End] for Linear.
-                
-                if (points.length === 2) return null; // Linear (Start, End)
+                if (points.length === 2) continue; // Linear
                 
                 if (points.length === 4) {
-                    // Check if handles are valid (0 <= x <= 1)
-                    // Spine handles are relative to the time duration (0-1).
-                    // Animate handles might be absolute or relative. Usually relative in Motion XML.
-                    return {
+                    const curveObj = {
                         cx1: points[1].x,
                         cy1: points[1].y,
                         cx2: points[2].x,
                         cy2: points[2].y
                     };
-                }
-                
-                // Debug log for rejected curve
-                // Logger.trace(`[MotionXML] Property ${propName}: Rejected curve with ${points.length} points.`);
-                return 'invalid'; // Too complex (multi-segment) -> Needs Baking
-            };
-
-            for (const prop of targetProps) {
-                const result = extractCurveFromProp(prop);
-                
-                if (result === 'invalid') {
-                    isComplex = true;
-                    // We continue to see if we can find at least one valid curve for debug? 
-                    // No, if any property is complex, we probably should bake the whole thing or at least return complex flag.
-                    // But if we return complex=true, Converter will bake.
-                    return { curve: null, complex: true };
-                }
-                
-                if (result) {
-                    if (foundCurve && JSON.stringify(foundCurve) !== JSON.stringify(result)) {
-                        // Inconsistent curves for X vs Y -> Fallback to Linear (or ideally Bake, but too late)
-                        // For now, use the first one found or Linear?
-                        // If inconsistent, we flag complex?
+                    
+                    if (foundCurve && JSON.stringify(foundCurve) !== JSON.stringify(curveObj)) {
                         isComplex = true;
-                        return { curve: null, complex: true };
-                    } else {
-                        foundCurve = result;
+                        break;
                     }
+                    foundCurve = curveObj;
+                } else if (points.length > 4) {
+                    isComplex = true;
+                    break;
                 }
             }
             
             return { curve: foundCurve, complex: isComplex };
 
         } catch (e) {
-            Logger.warning(`[SpineAnimationHelper] Failed to parse MotionXML for frame: ${e}`);
+            Logger.warning(`[SpineAnimationHelper] MotionXML error: ${e}`);
             return { curve: null, complex: true }; // Error -> Bake
         }
     }

@@ -533,10 +533,10 @@ var Converter = /** @class */ (function () {
                         // It implies _document is NOT the native DOM object but a wrapper class that lacks this method.
                         // We should check if we can access the native object or if there's another way.
                         // If we can't undo, we MUST NOT bake destructively. 
-                        // TEMPORARY FIX: Try to find 'undo' on document or global 'fl'
+                        // TEMPORARY FIX: Try multiple ways to find 'undo'
                         var undoSuccess = false;
                         try {
-                            if (typeof this._document.undo === 'function') {
+                            if (this._document && typeof this._document.undo === 'function') {
                                 this._document.undo();
                                 undoSuccess = true;
                             }
@@ -544,16 +544,31 @@ var Converter = /** @class */ (function () {
                         catch (e) { /* ignore */ }
                         if (!undoSuccess) {
                             try {
+                                // Try eval to bypass any proxy/wrapper clashing with webpack global
+                                // eslint-disable-next-line no-eval
+                                eval("if(fl.getDocumentDOM() && fl.getDocumentDOM().undo) fl.getDocumentDOM().undo();");
+                                undoSuccess = true;
+                                Logger_1.Logger.trace("[Bake] Undo successful via eval.");
+                            }
+                            catch (e2) {
+                                Logger_1.Logger.error("[Converter] Eval Undo failed: ".concat(e2));
+                            }
+                        }
+                        if (!undoSuccess) {
+                            try {
                                 // @ts-ignore
                                 if (typeof fl !== 'undefined' && fl.getDocumentDOM) {
                                     // @ts-ignore
-                                    fl.getDocumentDOM().undo();
-                                    undoSuccess = true;
-                                    Logger_1.Logger.trace("[Bake] Undo successful via global fl.");
+                                    var currentDom = fl.getDocumentDOM();
+                                    if (currentDom && currentDom.undo) {
+                                        currentDom.undo();
+                                        undoSuccess = true;
+                                        Logger_1.Logger.trace("[Bake] Undo successful via global fl.");
+                                    }
                                 }
                             }
-                            catch (e2) {
-                                Logger_1.Logger.error("[Converter] Global Undo failed: ".concat(e2));
+                            catch (e3) {
+                                Logger_1.Logger.error("[Converter] Global Undo failed: ".concat(e3));
                             }
                         }
                         if (!undoSuccess) {
@@ -1450,8 +1465,11 @@ var SpineAnimationHelper = /** @class */ (function () {
     };
     SpineAnimationHelper.getMotionTweenCurve = function (frame, timelineType) {
         try {
-            var xmlStr_1 = frame.getMotionObjectXML();
-            if (!xmlStr_1)
+            if (!frame || typeof frame.getMotionObjectXML !== 'function') {
+                return { curve: null, complex: false };
+            }
+            var xmlStr = frame.getMotionObjectXML();
+            if (!xmlStr || typeof xmlStr !== 'string')
                 return { curve: null, complex: false };
             // Simple XML Parsing via Regex
             // We look for specific PropertyCurve(s) based on the timelineType
@@ -1473,71 +1491,49 @@ var SpineAnimationHelper = /** @class */ (function () {
             }
             var foundCurve = null;
             var isComplex = false;
-            // Helper to parse points from a specific property block
-            var extractCurveFromProp = function (propName) {
-                var propRegex = new RegExp("<PropertyCurve[^>]*name=\"".concat(propName, "\"[^>]*>([\\s\\S]*?)<\\/PropertyCurve>"), 'i');
-                var match = xmlStr_1.match(propRegex);
-                if (!match)
-                    return null; // Linear/Default
-                var content = match[1];
-                // Find <Curve> block
-                var curveMatch = content.match(/<Curve[^>]*>([\s\S]*?)<\/Curve>/i);
+            for (var _i = 0, targetProps_1 = targetProps; _i < targetProps_1.length; _i++) {
+                var propName = targetProps_1[_i];
+                // Use a more robust regex and avoid nested functions to prevent clashing with obfuscated environments
+                var propRegex = new RegExp('<PropertyCurve[^>]*name="' + propName + '"[^>]*>([\\s\\S]*?)<\\/PropertyCurve>', 'i');
+                var propMatch = xmlStr.match(propRegex);
+                if (!propMatch)
+                    continue;
+                var propContent = propMatch[1];
+                var curveMatch = propContent.match(/<Curve[^>]*>([\s\S]*?)<\/Curve>/i);
                 if (!curveMatch)
-                    return null;
+                    continue;
+                var curveContent = curveMatch[1];
                 var pointRegex = /<Point\s+x="([^"]+)"\s+y="([^"]+)"/g;
                 var points = [];
-                var pMatch = pointRegex.exec(curveMatch[1]);
-                while (pMatch !== null) {
-                    points.push({ x: parseFloat(pMatch[1]), y: parseFloat(pMatch[2]) });
-                    pMatch = pointRegex.exec(curveMatch[1]);
+                var pointMatch = pointRegex.exec(curveContent);
+                while (pointMatch !== null) {
+                    points.push({ x: parseFloat(pointMatch[1]), y: parseFloat(pointMatch[2]) });
+                    pointMatch = pointRegex.exec(curveContent);
                 }
-                // Logic: Spine supports 1 Cubic Bezier segment (4 points: Start, C1, C2, End)
-                // The points in XML are [Start, Handle1, Handle2, End] usually.
-                // Or [Start, End] for Linear.
                 if (points.length === 2)
-                    return null; // Linear (Start, End)
+                    continue; // Linear
                 if (points.length === 4) {
-                    // Check if handles are valid (0 <= x <= 1)
-                    // Spine handles are relative to the time duration (0-1).
-                    // Animate handles might be absolute or relative. Usually relative in Motion XML.
-                    return {
+                    var curveObj = {
                         cx1: points[1].x,
                         cy1: points[1].y,
                         cx2: points[2].x,
                         cy2: points[2].y
                     };
-                }
-                // Debug log for rejected curve
-                // Logger.trace(`[MotionXML] Property ${propName}: Rejected curve with ${points.length} points.`);
-                return 'invalid'; // Too complex (multi-segment) -> Needs Baking
-            };
-            for (var _i = 0, targetProps_1 = targetProps; _i < targetProps_1.length; _i++) {
-                var prop = targetProps_1[_i];
-                var result = extractCurveFromProp(prop);
-                if (result === 'invalid') {
-                    isComplex = true;
-                    // We continue to see if we can find at least one valid curve for debug? 
-                    // No, if any property is complex, we probably should bake the whole thing or at least return complex flag.
-                    // But if we return complex=true, Converter will bake.
-                    return { curve: null, complex: true };
-                }
-                if (result) {
-                    if (foundCurve && JSON.stringify(foundCurve) !== JSON.stringify(result)) {
-                        // Inconsistent curves for X vs Y -> Fallback to Linear (or ideally Bake, but too late)
-                        // For now, use the first one found or Linear?
-                        // If inconsistent, we flag complex?
+                    if (foundCurve && JSON.stringify(foundCurve) !== JSON.stringify(curveObj)) {
                         isComplex = true;
-                        return { curve: null, complex: true };
+                        break;
                     }
-                    else {
-                        foundCurve = result;
-                    }
+                    foundCurve = curveObj;
+                }
+                else if (points.length > 4) {
+                    isComplex = true;
+                    break;
                 }
             }
             return { curve: foundCurve, complex: isComplex };
         }
         catch (e) {
-            Logger_1.Logger.warning("[SpineAnimationHelper] Failed to parse MotionXML for frame: ".concat(e));
+            Logger_1.Logger.warning("[SpineAnimationHelper] MotionXML error: ".concat(e));
             return { curve: null, complex: true }; // Error -> Bake
         }
     };
