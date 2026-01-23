@@ -641,11 +641,24 @@ export class Converter {
                         }
                         
                         if (!undoSuccess) {
-                             Logger.error(`[Converter] CRITICAL: Cannot Undo bake! Document structure compromised.`);
+                             const msg = `[Converter] CRITICAL: Cannot Undo bake! Document structure compromised. Aborting to prevent corruption.`;
+                             Logger.error(msg);
                              Logger.flush();
+                             throw new Error(msg);
                         }
                     }
                 
+                // IMPORTANT: After Undo, we must assume all JSFL references (layer, frame, el) are stale/invalid.
+                // We must re-fetch them from the DOM to avoid crashes.
+                if (undoNeeded) {
+                    const freshTl = this._document.getTimeline();
+                    const freshLayer = freshTl.layers[layerIdx];
+                    const freshFrame = freshLayer.frames[i];
+                    if (freshFrame.elements.length > 0) {
+                        el = freshFrame.elements[0];
+                    }
+                }
+
                 if (!bakedData) {
                     this._document.selectNone();
                     // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance

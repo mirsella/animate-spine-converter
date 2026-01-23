@@ -572,8 +572,20 @@ var Converter = /** @class */ (function () {
                             }
                         }
                         if (!undoSuccess) {
-                            Logger_1.Logger.error("[Converter] CRITICAL: Cannot Undo bake! Document structure compromised.");
+                            var msg = "[Converter] CRITICAL: Cannot Undo bake! Document structure compromised. Aborting to prevent corruption.";
+                            Logger_1.Logger.error(msg);
                             Logger_1.Logger.flush();
+                            throw new Error(msg);
+                        }
+                    }
+                    // IMPORTANT: After Undo, we must assume all JSFL references (layer, frame, el) are stale/invalid.
+                    // We must re-fetch them from the DOM to avoid crashes.
+                    if (undoNeeded) {
+                        var freshTl = this._document.getTimeline();
+                        var freshLayer = freshTl.layers[layerIdx];
+                        var freshFrame = freshLayer.frames[i];
+                        if (freshFrame.elements.length > 0) {
+                            el = freshFrame.elements[0];
                         }
                     }
                     if (!bakedData) {
@@ -1192,12 +1204,14 @@ var Logger = /** @class */ (function () {
     };
     //-----------------------------------
     Logger.prototype.trace = function (message) {
-        this._output.push(message);
+        // Immediate flush for debugging crashes
+        fl.outputPanel.trace(message);
+        // this._output.push(message);
     };
     Logger.prototype.flush = function () {
-        fl.outputPanel.clear();
-        fl.outputPanel.trace(this._output.join('\n'));
-        this._output.length = 0;
+        // fl.outputPanel.clear();
+        // fl.outputPanel.trace(this._output.join('\n'));
+        // this._output.length = 0;
     };
     Logger._instance = new Logger();
     return Logger;

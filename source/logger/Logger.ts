@@ -36,12 +36,14 @@ export class Logger {
     //-----------------------------------
 
     public trace(message:string):void {
-        this._output.push(message);
+        // Immediate flush for debugging crashes
+        fl.outputPanel.trace(message);
+        // this._output.push(message);
     }
 
     public flush():void {
-        fl.outputPanel.clear();
-        fl.outputPanel.trace(this._output.join('\n'));
-        this._output.length = 0;
+        // fl.outputPanel.clear();
+        // fl.outputPanel.trace(this._output.join('\n'));
+        // this._output.length = 0;
     }
 }
