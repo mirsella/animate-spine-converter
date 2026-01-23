@@ -22,7 +22,7 @@ export class SpineAnimationHelper {
         // Detailed Rotation Debug
         const isDebugBone = bone.name.indexOf('weapon') >= 0 || bone.name.indexOf('torso') >= 0 || bone.name.indexOf('arm') >= 0;
         if (isDebugBone) {
-             // Logger.trace(`[RotDetail] ${bone.name} T=${time.toFixed(3)} | MatrixRot=${transform.rotation.toFixed(2)} | BoneSetupRot=${bone.rotation.toFixed(2)} | Delta=${angle.toFixed(2)}`);
+             Logger.trace(`[RotDetail] ${bone.name} T=${time.toFixed(3)} | MatrixRot=${transform.rotation.toFixed(2)} | BoneSetupRot=${bone.rotation.toFixed(2)} | Delta=${angle.toFixed(2)} | Pos=(${transform.x.toFixed(1)}, ${transform.y.toFixed(1)})`);
         }
 
         if (rotateTimeline.frames.length > 0) {
@@ -41,7 +41,7 @@ export class SpineAnimationHelper {
                     if (isDebugBone && Math.abs(angle - prevAngle) > 30) {
                         Logger.trace(`[RotJump] ${bone.name} T=${time.toFixed(3)}: JUMP DETECTED! ${prevAngle.toFixed(1)} -> ${angle.toFixed(1)} (Orig: ${originalAngle.toFixed(1)})`);
                     } else if (isDebugBone && originalAngle !== angle) {
-                        // Logger.trace(`[RotWrap] ${bone.name} T=${time.toFixed(3)}: Wrapped ${originalAngle.toFixed(1)} -> ${angle.toFixed(1)}`);
+                         Logger.trace(`[RotWrap] ${bone.name} T=${time.toFixed(3)}: Wrapped ${originalAngle.toFixed(1)} -> ${angle.toFixed(1)}`);
                     }
                 }
             }

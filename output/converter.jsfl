@@ -584,6 +584,12 @@ var Converter = /** @class */ (function () {
                 var isDebugTarget = (debugItem.indexOf('skin_1') >= 0 && (debugItem.indexOf('weapon') >= 0 || debugItem.indexOf('torso') >= 0));
                 if (isDebugTarget) {
                     Logger_1.Logger.trace("[Transform] ".concat(debugItem, " F=").concat(i, ": Tx=").concat(sourceMatrix.tx.toFixed(1), " Ty=").concat(sourceMatrix.ty.toFixed(1), " Px=").concat(sourceTransX.toFixed(1), " Py=").concat(sourceTransY.toFixed(1), " Baked=").concat(!!bakedData));
+                    if (!bakedData && i !== frame.startFrame) {
+                        // Log what Animate is giving us for a non-baked tween frame
+                        var em = el.matrix;
+                        var rawRot = Math.atan2(em.b, em.a) * 180 / Math.PI;
+                        Logger_1.Logger.trace("    [RawState] Tx=".concat(em.tx.toFixed(1), " Ty=").concat(em.ty.toFixed(1), " Rot=").concat(rawRot.toFixed(1)));
+                    }
                 }
                 if (parentMat) {
                     finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
@@ -1275,7 +1281,7 @@ var SpineAnimationHelper = /** @class */ (function () {
         // Detailed Rotation Debug
         var isDebugBone = bone.name.indexOf('weapon') >= 0 || bone.name.indexOf('torso') >= 0 || bone.name.indexOf('arm') >= 0;
         if (isDebugBone) {
-            // Logger.trace(`[RotDetail] ${bone.name} T=${time.toFixed(3)} | MatrixRot=${transform.rotation.toFixed(2)} | BoneSetupRot=${bone.rotation.toFixed(2)} | Delta=${angle.toFixed(2)}`);
+            Logger_1.Logger.trace("[RotDetail] ".concat(bone.name, " T=").concat(time.toFixed(3), " | MatrixRot=").concat(transform.rotation.toFixed(2), " | BoneSetupRot=").concat(bone.rotation.toFixed(2), " | Delta=").concat(angle.toFixed(2), " | Pos=(").concat(transform.x.toFixed(1), ", ").concat(transform.y.toFixed(1), ")"));
         }
         if (rotateTimeline.frames.length > 0) {
             var prevFrame = rotateTimeline.frames[rotateTimeline.frames.length - 1];
@@ -1294,7 +1300,7 @@ var SpineAnimationHelper = /** @class */ (function () {
                         Logger_1.Logger.trace("[RotJump] ".concat(bone.name, " T=").concat(time.toFixed(3), ": JUMP DETECTED! ").concat(prevAngle.toFixed(1), " -> ").concat(angle.toFixed(1), " (Orig: ").concat(originalAngle.toFixed(1), ")"));
                     }
                     else if (isDebugBone && originalAngle !== angle) {
-                        // Logger.trace(`[RotWrap] ${bone.name} T=${time.toFixed(3)}: Wrapped ${originalAngle.toFixed(1)} -> ${angle.toFixed(1)}`);
+                        Logger_1.Logger.trace("[RotWrap] ".concat(bone.name, " T=").concat(time.toFixed(3), ": Wrapped ").concat(originalAngle.toFixed(1), " -> ").concat(angle.toFixed(1)));
                     }
                 }
             }
@@ -4398,25 +4404,115 @@ var config = {
     mergeImages: true
 };
 //-----------------------------------
-var document = fl.getDocumentDOM();
-var converter = new Converter_1.Converter(document, config);
-var result = converter.convertSelection();
-for (var _i = 0, result_1 = result; _i < result_1.length; _i++) {
-    var skeleton = result_1[_i];
-    Logger_1.Logger.trace('Exporting skeleton: ' + skeleton.name + '...');
-    if (config.simplifyBonesAndSlots) {
-        SpineSkeletonHelper_1.SpineSkeletonHelper.simplifySkeletonNames(skeleton);
+var captureSelection = function (doc) {
+    var sel = doc.selection;
+    if (!sel || sel.length === 0)
+        return null;
+    var tl = doc.getTimeline();
+    var targets = [];
+    var layers = tl.layers;
+    var curFrame = tl.currentFrame;
+    for (var i = 0; i < layers.length; i++) {
+        var layer = layers[i];
+        var frame = layer.frames[curFrame];
+        if (!frame)
+            continue;
+        for (var j = 0; j < frame.elements.length; j++) {
+            var el = frame.elements[j];
+            for (var k = 0; k < sel.length; k++) {
+                if (sel[k] === el) {
+                    targets.push({ l: i, f: curFrame, e: j });
+                    break;
+                }
+            }
+        }
     }
-    if (skeleton.bones.length > 0) {
-        var skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
-        FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
-        Logger_1.Logger.trace('Skeleton export completed.');
+    return {
+        timelineName: tl.name,
+        targets: targets
+    };
+};
+var restoreSelection = function (doc, state) {
+    if (!state)
+        return;
+    // Restore Timeline Context
+    var currentTl = doc.getTimeline();
+    if (currentTl.name !== state.timelineName) {
+        if (doc.library.itemExists(state.timelineName)) {
+            doc.library.editItem(state.timelineName);
+        }
     }
-    else {
-        Logger_1.Logger.error('Nothing to export.');
+    var tl = doc.getTimeline();
+    var newSel = [];
+    for (var _i = 0, _a = state.targets; _i < _a.length; _i++) {
+        var t = _a[_i];
+        var layer = tl.layers[t.l];
+        if (layer) {
+            var frame = layer.frames[t.f];
+            if (frame && frame.elements[t.e]) {
+                newSel.push(frame.elements[t.e]);
+            }
+        }
     }
-}
-//-----------------------------------
+    if (newSel.length > 0) {
+        tl.currentFrame = state.targets[0].f;
+        doc.selection = newSel;
+    }
+};
+var run = function () {
+    var document = fl.getDocumentDOM();
+    if (!document) {
+        Logger_1.Logger.error('No document open.');
+        return;
+    }
+    if (!document.pathURI) {
+        Logger_1.Logger.error('Document must be saved before exporting.');
+        return;
+    }
+    // 1. Capture Selection & Context from Original
+    var selectionState = captureSelection(document);
+    // 2. Save Original (to ensure disk state matches memory)
+    fl.saveDocument(document);
+    // 3. Create Temp Path
+    var originalPath = document.pathURI;
+    var tempPath = originalPath.replace(/(\.fla|\.xfl)$/i, '_spine_temp$1');
+    var finalTempPath = (tempPath === originalPath) ? originalPath + '_spine_temp.fla' : tempPath;
+    // 4. Clone File
+    if (FLfile.exists(finalTempPath)) {
+        FLfile.remove(finalTempPath);
+    }
+    if (!FLfile.copy(originalPath, finalTempPath)) {
+        Logger_1.Logger.error('Failed to create temporary export file: ' + finalTempPath);
+        return;
+    }
+    // 5. Open Temp File
+    var tempDoc = fl.openDocument(finalTempPath);
+    if (!tempDoc) {
+        Logger_1.Logger.error('Failed to open temporary export file.');
+        return;
+    }
+    // 6. Restore Selection in Temp File
+    restoreSelection(tempDoc, selectionState);
+    // 7. Run Conversion
+    var converter = new Converter_1.Converter(tempDoc, config);
+    var result = converter.convertSelection();
+    for (var _i = 0, result_1 = result; _i < result_1.length; _i++) {
+        var skeleton = result_1[_i];
+        Logger_1.Logger.trace('Exporting skeleton: ' + skeleton.name + '...');
+        if (config.simplifyBonesAndSlots) {
+            SpineSkeletonHelper_1.SpineSkeletonHelper.simplifySkeletonNames(skeleton);
+        }
+        if (skeleton.bones.length > 0) {
+            var skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
+            FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
+            Logger_1.Logger.trace('Skeleton export completed.');
+        }
+        else {
+            Logger_1.Logger.error('Nothing to export.');
+        }
+    }
+};
+run();
 Logger_1.Logger.flush();
 
 }();

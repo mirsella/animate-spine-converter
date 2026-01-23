@@ -656,6 +656,12 @@ export class Converter {
             const isDebugTarget = (debugItem.indexOf('skin_1') >= 0 && (debugItem.indexOf('weapon') >= 0 || debugItem.indexOf('torso') >= 0));
             if (isDebugTarget) {
                  Logger.trace(`[Transform] ${debugItem} F=${i}: Tx=${sourceMatrix.tx.toFixed(1)} Ty=${sourceMatrix.ty.toFixed(1)} Px=${sourceTransX.toFixed(1)} Py=${sourceTransY.toFixed(1)} Baked=${!!bakedData}`);
+                 if (!bakedData && i !== frame.startFrame) {
+                     // Log what Animate is giving us for a non-baked tween frame
+                     const em = el.matrix;
+                     const rawRot = Math.atan2(em.b, em.a) * 180 / Math.PI;
+                     Logger.trace(`    [RawState] Tx=${em.tx.toFixed(1)} Ty=${em.ty.toFixed(1)} Rot=${rawRot.toFixed(1)}`);
+                 }
             }
 
             if (parentMat) {
