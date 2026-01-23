@@ -514,8 +514,8 @@ var Converter = /** @class */ (function () {
                                 Logger_1.Logger.trace("[Bake] Frame ".concat(i, " (").concat(layer.name, "): Interpolation Captured! Tx: ").concat(preBakeTx.toFixed(1), "->").concat(postBakeTx.toFixed(1), ", Rot: ").concat(preBakeRot.toFixed(1), "->").concat(postBakeRot.toFixed(1)));
                             }
                             else {
-                                // If values didn't change, it might be a hold frame or baking failed to capture difference
-                                // Logger.trace(`[Bake] Frame ${i} (${layer.name}): No change detected.`);
+                                // Log that we captured data even if unchanged, to verify flow
+                                Logger_1.Logger.trace("[Bake] Frame ".concat(i, " (").concat(layer.name, "): Baked (No change detected)."));
                             }
                         }
                     }
@@ -581,19 +581,42 @@ var Converter = /** @class */ (function () {
                     // IMPORTANT: After Undo, we must assume all JSFL references (layer, frame, el) are stale/invalid.
                     // We must re-fetch them from the DOM to avoid crashes.
                     if (undoNeeded) {
-                        var freshTl = this._document.getTimeline();
-                        var freshLayer = freshTl.layers[layerIdx];
-                        var freshFrame = freshLayer.frames[i];
-                        if (freshFrame.elements.length > 0) {
-                            el = freshFrame.elements[0];
+                        try {
+                            Logger_1.Logger.trace("[Bake] Re-fetching element for Frame ".concat(i, "..."));
+                            // Force refresh document reference if possible (cast to any to bypass read-only check in this critical recovery path)
+                            if (typeof fl !== 'undefined') {
+                                this._document = fl.getDocumentDOM();
+                            }
+                            var freshTl = this._document.getTimeline();
+                            var freshLayer = freshTl.layers[layerIdx];
+                            var freshFrame = freshLayer.frames[i];
+                            if (freshFrame && freshFrame.elements && freshFrame.elements.length > 0) {
+                                el = freshFrame.elements[0];
+                                Logger_1.Logger.trace("[Bake] Element re-fetched successfully.");
+                            }
+                            else {
+                                Logger_1.Logger.warning("[Bake] Failed to re-fetch element (empty frame?).");
+                            }
+                        }
+                        catch (err) {
+                            Logger_1.Logger.error("[Bake] CRITICAL: Error re-fetching element: ".concat(err));
                         }
                     }
                     if (!bakedData) {
+                        Logger_1.Logger.trace("[Bake] No baked data. Attempting selection...");
                         this._document.selectNone();
                         // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance
-                        el.selected = true;
-                        if (this._document.selection.length > 0) {
-                            el = this._document.selection[0];
+                        if (el) {
+                            try {
+                                el.selected = true;
+                                if (this._document.selection.length > 0) {
+                                    el = this._document.selection[0];
+                                }
+                                Logger_1.Logger.trace("[Bake] Selection successful.");
+                            }
+                            catch (selErr) {
+                                Logger_1.Logger.error("[Bake] Selection failed: ".concat(selErr));
+                            }
                         }
                     }
                     layer.locked = wasLocked;
@@ -605,11 +628,28 @@ var Converter = /** @class */ (function () {
                 // Combine Parent Matrix with Child Matrix (which may have been updated to interpolated proxy)
                 var finalMatrixOverride = null;
                 var finalPositionOverride = null;
-                var sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
-                var sourceTransX = bakedData ? bakedData.transformX : el.transformX;
-                var sourceTransY = bakedData ? bakedData.transformY : el.transformY;
+                Logger_1.Logger.trace("[Transform] Processing matrix... (Baked=".concat(!!bakedData, ")"));
+                // Safe access for source matrix
+                var sourceMatrix = void 0;
+                var sourceTransX = void 0;
+                var sourceTransY = void 0;
+                try {
+                    sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
+                    sourceTransX = bakedData ? bakedData.transformX : el.transformX;
+                    sourceTransY = bakedData ? bakedData.transformY : el.transformY;
+                }
+                catch (matErr) {
+                    Logger_1.Logger.error("[Transform] CRITICAL: Failed to access matrix properties (el is ".concat(el, "): ").concat(matErr));
+                    throw matErr;
+                }
                 // Debug Transform Point
-                var debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
+                var debugItem = '<unknown>';
+                try {
+                    debugItem = (el && el.libraryItem) ? el.libraryItem.name : (el && el.name ? el.name : '');
+                }
+                catch (nameErr) {
+                    Logger_1.Logger.warning("[Transform] Failed to read element name: ".concat(nameErr));
+                }
                 var isDebugTarget = (debugItem.indexOf('skin_1') >= 0 && (debugItem.indexOf('weapon') >= 0 || debugItem.indexOf('torso') >= 0));
                 if (isDebugTarget) {
                     Logger_1.Logger.trace("[Transform] ".concat(debugItem, " F=").concat(i, ": Tx=").concat(sourceMatrix.tx.toFixed(1), " Ty=").concat(sourceMatrix.ty.toFixed(1), " Px=").concat(sourceTransX.toFixed(1), " Py=").concat(sourceTransY.toFixed(1), " Baked=").concat(!!bakedData));

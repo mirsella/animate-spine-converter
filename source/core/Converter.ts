@@ -581,8 +581,8 @@ export class Converter {
                             if (hasChanged) {
                                 Logger.trace(`[Bake] Frame ${i} (${layer.name}): Interpolation Captured! Tx: ${preBakeTx.toFixed(1)}->${postBakeTx.toFixed(1)}, Rot: ${preBakeRot.toFixed(1)}->${postBakeRot.toFixed(1)}`);
                             } else {
-                                // If values didn't change, it might be a hold frame or baking failed to capture difference
-                                // Logger.trace(`[Bake] Frame ${i} (${layer.name}): No change detected.`);
+                                // Log that we captured data even if unchanged, to verify flow
+                                Logger.trace(`[Bake] Frame ${i} (${layer.name}): Baked (No change detected).`);
                             }
                         }
                     } catch (e) {
@@ -651,21 +651,41 @@ export class Converter {
                 // IMPORTANT: After Undo, we must assume all JSFL references (layer, frame, el) are stale/invalid.
                 // We must re-fetch them from the DOM to avoid crashes.
                 if (undoNeeded) {
-                    const freshTl = this._document.getTimeline();
-                    const freshLayer = freshTl.layers[layerIdx];
-                    const freshFrame = freshLayer.frames[i];
-                    if (freshFrame.elements.length > 0) {
-                        el = freshFrame.elements[0];
+                    try {
+                        Logger.trace(`[Bake] Re-fetching element for Frame ${i}...`);
+                        // Force refresh document reference if possible (cast to any to bypass read-only check in this critical recovery path)
+                        if (typeof fl !== 'undefined') {
+                            (this as any)._document = fl.getDocumentDOM();
+                        }
+                        
+                        const freshTl = this._document.getTimeline();
+                        const freshLayer = freshTl.layers[layerIdx];
+                        const freshFrame = freshLayer.frames[i];
+                        if (freshFrame && freshFrame.elements && freshFrame.elements.length > 0) {
+                            el = freshFrame.elements[0];
+                            Logger.trace(`[Bake] Element re-fetched successfully.`);
+                        } else {
+                            Logger.warning(`[Bake] Failed to re-fetch element (empty frame?).`);
+                        }
+                    } catch (err) {
+                        Logger.error(`[Bake] CRITICAL: Error re-fetching element: ${err}`);
                     }
                 }
 
                 if (!bakedData) {
+                    Logger.trace(`[Bake] No baked data. Attempting selection...`);
                     this._document.selectNone();
                     // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance
-                    el.selected = true;
-                    
-                    if (this._document.selection.length > 0) {
-                        el = this._document.selection[0];
+                    if (el) {
+                        try {
+                            el.selected = true;
+                            if (this._document.selection.length > 0) {
+                                el = this._document.selection[0];
+                            }
+                            Logger.trace(`[Bake] Selection successful.`);
+                        } catch (selErr) {
+                            Logger.error(`[Bake] Selection failed: ${selErr}`);
+                        }
                     }
                 }
                 
@@ -679,12 +699,29 @@ export class Converter {
             let finalMatrixOverride: FlashMatrix = null;
             let finalPositionOverride: {x:number, y:number} = null;
 
-            const sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
-            const sourceTransX = bakedData ? bakedData.transformX : el.transformX;
-            const sourceTransY = bakedData ? bakedData.transformY : el.transformY;
+            Logger.trace(`[Transform] Processing matrix... (Baked=${!!bakedData})`);
+            
+            // Safe access for source matrix
+            let sourceMatrix: FlashMatrix;
+            let sourceTransX: number;
+            let sourceTransY: number;
+            
+            try {
+                sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
+                sourceTransX = bakedData ? bakedData.transformX : el.transformX;
+                sourceTransY = bakedData ? bakedData.transformY : el.transformY;
+            } catch (matErr) {
+                Logger.error(`[Transform] CRITICAL: Failed to access matrix properties (el is ${el}): ${matErr}`);
+                throw matErr;
+            }
 
             // Debug Transform Point
-            const debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
+            let debugItem = '<unknown>';
+            try {
+                debugItem = (el && el.libraryItem) ? el.libraryItem.name : (el && el.name ? el.name : '');
+            } catch (nameErr) { 
+                Logger.warning(`[Transform] Failed to read element name: ${nameErr}`);
+            }
             const isDebugTarget = (debugItem.indexOf('skin_1') >= 0 && (debugItem.indexOf('weapon') >= 0 || debugItem.indexOf('torso') >= 0));
             if (isDebugTarget) {
                  Logger.trace(`[Transform] ${debugItem} F=${i}: Tx=${sourceMatrix.tx.toFixed(1)} Ty=${sourceMatrix.ty.toFixed(1)} Px=${sourceTransX.toFixed(1)} Py=${sourceTransY.toFixed(1)} Baked=${!!bakedData}`);
