@@ -87,68 +87,88 @@ const restoreSelection = (doc: FlashDocument, state: any): void => {
 };
 
 const run = () => {
-    const document = fl.getDocumentDOM();
-    if (!document) {
-        Logger.error('No document open.');
-        return;
-    }
-
-    if (!document.pathURI) {
-        Logger.error('Document must be saved before exporting.');
-        return;
-    }
-
-    // 1. Capture Selection & Context from Original
-    const selectionState = captureSelection(document);
-
-    // 2. Save Original (to ensure disk state matches memory)
-    fl.saveDocument(document);
-
-    // 3. Create Temp Path
-    const originalPath = document.pathURI;
-    const tempPath = originalPath.replace(/(\.fla|\.xfl)$/i, '_spine_temp$1');
-    const finalTempPath = (tempPath === originalPath) ? originalPath + '_spine_temp.fla' : tempPath;
-
-    // 4. Clone File
-    if (FLfile.exists(finalTempPath)) {
-        FLfile.remove(finalTempPath);
-    }
-    
-    if (!FLfile.copy(originalPath, finalTempPath)) {
-        Logger.error('Failed to create temporary export file: ' + finalTempPath);
-        return;
-    }
-
-    // 5. Open Temp File
-    const tempDoc = fl.openDocument(finalTempPath);
-    if (!tempDoc) {
-        Logger.error('Failed to open temporary export file.');
-        return;
-    }
-
-    // 6. Restore Selection in Temp File
-    restoreSelection(tempDoc, selectionState);
-
-    // 7. Run Conversion
-    const converter = new Converter(tempDoc, config);
-    const result = converter.convertSelection();
-
-    for (const skeleton of result) {
-        Logger.trace('Exporting skeleton: ' + skeleton.name + '...');
-
-        if (config.simplifyBonesAndSlots) {
-            SpineSkeletonHelper.simplifySkeletonNames(skeleton);
+    try {
+        const document = fl.getDocumentDOM();
+        if (!document) {
+            Logger.error('No document open.');
+            return;
         }
 
-        if (skeleton.bones.length > 0) {
-            const skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
-            FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
-            Logger.trace('Skeleton export completed.');
-        } else {
-            Logger.error('Nothing to export.');
+        if (!document.pathURI) {
+            Logger.error('Document must be saved before exporting.');
+            return;
         }
+
+        Logger.trace('Starting conversion...');
+
+        // 1. Capture Selection & Context from Original
+        const selectionState = captureSelection(document);
+        Logger.trace(`Captured selection: ${selectionState ? selectionState.targets.length : 0} items.`);
+
+        // 2. Save Original (to ensure disk state matches memory)
+        fl.saveDocument(document);
+
+        // 3. Create Temp Path
+        const originalPath = document.pathURI;
+        const tempPath = originalPath.replace(/(\.fla|\.xfl)$/i, '_spine_temp$1');
+        const finalTempPath = (tempPath === originalPath) ? originalPath + '_spine_temp.fla' : tempPath;
+
+        // 4. Clone File
+        if (FLfile.exists(finalTempPath)) {
+            FLfile.remove(finalTempPath);
+        }
+        
+        if (!FLfile.copy(originalPath, finalTempPath)) {
+            Logger.error('Failed to create temporary export file: ' + finalTempPath);
+            return;
+        }
+        Logger.trace('Created temp file: ' + finalTempPath);
+
+        // 5. Open Temp File
+        const tempDoc = fl.openDocument(finalTempPath);
+        if (!tempDoc) {
+            Logger.error('Failed to open temporary export file.');
+            return;
+        }
+        Logger.trace('Opened temp file.');
+
+        // 6. Restore Selection in Temp File
+        restoreSelection(tempDoc, selectionState);
+        Logger.trace('Restored selection.');
+
+        // 7. Run Conversion
+        const converter = new Converter(tempDoc, config);
+        const result = converter.convertSelection();
+
+        for (const skeleton of result) {
+            Logger.trace('Exporting skeleton: ' + skeleton.name + '...');
+
+            if (config.simplifyBonesAndSlots) {
+                SpineSkeletonHelper.simplifySkeletonNames(skeleton);
+            }
+
+            if (skeleton.bones.length > 0) {
+                const skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
+                FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
+                Logger.trace('Skeleton export completed: ' + skeletonPath);
+            } else {
+                Logger.error('Nothing to export.');
+            }
+        }
+        
+        // Close temp doc without saving to keep it clean (or save it for debug?)
+        // fl.closeDocument(tempDoc, false); 
+        // We leave it open for user inspection as per instructions "so the archive/scene we modify is a scrap one"
+        
+        Logger.trace('Conversion finished successfully.');
+
+    } catch (e) {
+        Logger.error('CRITICAL ERROR during execution:');
+        Logger.error((e as any).toString());
+        if ((e as any).stack) Logger.error((e as any).stack);
+    } finally {
+        Logger.flush();
     }
 };
 
 run();
-Logger.flush();

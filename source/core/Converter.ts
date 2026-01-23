@@ -602,30 +602,34 @@ export class Converter {
                         // We should check if we can access the native object or if there's another way.
                         // If we can't undo, we MUST NOT bake destructively. 
                         
-                        // TEMPORARY FIX: Assume 'fl.getDocumentDOM().undo()' is what we need, but we can't call 'fl' directly here easily.
-                        // Actually, if this._document is an xJSFL wrapper or similar, we might need to find the right method.
-                        // Let's try to access the global 'fl' object if it exists in the scope (it usually does in JSFL env).
-                        
+                        // TEMPORARY FIX: Try to find 'undo' on document or global 'fl'
+                        let undoSuccess = false;
                         try {
-                            (this._document as any).undo(); 
-                        } catch (e) {
-                        // If direct call fails, try the global 'fl' object which is available in JSFL runtime
-                        // We use 'eval' or similar to bypass TS checks for the global 'fl'
-                        // eslint-disable-next-line no-eval
-                        // eval("fl.getDocumentDOM().undo()");
-                        // Or safer:
-                        if (typeof (global as any).fl !== 'undefined') {
+                            if (typeof (this._document as any).undo === 'function') {
+                                (this._document as any).undo();
+                                undoSuccess = true;
+                            }
+                        } catch (e) { /* ignore */ }
+
+                        if (!undoSuccess) {
                             try {
-                                (global as any).fl.getDocumentDOM().undo();
-                                Logger.trace(`[Bake] Undo successful via global fl.`);
+                                // @ts-ignore
+                                if (typeof fl !== 'undefined' && fl.getDocumentDOM) {
+                                    // @ts-ignore
+                                    fl.getDocumentDOM().undo();
+                                    undoSuccess = true;
+                                    Logger.trace(`[Bake] Undo successful via global fl.`);
+                                }
                             } catch (e2) {
                                 Logger.error(`[Converter] Global Undo failed: ${e2}`);
                             }
-                        } else {
-                            Logger.error(`[Converter] CRITICAL: Cannot Undo bake! Document structure compromised.`);
+                        }
+                        
+                        if (!undoSuccess) {
+                             Logger.error(`[Converter] CRITICAL: Cannot Undo bake! Document structure compromised.`);
+                             Logger.flush();
                         }
                     }
-                }
                 
                 if (!bakedData) {
                     this._document.selectNone();

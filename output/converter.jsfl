@@ -533,30 +533,32 @@ var Converter = /** @class */ (function () {
                         // It implies _document is NOT the native DOM object but a wrapper class that lacks this method.
                         // We should check if we can access the native object or if there's another way.
                         // If we can't undo, we MUST NOT bake destructively. 
-                        // TEMPORARY FIX: Assume 'fl.getDocumentDOM().undo()' is what we need, but we can't call 'fl' directly here easily.
-                        // Actually, if this._document is an xJSFL wrapper or similar, we might need to find the right method.
-                        // Let's try to access the global 'fl' object if it exists in the scope (it usually does in JSFL env).
+                        // TEMPORARY FIX: Try to find 'undo' on document or global 'fl'
+                        var undoSuccess = false;
                         try {
-                            this._document.undo();
+                            if (typeof this._document.undo === 'function') {
+                                this._document.undo();
+                                undoSuccess = true;
+                            }
                         }
-                        catch (e) {
-                            // If direct call fails, try the global 'fl' object which is available in JSFL runtime
-                            // We use 'eval' or similar to bypass TS checks for the global 'fl'
-                            // eslint-disable-next-line no-eval
-                            // eval("fl.getDocumentDOM().undo()");
-                            // Or safer:
-                            if (typeof __webpack_require__.g.fl !== 'undefined') {
-                                try {
-                                    __webpack_require__.g.fl.getDocumentDOM().undo();
+                        catch (e) { /* ignore */ }
+                        if (!undoSuccess) {
+                            try {
+                                // @ts-ignore
+                                if (typeof fl !== 'undefined' && fl.getDocumentDOM) {
+                                    // @ts-ignore
+                                    fl.getDocumentDOM().undo();
+                                    undoSuccess = true;
                                     Logger_1.Logger.trace("[Bake] Undo successful via global fl.");
                                 }
-                                catch (e2) {
-                                    Logger_1.Logger.error("[Converter] Global Undo failed: ".concat(e2));
-                                }
                             }
-                            else {
-                                Logger_1.Logger.error("[Converter] CRITICAL: Cannot Undo bake! Document structure compromised.");
+                            catch (e2) {
+                                Logger_1.Logger.error("[Converter] Global Undo failed: ".concat(e2));
                             }
+                        }
+                        if (!undoSuccess) {
+                            Logger_1.Logger.error("[Converter] CRITICAL: Cannot Undo bake! Document structure compromised.");
+                            Logger_1.Logger.flush();
                         }
                     }
                     if (!bakedData) {
@@ -4359,19 +4361,6 @@ exports.StringUtil = StringUtil;
 /******/ 	}
 /******/ 	
 /************************************************************************/
-/******/ 	/* webpack/runtime/global */
-/******/ 	!function() {
-/******/ 		__webpack_require__.g = (function() {
-/******/ 			if (typeof globalThis === 'object') return globalThis;
-/******/ 			try {
-/******/ 				return this || new Function('return this')();
-/******/ 			} catch (e) {
-/******/ 				if (typeof window === 'object') return window;
-/******/ 			}
-/******/ 		})();
-/******/ 	}();
-/******/ 	
-/************************************************************************/
 var __webpack_exports__ = {};
 // This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
 !function() {
@@ -4460,60 +4449,79 @@ var restoreSelection = function (doc, state) {
     }
 };
 var run = function () {
-    var document = fl.getDocumentDOM();
-    if (!document) {
-        Logger_1.Logger.error('No document open.');
-        return;
-    }
-    if (!document.pathURI) {
-        Logger_1.Logger.error('Document must be saved before exporting.');
-        return;
-    }
-    // 1. Capture Selection & Context from Original
-    var selectionState = captureSelection(document);
-    // 2. Save Original (to ensure disk state matches memory)
-    fl.saveDocument(document);
-    // 3. Create Temp Path
-    var originalPath = document.pathURI;
-    var tempPath = originalPath.replace(/(\.fla|\.xfl)$/i, '_spine_temp$1');
-    var finalTempPath = (tempPath === originalPath) ? originalPath + '_spine_temp.fla' : tempPath;
-    // 4. Clone File
-    if (FLfile.exists(finalTempPath)) {
-        FLfile.remove(finalTempPath);
-    }
-    if (!FLfile.copy(originalPath, finalTempPath)) {
-        Logger_1.Logger.error('Failed to create temporary export file: ' + finalTempPath);
-        return;
-    }
-    // 5. Open Temp File
-    var tempDoc = fl.openDocument(finalTempPath);
-    if (!tempDoc) {
-        Logger_1.Logger.error('Failed to open temporary export file.');
-        return;
-    }
-    // 6. Restore Selection in Temp File
-    restoreSelection(tempDoc, selectionState);
-    // 7. Run Conversion
-    var converter = new Converter_1.Converter(tempDoc, config);
-    var result = converter.convertSelection();
-    for (var _i = 0, result_1 = result; _i < result_1.length; _i++) {
-        var skeleton = result_1[_i];
-        Logger_1.Logger.trace('Exporting skeleton: ' + skeleton.name + '...');
-        if (config.simplifyBonesAndSlots) {
-            SpineSkeletonHelper_1.SpineSkeletonHelper.simplifySkeletonNames(skeleton);
+    try {
+        var document = fl.getDocumentDOM();
+        if (!document) {
+            Logger_1.Logger.error('No document open.');
+            return;
         }
-        if (skeleton.bones.length > 0) {
-            var skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
-            FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
-            Logger_1.Logger.trace('Skeleton export completed.');
+        if (!document.pathURI) {
+            Logger_1.Logger.error('Document must be saved before exporting.');
+            return;
         }
-        else {
-            Logger_1.Logger.error('Nothing to export.');
+        Logger_1.Logger.trace('Starting conversion...');
+        // 1. Capture Selection & Context from Original
+        var selectionState = captureSelection(document);
+        Logger_1.Logger.trace("Captured selection: ".concat(selectionState ? selectionState.targets.length : 0, " items."));
+        // 2. Save Original (to ensure disk state matches memory)
+        fl.saveDocument(document);
+        // 3. Create Temp Path
+        var originalPath = document.pathURI;
+        var tempPath = originalPath.replace(/(\.fla|\.xfl)$/i, '_spine_temp$1');
+        var finalTempPath = (tempPath === originalPath) ? originalPath + '_spine_temp.fla' : tempPath;
+        // 4. Clone File
+        if (FLfile.exists(finalTempPath)) {
+            FLfile.remove(finalTempPath);
         }
+        if (!FLfile.copy(originalPath, finalTempPath)) {
+            Logger_1.Logger.error('Failed to create temporary export file: ' + finalTempPath);
+            return;
+        }
+        Logger_1.Logger.trace('Created temp file: ' + finalTempPath);
+        // 5. Open Temp File
+        var tempDoc = fl.openDocument(finalTempPath);
+        if (!tempDoc) {
+            Logger_1.Logger.error('Failed to open temporary export file.');
+            return;
+        }
+        Logger_1.Logger.trace('Opened temp file.');
+        // 6. Restore Selection in Temp File
+        restoreSelection(tempDoc, selectionState);
+        Logger_1.Logger.trace('Restored selection.');
+        // 7. Run Conversion
+        var converter = new Converter_1.Converter(tempDoc, config);
+        var result = converter.convertSelection();
+        for (var _i = 0, result_1 = result; _i < result_1.length; _i++) {
+            var skeleton = result_1[_i];
+            Logger_1.Logger.trace('Exporting skeleton: ' + skeleton.name + '...');
+            if (config.simplifyBonesAndSlots) {
+                SpineSkeletonHelper_1.SpineSkeletonHelper.simplifySkeletonNames(skeleton);
+            }
+            if (skeleton.bones.length > 0) {
+                var skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
+                FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
+                Logger_1.Logger.trace('Skeleton export completed: ' + skeletonPath);
+            }
+            else {
+                Logger_1.Logger.error('Nothing to export.');
+            }
+        }
+        // Close temp doc without saving to keep it clean (or save it for debug?)
+        // fl.closeDocument(tempDoc, false); 
+        // We leave it open for user inspection as per instructions "so the archive/scene we modify is a scrap one"
+        Logger_1.Logger.trace('Conversion finished successfully.');
+    }
+    catch (e) {
+        Logger_1.Logger.error('CRITICAL ERROR during execution:');
+        Logger_1.Logger.error(e.toString());
+        if (e.stack)
+            Logger_1.Logger.error(e.stack);
+    }
+    finally {
+        Logger_1.Logger.flush();
     }
 };
 run();
-Logger_1.Logger.flush();
 
 }();
 /******/ })()
