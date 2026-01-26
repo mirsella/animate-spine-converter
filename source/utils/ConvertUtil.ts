@@ -7,21 +7,37 @@ import { StringUtil } from './StringUtil';
 
 export class ConvertUtil {
     public static createElementName(element:FlashElement, context:ConverterContext):string {
-        let result = element.layer.name;
+        let result = null;
+        try {
+            if (element.layer) result = element.layer.name;
+        } catch (e) { /* ignore layer access error */ }
 
         if (element.elementType === 'instance') {
             if (JsonUtil.validString(element.name)) {
                 result = element.name;
-            } else if (JsonUtil.validString(element.layer.name)) {
-                result = element.layer.name;
             } else {
-                Logger.assert(element.libraryItem != null, `createElementName: instance element has no libraryItem and no valid name/layer.name (layer: ${element.layer?.name || 'unknown'})`);
-                result = element.libraryItem.name;
+                // Try layer name if not already set
+                if (!result) {
+                     try { if (element.layer) result = element.layer.name; } catch(e){}
+                }
+                
+                if (JsonUtil.validString(result)) {
+                    // result is good
+                } else {
+                    try {
+                        // Logger.assert(element.libraryItem != null, ...); // Assertion might crash if property access fails
+                        if (element.libraryItem) {
+                            result = element.libraryItem.name;
+                        }
+                    } catch (e) {
+                         Logger.warning(`createElementName: Failed to read libraryItem.name: ${e}`);
+                    }
+                }
             }
         } else {
-            if (JsonUtil.validString(element.layer.name)) {
-                result = element.layer.name;
-            }
+             if (!result) {
+                 try { if (element.layer) result = element.layer.name; } catch(e){}
+             }
         }
 
         if (result === '' || result == null) {

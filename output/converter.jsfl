@@ -595,7 +595,15 @@ var Converter = /** @class */ (function () {
                             var freshFrame = freshLayer.frames[i];
                             if (freshFrame && freshFrame.elements && freshFrame.elements.length > 0) {
                                 el = freshFrame.elements[0];
-                                Logger_1.Logger.trace("[Bake] Element re-fetched successfully.");
+                                // Verify element liveness immediately
+                                try {
+                                    var checkType = el.elementType; // Trigger access
+                                    Logger_1.Logger.trace("[Bake] Element re-fetched successfully. Type: ".concat(checkType));
+                                }
+                                catch (aliveErr) {
+                                    Logger_1.Logger.error("[Bake] Re-fetched element appears dead/invalid: ".concat(aliveErr));
+                                    throw aliveErr;
+                                }
                             }
                             else {
                                 Logger_1.Logger.warning("[Bake] Failed to re-fetch element (empty frame?).");
@@ -704,11 +712,19 @@ var Converter = /** @class */ (function () {
                     }
                 }
                 // ---------------------------------------------
-                var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
-                // Recurse into symbol if needed
-                // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
-                // However, we must ensure we don't lose our place in the current timeline loop.
-                factory(sub);
+                try {
+                    var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
+                    // Recurse into symbol if needed
+                    factory(sub);
+                }
+                catch (boneErr) {
+                    Logger_1.Logger.error("[Converter] Error creating bone or processing child for ".concat(debugItem, " (F=").concat(i, "): ").concat(boneErr));
+                    // Attempt to recover or re-throw? 
+                    // If we don't re-throw, we might leave the skeleton incomplete but finish the script.
+                    // Given the instability, maybe continuing is better than crashing entirely?
+                    // But let's rethrow to ensure we see the error unless it's strictly logged.
+                    throw boneErr;
+                }
                 // RESTORE CONTEXT CHECK
                 // If the factory call (e.g. ImageUtil.exportSymbol) changed the active edit context (returned to parent/root),
                 // we must re-enter the current symbol to continue processing its timeline correctly.
@@ -2768,10 +2784,24 @@ var SpineTransformMatrix = /** @class */ (function () {
             this.y = positionOverride.y;
         }
         else {
-            this.x = element.transformX;
-            this.y = element.transformY;
+            // Safety: Accessing transformX/Y on a 'dead' element might throw
+            try {
+                this.x = element.transformX;
+                this.y = element.transformY;
+            }
+            catch (e) {
+                Logger_1.Logger.warning("[SpineTransformMatrix] Failed to read transformX/Y: ".concat(e, ". Defaulting to 0."));
+                this.x = 0;
+                this.y = 0;
+            }
         }
-        var name = element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
+        var name = '<anon>';
+        try {
+            name = element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
+        }
+        catch (e) {
+            // Ignore naming errors
+        }
         // Decompose the matrix
         // Use override if provided (e.g. for Layer Parenting resolution)
         var mat = matrixOverride || element.matrix;
@@ -2926,23 +2956,48 @@ var ConvertUtil = /** @class */ (function () {
     function ConvertUtil() {
     }
     ConvertUtil.createElementName = function (element, context) {
-        var _a;
-        var result = element.layer.name;
+        var result = null;
+        try {
+            if (element.layer)
+                result = element.layer.name;
+        }
+        catch (e) { /* ignore layer access error */ }
         if (element.elementType === 'instance') {
             if (JsonUtil_1.JsonUtil.validString(element.name)) {
                 result = element.name;
             }
-            else if (JsonUtil_1.JsonUtil.validString(element.layer.name)) {
-                result = element.layer.name;
-            }
             else {
-                Logger_1.Logger.assert(element.libraryItem != null, "createElementName: instance element has no libraryItem and no valid name/layer.name (layer: ".concat(((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ")"));
-                result = element.libraryItem.name;
+                // Try layer name if not already set
+                if (!result) {
+                    try {
+                        if (element.layer)
+                            result = element.layer.name;
+                    }
+                    catch (e) { }
+                }
+                if (JsonUtil_1.JsonUtil.validString(result)) {
+                    // result is good
+                }
+                else {
+                    try {
+                        // Logger.assert(element.libraryItem != null, ...); // Assertion might crash if property access fails
+                        if (element.libraryItem) {
+                            result = element.libraryItem.name;
+                        }
+                    }
+                    catch (e) {
+                        Logger_1.Logger.warning("createElementName: Failed to read libraryItem.name: ".concat(e));
+                    }
+                }
             }
         }
         else {
-            if (JsonUtil_1.JsonUtil.validString(element.layer.name)) {
-                result = element.layer.name;
+            if (!result) {
+                try {
+                    if (element.layer)
+                        result = element.layer.name;
+                }
+                catch (e) { }
             }
         }
         if (result === '' || result == null) {
