@@ -19,11 +19,23 @@ export class SpineTransformMatrix implements SpineTransform {
             this.x = positionOverride.x;
             this.y = positionOverride.y;
         } else {
-            this.x = element.transformX;
-            this.y = element.transformY;
+            // Safety: Accessing transformX/Y on a 'dead' element might throw
+            try {
+                this.x = element.transformX;
+                this.y = element.transformY;
+            } catch (e) {
+                Logger.warning(`[SpineTransformMatrix] Failed to read transformX/Y: ${e}. Defaulting to 0.`);
+                this.x = 0;
+                this.y = 0;
+            }
         }
 
-        const name = element.name || element.libraryItem?.name || '<anon>';
+        let name = '<anon>';
+        try {
+            name = element.name || element.libraryItem?.name || '<anon>';
+        } catch (e) {
+            // Ignore naming errors
+        }
 
         // Decompose the matrix
         // Use override if provided (e.g. for Layer Parenting resolution)

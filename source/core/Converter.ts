@@ -566,15 +566,18 @@ export class Converter {
                         const freshFrame = freshLayer.frames[i];
                         if (freshFrame.elements.length > 0) {
                             const bakedEl = freshFrame.elements[0];
+                            const m = bakedEl.matrix;
+                            // IMPORTANT: Clone the matrix values! 
+                            // JSFL references to matrix objects often become invalid after undo().
                             bakedData = {
-                                matrix: bakedEl.matrix,
+                                matrix: { a: m.a, b: m.b, c: m.c, d: m.d, tx: m.tx, ty: m.ty },
                                 transformX: bakedEl.transformX,
                                 transformY: bakedEl.transformY
                             };
 
                             // Debug: Compare
-                            const postBakeTx = bakedEl.matrix.tx;
-                            const postBakeRot = Math.atan2(bakedEl.matrix.b, bakedEl.matrix.a) * 180 / Math.PI;
+                            const postBakeTx = bakedData.matrix.tx;
+                            const postBakeRot = Math.atan2(bakedData.matrix.b, bakedData.matrix.a) * 180 / Math.PI;
                             
                             const hasChanged = Math.abs(postBakeTx - preBakeTx) > 0.01 || Math.abs(postBakeRot - preBakeRot) > 0.01;
                             
@@ -663,7 +666,14 @@ export class Converter {
                         const freshFrame = freshLayer.frames[i];
                         if (freshFrame && freshFrame.elements && freshFrame.elements.length > 0) {
                             el = freshFrame.elements[0];
-                            Logger.trace(`[Bake] Element re-fetched successfully.`);
+                            // Verify element liveness immediately
+                            try {
+                                const checkType = el.elementType; // Trigger access
+                                Logger.trace(`[Bake] Element re-fetched successfully. Type: ${checkType}`);
+                            } catch (aliveErr) {
+                                Logger.error(`[Bake] Re-fetched element appears dead/invalid: ${aliveErr}`);
+                                throw aliveErr;
+                            }
                         } else {
                             Logger.warning(`[Bake] Failed to re-fetch element (empty frame?).`);
                         }
@@ -780,12 +790,19 @@ export class Converter {
             }
             // ---------------------------------------------
 
-            const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
-            
-            // Recurse into symbol if needed
-            // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
-            // However, we must ensure we don't lose our place in the current timeline loop.
-            factory(sub);
+            try {
+                const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
+                
+                // Recurse into symbol if needed
+                factory(sub);
+            } catch (boneErr) {
+                Logger.error(`[Converter] Error creating bone or processing child for ${debugItem} (F=${i}): ${boneErr}`);
+                // Attempt to recover or re-throw? 
+                // If we don't re-throw, we might leave the skeleton incomplete but finish the script.
+                // Given the instability, maybe continuing is better than crashing entirely?
+                // But let's rethrow to ensure we see the error unless it's strictly logged.
+                throw boneErr;
+            }
             
             // RESTORE CONTEXT CHECK
             // If the factory call (e.g. ImageUtil.exportSymbol) changed the active edit context (returned to parent/root),

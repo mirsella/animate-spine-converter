@@ -501,14 +501,17 @@ var Converter = /** @class */ (function () {
                         var freshFrame = freshLayer.frames[i];
                         if (freshFrame.elements.length > 0) {
                             var bakedEl = freshFrame.elements[0];
+                            var m = bakedEl.matrix;
+                            // IMPORTANT: Clone the matrix values! 
+                            // JSFL references to matrix objects often become invalid after undo().
                             bakedData = {
-                                matrix: bakedEl.matrix,
+                                matrix: { a: m.a, b: m.b, c: m.c, d: m.d, tx: m.tx, ty: m.ty },
                                 transformX: bakedEl.transformX,
                                 transformY: bakedEl.transformY
                             };
                             // Debug: Compare
-                            var postBakeTx = bakedEl.matrix.tx;
-                            var postBakeRot = Math.atan2(bakedEl.matrix.b, bakedEl.matrix.a) * 180 / Math.PI;
+                            var postBakeTx = bakedData.matrix.tx;
+                            var postBakeRot = Math.atan2(bakedData.matrix.b, bakedData.matrix.a) * 180 / Math.PI;
                             var hasChanged = Math.abs(postBakeTx - preBakeTx) > 0.01 || Math.abs(postBakeRot - preBakeRot) > 0.01;
                             if (hasChanged) {
                                 Logger_1.Logger.trace("[Bake] Frame ".concat(i, " (").concat(layer.name, "): Interpolation Captured! Tx: ").concat(preBakeTx.toFixed(1), "->").concat(postBakeTx.toFixed(1), ", Rot: ").concat(preBakeRot.toFixed(1), "->").concat(postBakeRot.toFixed(1)));
