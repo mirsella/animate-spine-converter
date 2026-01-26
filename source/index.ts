@@ -6,6 +6,8 @@ import { SpineSkeletonHelper } from './spine/SpineSkeletonHelper';
 
 //-----------------------------------
 
+fl.showIdleMessage(false);
+
 const config:ConverterConfig = {
     outputFormat: new SpineFormatV4_2_00(),
     imagesExportPath: './images/',

@@ -4258,6 +4258,7 @@ var Logger_1 = __webpack_require__(/*! ./logger/Logger */ "./source/logger/Logge
 var SpineFormatV4_2_00_1 = __webpack_require__(/*! ./spine/formats/SpineFormatV4_2_00 */ "./source/spine/formats/SpineFormatV4_2_00.ts");
 var SpineSkeletonHelper_1 = __webpack_require__(/*! ./spine/SpineSkeletonHelper */ "./source/spine/SpineSkeletonHelper.ts");
 //-----------------------------------
+fl.showIdleMessage(false);
 var config = {
     outputFormat: new SpineFormatV4_2_00_1.SpineFormatV4_2_00(),
     imagesExportPath: './images/',
