@@ -511,39 +511,31 @@ var Converter = /** @class */ (function () {
                         Logger_1.Logger.warning("[Converter] Bake failed for frame ".concat(i, " (").concat(layer.name, "): ").concat(e));
                     }
                     if (undoNeeded) {
-                        // JSFL 'undo' is inconsistent in some contexts (e.g. inside a loop or when editItem is active).
-                        // However, 'document.undo()' is the standard call. The error suggests 'this._document.undo' is not a function.
-                        // This likely means _document is wrapped or typed incorrectly at runtime, OR we are in a context where 'undo' isn't exposed on the wrapper.
-                        // Let's try the global 'fl.getDocumentDOM().undo()' via strict JSFL execution string if available, 
-                        // or cast to any and try accessing the global FLfile/fl object if possible (not standard in TS wrapper).
-                        // Fallback: The wrapper MIGHT expose it as 'undo()' directly if it's a FlashDocument wrapper.
-                        // BUT, looking at the error: "this._document.undo is not a function"
-                        // It implies _document is NOT the native DOM object but a wrapper class that lacks this method.
-                        // We should check if we can access the native object or if there's another way.
-                        // If we can't undo, we MUST NOT bake destructively. 
-                        // TEMPORARY FIX: Assume 'fl.getDocumentDOM().undo()' is what we need, but we can't call 'fl' directly here easily.
-                        // Actually, if this._document is an xJSFL wrapper or similar, we might need to find the right method.
-                        // Let's try to access the global 'fl' object if it exists in the scope (it usually does in JSFL env).
                         try {
+                            // Attempt 1: Standard Document Undo (via Wrapper)
                             this._document.undo();
                         }
                         catch (e) {
-                            // If direct call fails, try the global 'fl' object which is available in JSFL runtime
-                            // We use 'eval' or similar to bypass TS checks for the global 'fl'
-                            // eslint-disable-next-line no-eval
-                            // eval("fl.getDocumentDOM().undo()");
-                            // Or safer:
-                            if (typeof __webpack_require__.g.fl !== 'undefined') {
-                                try {
-                                    __webpack_require__.g.fl.getDocumentDOM().undo();
-                                    Logger_1.Logger.trace("[Bake] Undo successful via global fl.");
+                            // Attempt 2: Global FL Object (Direct Access)
+                            try {
+                                var fl_1 = __webpack_require__.g.fl;
+                                if (fl_1) {
+                                    fl_1.undo(); // Global undo
                                 }
-                                catch (e2) {
-                                    Logger_1.Logger.error("[Converter] Global Undo failed: ".concat(e2));
+                                else {
+                                    throw new Error("Global 'fl' not found");
                                 }
                             }
-                            else {
-                                Logger_1.Logger.error("[Converter] CRITICAL: Cannot Undo bake! Document structure compromised.");
+                            catch (e2) {
+                                // Attempt 3: Eval (Webpack/Scope Bypass) - Last Resort
+                                try {
+                                    /* eslint-disable no-eval */
+                                    // @ts-ignore
+                                    eval("fl.getDocumentDOM().undo();");
+                                }
+                                catch (e3) {
+                                    Logger_1.Logger.error("[Converter] CRITICAL: Cannot Undo bake! Document structure compromised. Error: ".concat(e3));
+                                }
                             }
                         }
                     }
