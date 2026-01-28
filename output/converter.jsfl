@@ -350,10 +350,49 @@ var Converter = /** @class */ (function () {
             start = label.startFrameIdx;
             end = label.endFrameIdx;
         }
+        else if (context.parent != null && stageType === "animation" /* ConverterStageType.ANIMATION */) {
+            // NESTED ANIMATION SUPPORT (FLATTENING)
+            // Instead of exporting the entire child timeline for every parent frame,
+            // we calculate the EXACT frame of the child that corresponds to the parent's current time.
+            var instance = context.element;
+            var tl = instance.libraryItem.timeline;
+            // Calculate Current Global Frame (Absolute Index in Root Timeline)
+            var animationStartFrame = label ? label.startFrameIdx : 0;
+            // Use Math.round to avoid floating point drift from time division
+            var currentAbsFrame = animationStartFrame + Math.round(context.time * frameRate);
+            // Calculate how many frames have elapsed since this instance's keyframe started
+            var parentKeyframeStart = context.parent.frame.startFrame;
+            var frameOffset = Math.max(0, currentAbsFrame - parentKeyframeStart);
+            var firstFrame = instance.firstFrame || 0;
+            var loopMode = instance.loop || 'loop'; // 'loop', 'play once', 'single frame'
+            var tlFrameCount = tl.frameCount;
+            var targetFrame = 0;
+            if (loopMode === 'single frame') {
+                targetFrame = firstFrame;
+            }
+            else if (loopMode === 'play once') {
+                targetFrame = firstFrame + frameOffset;
+                if (targetFrame >= tlFrameCount)
+                    targetFrame = tlFrameCount - 1;
+            }
+            else { // loop
+                targetFrame = (firstFrame + frameOffset) % tlFrameCount;
+            }
+            // Restrict the loop to ONLY this frame
+            start = targetFrame;
+            end = targetFrame;
+        }
         for (var i = start; i <= end; i++) {
+            // Safety check for targetFrame out of bounds (e.g. if layer is shorter than timeline)
+            if (i >= layer.frames.length)
+                continue;
             var frame = layer.frames[i];
             if (!frame)
                 continue;
+            // Time calculation:
+            // If Root: time = (i - start) / frameRate.
+            // If Nested: start = targetFrame. i = targetFrame. time = 0.
+            // This ensures keys are exported at 'context.time' (Parent Time + 0).
             var time = (i - start) / frameRate;
             // Export events from comments
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
