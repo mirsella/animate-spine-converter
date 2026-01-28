@@ -476,14 +476,14 @@ var Converter = /** @class */ (function () {
                     // FORCE BAKING via Keyframe Conversion (Fix for Motion Tweens)
                     // Motion Tweens often report static matrices for the 'base' element.
                     // By converting the specific frame to a keyframe, we force Animate to bake the interpolation.
-                    var undoNeeded = false;
+                    // Note: Since we are running on a temporary file, we do NOT undo this operation.
+                    // This destructively converts the temporary timeline to keyframes, which is fine and faster.
                     // Debug: Capture pre-bake state to verify if baking actually changes values
                     var preBakeTx = el.matrix.tx;
                     var preBakeTy = el.matrix.ty;
                     var preBakeRot = Math.atan2(el.matrix.b, el.matrix.a) * 180 / Math.PI;
                     try {
                         timeline.convertToKeyframes();
-                        undoNeeded = true;
                         // Re-fetch element from the new keyframe
                         var freshLayer = timeline.layers[layerIdx];
                         var freshFrame = freshLayer.frames[i];
@@ -509,38 +509,6 @@ var Converter = /** @class */ (function () {
                     }
                     catch (e) {
                         Logger_1.Logger.warning("[Converter] Bake failed for frame ".concat(i, " (").concat(layer.name, "): ").concat(e));
-                    }
-                    if (undoNeeded) {
-                        try {
-                            // Attempt 1: Standard Document Undo (via Wrapper)
-                            this._document.undo();
-                            Logger_1.Logger.trace("[Converter] Bake Undo successful (Method 1) at frame ".concat(i));
-                        }
-                        catch (e) {
-                            // Attempt 2: Global FL Object (Direct Access)
-                            try {
-                                var fl_1 = __webpack_require__.g.fl;
-                                if (fl_1) {
-                                    fl_1.undo(); // Global undo
-                                    Logger_1.Logger.trace("[Converter] Bake Undo successful (Method 2) at frame ".concat(i));
-                                }
-                                else {
-                                    throw new Error("Global 'fl' not found");
-                                }
-                            }
-                            catch (e2) {
-                                // Attempt 3: Eval (Webpack/Scope Bypass) - Last Resort
-                                try {
-                                    /* eslint-disable no-eval */
-                                    // @ts-ignore
-                                    eval("fl.getDocumentDOM().undo();");
-                                    Logger_1.Logger.trace("[Converter] Bake Undo successful (Method 3) at frame ".concat(i));
-                                }
-                                catch (e3) {
-                                    Logger_1.Logger.error("[Converter] CRITICAL: Cannot Undo bake! Document structure compromised. Error: ".concat(e3));
-                                }
-                            }
-                        }
                     }
                     if (!bakedData) {
                         this._document.selectNone();
@@ -4223,19 +4191,6 @@ exports.StringUtil = StringUtil;
 /******/ 		// Return the exports of the module
 /******/ 		return module.exports;
 /******/ 	}
-/******/ 	
-/************************************************************************/
-/******/ 	/* webpack/runtime/global */
-/******/ 	!function() {
-/******/ 		__webpack_require__.g = (function() {
-/******/ 			if (typeof globalThis === 'object') return globalThis;
-/******/ 			try {
-/******/ 				return this || new Function('return this')();
-/******/ 			} catch (e) {
-/******/ 				if (typeof window === 'object') return window;
-/******/ 			}
-/******/ 		})();
-/******/ 	}();
 /******/ 	
 /************************************************************************/
 var __webpack_exports__ = {};

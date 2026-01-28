@@ -537,7 +537,8 @@ export class Converter {
                     // FORCE BAKING via Keyframe Conversion (Fix for Motion Tweens)
                     // Motion Tweens often report static matrices for the 'base' element.
                     // By converting the specific frame to a keyframe, we force Animate to bake the interpolation.
-                    let undoNeeded = false;
+                    // Note: Since we are running on a temporary file, we do NOT undo this operation.
+                    // This destructively converts the temporary timeline to keyframes, which is fine and faster.
                     
                     // Debug: Capture pre-bake state to verify if baking actually changes values
                     const preBakeTx = el.matrix.tx;
@@ -546,7 +547,6 @@ export class Converter {
 
                     try {
                         timeline.convertToKeyframes();
-                        undoNeeded = true;
                         
                         // Re-fetch element from the new keyframe
                         const freshLayer = timeline.layers[layerIdx];
@@ -575,35 +575,6 @@ export class Converter {
                     } catch (e) {
                          Logger.warning(`[Converter] Bake failed for frame ${i} (${layer.name}): ${e}`);
                     }
-
-                    if (undoNeeded) {
-                        try {
-                            // Attempt 1: Standard Document Undo (via Wrapper)
-                            (this._document as any).undo(); 
-                            Logger.trace(`[Converter] Bake Undo successful (Method 1) at frame ${i}`);
-                        } catch (e) {
-                            // Attempt 2: Global FL Object (Direct Access)
-                            try {
-                                const fl = (global as any).fl;
-                                if (fl) {
-                                    fl.undo(); // Global undo
-                                    Logger.trace(`[Converter] Bake Undo successful (Method 2) at frame ${i}`);
-                                } else {
-                                    throw new Error("Global 'fl' not found");
-                                }
-                            } catch (e2) {
-                                // Attempt 3: Eval (Webpack/Scope Bypass) - Last Resort
-                                try {
-                                    /* eslint-disable no-eval */
-                                    // @ts-ignore
-                                    eval("fl.getDocumentDOM().undo();");
-                                    Logger.trace(`[Converter] Bake Undo successful (Method 3) at frame ${i}`);
-                                } catch (e3) {
-                                     Logger.error(`[Converter] CRITICAL: Cannot Undo bake! Document structure compromised. Error: ${e3}`);
-                                }
-                            }
-                        }
-                }
                 
                 if (!bakedData) {
                     this._document.selectNone();
