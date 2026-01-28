@@ -4240,7 +4240,61 @@ var config = {
     exportImages: true,
     mergeImages: true
 };
-//-----------------------------------
+var getSelectionPaths = function (doc) {
+    var paths = [];
+    var timeline = doc.getTimeline();
+    // Default to frame 0 if undefined, though it should be defined
+    var currentFrame = timeline.currentFrame || 0;
+    var layers = timeline.layers;
+    for (var l = 0; l < layers.length; l++) {
+        var layer = layers[l];
+        // Get the frame object active at the current playhead
+        // layers[i].frames[j] returns the frame object starting at or before j
+        var frame = layer.frames[currentFrame];
+        if (!frame)
+            continue;
+        // Check elements on this frame
+        if (frame.elements) {
+            for (var e = 0; e < frame.elements.length; e++) {
+                if (frame.elements[e].selected) {
+                    paths.push({
+                        layerIndex: l,
+                        frameIndex: currentFrame,
+                        elementIndex: e
+                    });
+                }
+            }
+        }
+    }
+    return { paths: paths, currentFrame: currentFrame };
+};
+var applySelectionPaths = function (doc, data) {
+    var timeline = doc.getTimeline();
+    // 1. Restore Playhead
+    timeline.currentFrame = data.currentFrame;
+    // 2. Clear current selection to be safe
+    doc.selectNone();
+    var layers = timeline.layers;
+    var newSelection = [];
+    // 3. Find and select elements
+    for (var _i = 0, _a = data.paths; _i < _a.length; _i++) {
+        var path = _a[_i];
+        if (path.layerIndex >= layers.length)
+            continue;
+        var layer = layers[path.layerIndex];
+        var frame = layer.frames[data.currentFrame];
+        // Ensure we are targeting the same relative element index
+        if (frame && frame.elements && path.elementIndex < frame.elements.length) {
+            var el = frame.elements[path.elementIndex];
+            el.selected = true; // Mark as selected
+            newSelection.push(el);
+        }
+    }
+    // 4. Update document selection (JSFL often requires setting the array explicitly)
+    if (newSelection.length > 0) {
+        doc.selection = newSelection;
+    }
+};
 var run = function () {
     var originalDoc = fl.getDocumentDOM();
     if (!originalDoc) {
@@ -4251,6 +4305,16 @@ var run = function () {
         Logger_1.Logger.error("Please save the document before exporting.");
         return;
     }
+    // --- CAPTURE STATE FROM ORIGINAL DOC ---
+    var selectionData = getSelectionPaths(originalDoc);
+    if (selectionData.paths.length === 0) {
+        Logger_1.Logger.warning("No elements selected. Please select the Symbol(s) you wish to export.");
+        // We could return here, but maybe the user wants to run on 'nothing' (though unlikely)?
+        // The original logic would have run with empty selection and done nothing.
+        // Let's return to be helpful.
+        return;
+    }
+    Logger_1.Logger.trace("Selected ".concat(selectionData.paths.length, " items for export."));
     var originalPath = originalDoc.pathURI;
     var workingDir = PathUtil_1.PathUtil.parentPath(originalPath);
     var baseName = PathUtil_1.PathUtil.fileBaseName(originalPath);
@@ -4276,6 +4340,8 @@ var run = function () {
         return;
     }
     try {
+        // --- RESTORE STATE IN TEMP DOC ---
+        applySelectionPaths(tempDoc, selectionData);
         processDocument(tempDoc);
     }
     catch (e) {
