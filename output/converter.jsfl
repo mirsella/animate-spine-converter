@@ -4252,6 +4252,7 @@ var Converter_1 = __webpack_require__(/*! ./core/Converter */ "./source/core/Con
 var Logger_1 = __webpack_require__(/*! ./logger/Logger */ "./source/logger/Logger.ts");
 var SpineFormatV4_2_00_1 = __webpack_require__(/*! ./spine/formats/SpineFormatV4_2_00 */ "./source/spine/formats/SpineFormatV4_2_00.ts");
 var SpineSkeletonHelper_1 = __webpack_require__(/*! ./spine/SpineSkeletonHelper */ "./source/spine/SpineSkeletonHelper.ts");
+var PathUtil_1 = __webpack_require__(/*! ./utils/PathUtil */ "./source/utils/PathUtil.ts");
 //-----------------------------------
 fl.showIdleMessage(false);
 var config = {
@@ -4271,24 +4272,77 @@ var config = {
     mergeImages: true
 };
 //-----------------------------------
-var document = fl.getDocumentDOM();
-var converter = new Converter_1.Converter(document, config);
-var result = converter.convertSelection();
-for (var _i = 0, result_1 = result; _i < result_1.length; _i++) {
-    var skeleton = result_1[_i];
-    Logger_1.Logger.trace('Exporting skeleton: ' + skeleton.name + '...');
-    if (config.simplifyBonesAndSlots) {
-        SpineSkeletonHelper_1.SpineSkeletonHelper.simplifySkeletonNames(skeleton);
+var run = function () {
+    var originalDoc = fl.getDocumentDOM();
+    if (!originalDoc) {
+        Logger_1.Logger.error("No document open.");
+        return;
     }
-    if (skeleton.bones.length > 0) {
-        var skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
-        FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
-        Logger_1.Logger.trace('Skeleton export completed.');
+    if (!originalDoc.pathURI) {
+        Logger_1.Logger.error("Please save the document before exporting.");
+        return;
     }
-    else {
-        Logger_1.Logger.error('Nothing to export.');
+    var originalPath = originalDoc.pathURI;
+    var workingDir = PathUtil_1.PathUtil.parentPath(originalPath);
+    var baseName = PathUtil_1.PathUtil.fileBaseName(originalPath);
+    var tempPath = PathUtil_1.PathUtil.joinPath(workingDir, baseName + "_export_tmp.fla");
+    // Check if we are already in the temp file (prevent infinite recursion if user runs script on temp)
+    if (originalPath.indexOf("_export_tmp.fla") !== -1) {
+        Logger_1.Logger.warning("Running directly on temporary export file.");
+        processDocument(originalDoc);
+        return;
     }
-}
+    // Clean up any stale temp file
+    if (FLfile.exists(tempPath)) {
+        FLfile.remove(tempPath);
+    }
+    // Copy the current file to temp
+    if (!FLfile.copy(originalPath, tempPath)) {
+        Logger_1.Logger.error("Failed to create temporary export file.");
+        return;
+    }
+    var tempDoc = fl.openDocument(tempPath);
+    if (!tempDoc) {
+        Logger_1.Logger.error("Failed to open temporary export file.");
+        return;
+    }
+    try {
+        processDocument(tempDoc);
+    }
+    catch (e) {
+        Logger_1.Logger.error("An error occurred during conversion: ".concat(e));
+    }
+    finally {
+        // Close temp doc without saving changes
+        tempDoc.close(false);
+        // Remove temp file
+        if (FLfile.exists(tempPath)) {
+            FLfile.remove(tempPath);
+        }
+        // Restore focus to original document
+        fl.openDocument(originalPath);
+    }
+};
+var processDocument = function (document) {
+    var converter = new Converter_1.Converter(document, config);
+    var result = converter.convertSelection();
+    for (var _i = 0, result_1 = result; _i < result_1.length; _i++) {
+        var skeleton = result_1[_i];
+        Logger_1.Logger.trace('Exporting skeleton: ' + skeleton.name + '...');
+        if (config.simplifyBonesAndSlots) {
+            SpineSkeletonHelper_1.SpineSkeletonHelper.simplifySkeletonNames(skeleton);
+        }
+        if (skeleton.bones.length > 0) {
+            var skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
+            FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
+            Logger_1.Logger.trace('Skeleton export completed.');
+        }
+        else {
+            Logger_1.Logger.error('Nothing to export.');
+        }
+    }
+};
+run();
 //-----------------------------------
 Logger_1.Logger.flush();
 
