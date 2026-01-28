@@ -110,39 +110,7 @@ var Converter = /** @class */ (function () {
             }
         }
         // --- HIGH FIDELITY DEBUG LOGGING ---
-        var debugName = baseImageName.toLowerCase();
-        // Filter for the problematic items specifically
-        var isDebugTarget = (debugName.indexOf('weapon') >= 0 || debugName.indexOf('torso') >= 0 || debugName.indexOf('dash') >= 0)
-            && (debugName.indexOf('skin_1') >= 0 || debugName.indexOf('skin_3') >= 0);
-        if (isDebugTarget) {
-            var em = calcMatrix; // Use the calculated matrix being used for logic
-            var det = em.a * em.d - em.b * em.c;
-            var time = context.time.toFixed(3);
-            // Log Header for this frame/element
-            Logger_1.Logger.trace("[FrameCheck] T=".concat(time, " | Element: ").concat(element.name || baseImageName));
-            // Log Matrix & Determinant (Flip Check)
-            Logger_1.Logger.trace("   > Calc Matrix: a=".concat(em.a.toFixed(3), " b=").concat(em.b.toFixed(3), " c=").concat(em.c.toFixed(3), " d=").concat(em.d.toFixed(3), " tx=").concat(em.tx.toFixed(1), " ty=").concat(em.ty.toFixed(1), " | Det=").concat(det.toFixed(3)));
-            // Log Pivot Info
-            if (context.positionOverride) {
-                Logger_1.Logger.trace("   > Global Pivot Override: (".concat(transX.toFixed(2), ", ").concat(transY.toFixed(2), ")"));
-                Logger_1.Logger.trace("     [Original Local: (".concat(element.transformX.toFixed(2), ", ").concat(element.transformY.toFixed(2), ")]"));
-                Logger_1.Logger.trace("     [Reg Point: (".concat(regX.toFixed(2), ", ").concat(regY.toFixed(2), ")]"));
-            }
-            else {
-                Logger_1.Logger.trace("   > Standard Pivot: (".concat(transX.toFixed(2), ", ").concat(transY.toFixed(2), ")"));
-            }
-            // Log Offset Calculation
-            Logger_1.Logger.trace("   > Attachment Offset: x=".concat(spineOffsetX.toFixed(2), ", y=").concat(spineOffsetY.toFixed(2)));
-            // Log Variant Logic
-            if (found) {
-                Logger_1.Logger.trace("   > Matched Variant: '".concat(matchedVariant.name, "' (Diff: ").concat(closestDelta.dist.toFixed(3), ")"));
-            }
-            else {
-                Logger_1.Logger.warning("   >>> NEW VARIANT TRIGGERED <<<");
-                Logger_1.Logger.warning("   > Closest was: ".concat(closestDelta.dist.toFixed(3), " (Limit: ").concat(TOLERANCE, ")"));
-                Logger_1.Logger.warning("   > Creating: ".concat(baseImageName + '_' + (variants.length + 1)));
-            }
-        }
+        // const debugName = baseImageName.toLowerCase();
         // -----------------------------------
         if (!found) {
             // Create new variant
@@ -314,7 +282,7 @@ var Converter = /** @class */ (function () {
             // Debug Hierarchy
             var doc = this._document;
             // FORCE LOGGING to debug "asset" root symbol and potential duplicate layer names
-            Logger_1.Logger.trace("[Hierarchy] Dumping layers for ".concat(item.name, " (Timeline: ").concat(timeline.name, "). AdvancedLayers=").concat(doc.useAdvancedLayers));
+            // Logger.trace(`[Hierarchy] Dumping layers for ${item.name} (Timeline: ${timeline.name}). AdvancedLayers=${doc.useAdvancedLayers}`);
             for (var k = 0; k < layers.length; k++) {
                 var l = layers[k];
                 var pRef = l.parentLayer;
@@ -327,23 +295,27 @@ var Converter = /** @class */ (function () {
                 }
                 var pName = pRef ? pRef.name : "NULL";
                 var pType = pRef ? pRef.layerType : "-";
-                Logger_1.Logger.trace("   - Layer ".concat(k, ": '").concat(l.name, "' [").concat(l.layerType, "] -> Parent: '").concat(pName, "' [").concat(pType, "]"));
+                // Logger.trace(`   - Layer ${k}: '${l.name}' [${l.layerType}] -> Parent: '${pName}' [${pType}]`);
             }
             for (var i = layers.length - 1; i >= 0; i--) {
                 var layer = layers[i];
                 // Detailed debug for missing skin_1 weapon
                 var isSkin1Weapon = item.name.indexOf('skin_1') >= 0 && (layer.name.toLowerCase().indexOf('weapon') >= 0);
+                /*
                 if (isSkin1Weapon) {
-                    Logger_1.Logger.trace("[LayerCheck] Found weapon layer '".concat(layer.name, "' in symbol '").concat(item.name, "'"));
-                    Logger_1.Logger.trace("   > Type: ".concat(layer.layerType));
-                    Logger_1.Logger.trace("   > Visible: ".concat(layer.visible));
-                    Logger_1.Logger.trace("   > Frame Count: ".concat(layer.frames.length));
+                     Logger.trace(`[LayerCheck] Found weapon layer '${layer.name}' in symbol '${item.name}'`);
+                     Logger.trace(`   > Type: ${layer.layerType}`);
+                     Logger.trace(`   > Visible: ${layer.visible}`);
+                     Logger.trace(`   > Frame Count: ${layer.frames.length}`);
                 }
+                */
                 // Skip hidden layers to prevent exporting reference art or disabled content
                 if (!layer.visible) {
+                    /*
                     if (isSkin1Weapon) {
-                        Logger_1.Logger.warning("[LayerCheck] SKIPPING HIDDEN WEAPON LAYER in ".concat(item.name, "!"));
+                        Logger.warning(`[LayerCheck] SKIPPING HIDDEN WEAPON LAYER in ${item.name}!`);
                     }
+                    */
                     // Logger.trace(`[Converter] Skipping hidden layer: '${layer.name}' in symbol '${item.name}'`);
                     continue;
                 }
@@ -372,8 +344,7 @@ var Converter = /** @class */ (function () {
         }
     };
     Converter.prototype.convertElementLayer = function (context, layer, factory) {
-        var _a, _b;
-        var _c = context.global, label = _c.label, stageType = _c.stageType, frameRate = _c.frameRate;
+        var _a = context.global, label = _a.label, stageType = _a.stageType, frameRate = _a.frameRate;
         var start = 0, end = layer.frames.length - 1;
         if (context.parent == null && label != null && stageType === "animation" /* ConverterStageType.ANIMATION */) {
             start = label.startFrameIdx;
@@ -393,9 +364,11 @@ var Converter = /** @class */ (function () {
             // Handle empty keyframes (end of visibility) by setting attachment to null
             if (frame.elements.length === 0) {
                 // Debug logging for missing weapon in idle
-                if (layer.name.toLowerCase().indexOf('weapon') >= 0 && ((_b = (_a = context.element) === null || _a === void 0 ? void 0 : _a.libraryItem) === null || _b === void 0 ? void 0 : _b.name.indexOf('skin_1')) >= 0) {
-                    Logger_1.Logger.trace("[FrameCheck] Empty/Null frame encountered for skin_1 weapon on layer '".concat(layer.name, "' at frame ").concat(i, "."));
+                /*
+                if (layer.name.toLowerCase().indexOf('weapon') >= 0 && context.element?.libraryItem?.name.indexOf('skin_1') >= 0) {
+                     Logger.trace(`[FrameCheck] Empty/Null frame encountered for skin_1 weapon on layer '${layer.name}' at frame ${i}.`);
                 }
+                */
                 var slots = context.global.layersCache.get(context.layer);
                 if (slots && stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     for (var _i = 0, slots_1 = slots; _i < slots_1.length; _i++) {
@@ -437,11 +410,11 @@ var Converter = /** @class */ (function () {
                         }
                     }
                     if (isClassic && !isGuided && isSupportedEase) {
-                        Logger_1.Logger.trace("[Interpolation] Frame ".concat(i, " (").concat(layer.name, "): Skipping Bake (Using Curve). Classic=").concat(isClassic, ", Guided=").concat(isGuided, ", Ease=").concat(isSupportedEase));
+                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): Skipping Bake (Using Curve). Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
                         continue; // Skip baking, let Spine interpolate from the keyframe
                     }
                     else {
-                        Logger_1.Logger.trace("[Interpolation] Frame ".concat(i, " (").concat(layer.name, "): BAKING. Classic=").concat(isClassic, ", Guided=").concat(isGuided, ", Ease=").concat(isSupportedEase));
+                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): BAKING. Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
                     }
                     this._document.getTimeline().currentFrame = i;
                     var wasLocked = layer.locked;
@@ -531,11 +504,7 @@ var Converter = /** @class */ (function () {
                 var sourceTransX = bakedData ? bakedData.transformX : el.transformX;
                 var sourceTransY = bakedData ? bakedData.transformY : el.transformY;
                 // Debug Transform Point
-                var debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
-                var isDebugTarget = (debugItem.indexOf('skin_1') >= 0 && (debugItem.indexOf('weapon') >= 0 || debugItem.indexOf('torso') >= 0));
-                if (isDebugTarget) {
-                    Logger_1.Logger.trace("[Transform] ".concat(debugItem, " F=").concat(i, ": Tx=").concat(sourceMatrix.tx.toFixed(1), " Ty=").concat(sourceMatrix.ty.toFixed(1), " Px=").concat(sourceTransX.toFixed(1), " Py=").concat(sourceTransY.toFixed(1), " Baked=").concat(!!bakedData));
-                }
+                // const debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
                 if (parentMat) {
                     finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
                     // Transformation Point (Pivot) is in Parent Space (relative to Parent's Origin).
@@ -555,27 +524,10 @@ var Converter = /** @class */ (function () {
                     };
                 }
                 // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
-                if (isDebugTarget) {
-                    var logPrefix = "[ParentFix] F=".concat(i, " | Layer: ").concat(layer.name, " | Item: ").concat(debugItem);
-                    if (parentMat) {
-                        var local = el.matrix;
-                        var parentName = layer.parentLayer ? layer.parentLayer.name : 'Unknown';
-                        Logger_1.Logger.trace("".concat(logPrefix, " | PARENTING ACTIVE (Parent: ").concat(parentName, ")"));
-                        Logger_1.Logger.trace("   > Local Matrix:  tx=".concat(local.tx.toFixed(2), " ty=").concat(local.ty.toFixed(2), " a=").concat(local.a.toFixed(3), " b=").concat(local.b.toFixed(3), " c=").concat(local.c.toFixed(3), " d=").concat(local.d.toFixed(3)));
-                        Logger_1.Logger.trace("   > Parent Matrix: tx=".concat(parentMat.tx.toFixed(2), " ty=").concat(parentMat.ty.toFixed(2), " a=").concat(parentMat.a.toFixed(3), " b=").concat(parentMat.b.toFixed(3), " c=").concat(parentMat.c.toFixed(3), " d=").concat(parentMat.d.toFixed(3)));
-                        if (finalMatrixOverride) {
-                            Logger_1.Logger.trace("   > Global Matrix: tx=".concat(finalMatrixOverride.tx.toFixed(2), " ty=").concat(finalMatrixOverride.ty.toFixed(2), " a=").concat(finalMatrixOverride.a.toFixed(3), " b=").concat(finalMatrixOverride.b.toFixed(3), " c=").concat(finalMatrixOverride.c.toFixed(3), " d=").concat(finalMatrixOverride.d.toFixed(3)));
-                        }
-                        if (finalPositionOverride) {
-                            Logger_1.Logger.trace("   > Pivot Transform:");
-                            Logger_1.Logger.trace("     Local (el.transform): (".concat(el.transformX.toFixed(2), ", ").concat(el.transformY.toFixed(2), ")"));
-                            Logger_1.Logger.trace("     Global (Calculated):  (".concat(finalPositionOverride.x.toFixed(2), ", ").concat(finalPositionOverride.y.toFixed(2), ")"));
-                        }
-                    }
-                    else {
-                        Logger_1.Logger.trace("".concat(logPrefix, " | NO PARENT (or Parent Matrix Identity)"));
-                    }
-                }
+                // if (isDebugTarget) {
+                //    const logPrefix = `[ParentFix] F=${i} | Layer: ${layer.name} | Item: ${debugItem}`;
+                //    ...
+                // }
                 // ---------------------------------------------
                 var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
                 // Recurse into symbol if needed
@@ -701,9 +653,9 @@ var Converter = /** @class */ (function () {
         }
         // Fallback to name match if reference fails (JSFL quirk - happens because we iterate layers from a cached timeline)
         if (layerIdx === -1) {
-            var pName_1 = layer.parentLayer.name;
+            var pName = layer.parentLayer.name;
             for (var k = 0; k < layers.length; k++) {
-                if (layers[k].name === pName_1) {
+                if (layers[k].name === pName) {
                     layerIdx = k;
                     matchType = "Name";
                     break;
@@ -711,10 +663,7 @@ var Converter = /** @class */ (function () {
             }
         }
         // Debug detection logic (only for specific items to reduce noise)
-        var pName = layer.parentLayer.name;
-        if ((pName.indexOf('skin_1') >= 0 || pName.indexOf('skin_3') >= 0) && (pName.toLowerCase().indexOf('torso') >= 0 || pName.toLowerCase().indexOf('arm') >= 0)) {
-            Logger_1.Logger.trace("[ParentDetect] Finding parent '".concat(pName, "' for frame ").concat(frameIndex, ". Found: ").concat(layerIdx !== -1, " (Method: ").concat(matchType, ")"));
-        }
+        // const pName = layer.parentLayer.name;
         if (layerIdx !== -1) {
             this._document.getTimeline().setSelectedLayers(layerIdx);
             this._document.getTimeline().setSelectedFrames(frameIndex, frameIndex + 1);

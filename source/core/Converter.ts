@@ -130,43 +130,7 @@ export class Converter {
         }
         
         // --- HIGH FIDELITY DEBUG LOGGING ---
-        const debugName = baseImageName.toLowerCase();
-        // Filter for the problematic items specifically
-        const isDebugTarget = (debugName.indexOf('weapon') >= 0 || debugName.indexOf('torso') >= 0 || debugName.indexOf('dash') >= 0) 
-                              && (debugName.indexOf('skin_1') >= 0 || debugName.indexOf('skin_3') >= 0);
-
-        if (isDebugTarget) {
-            const em = calcMatrix; // Use the calculated matrix being used for logic
-            const det = em.a * em.d - em.b * em.c;
-            const time = context.time.toFixed(3);
-            
-            // Log Header for this frame/element
-            Logger.trace(`[FrameCheck] T=${time} | Element: ${element.name || baseImageName}`);
-            
-            // Log Matrix & Determinant (Flip Check)
-            Logger.trace(`   > Calc Matrix: a=${em.a.toFixed(3)} b=${em.b.toFixed(3)} c=${em.c.toFixed(3)} d=${em.d.toFixed(3)} tx=${em.tx.toFixed(1)} ty=${em.ty.toFixed(1)} | Det=${det.toFixed(3)}`);
-            
-            // Log Pivot Info
-            if (context.positionOverride) {
-                Logger.trace(`   > Global Pivot Override: (${transX.toFixed(2)}, ${transY.toFixed(2)})`);
-                Logger.trace(`     [Original Local: (${element.transformX.toFixed(2)}, ${element.transformY.toFixed(2)})]`);
-                Logger.trace(`     [Reg Point: (${regX.toFixed(2)}, ${regY.toFixed(2)})]`);
-            } else {
-                Logger.trace(`   > Standard Pivot: (${transX.toFixed(2)}, ${transY.toFixed(2)})`);
-            }
-
-            // Log Offset Calculation
-            Logger.trace(`   > Attachment Offset: x=${spineOffsetX.toFixed(2)}, y=${spineOffsetY.toFixed(2)}`);
-            
-            // Log Variant Logic
-            if (found) {
-                Logger.trace(`   > Matched Variant: '${matchedVariant.name}' (Diff: ${closestDelta.dist.toFixed(3)})`);
-            } else {
-                Logger.warning(`   >>> NEW VARIANT TRIGGERED <<<`);
-                Logger.warning(`   > Closest was: ${closestDelta.dist.toFixed(3)} (Limit: ${TOLERANCE})`);
-                Logger.warning(`   > Creating: ${baseImageName + '_' + (variants.length + 1)}`);
-            }
-        }
+        // const debugName = baseImageName.toLowerCase();
         // -----------------------------------
 
         if (!found) {
@@ -200,19 +164,19 @@ export class Converter {
         attachment.x = spineOffsetX;
         attachment.y = spineOffsetY;
 
-        // Debug logging for Dash scaling issues
-        /*
-        if (baseImageName.indexOf('dash') >= 0) {
-            Logger.trace(`[DashDebug] Exporting ${attachmentName}`);
-            Logger.trace(`   > SpineImage Scale: ${spineImage.scale}`);
-            Logger.trace(`   > Attachment Scale: ${attachment.scaleX.toFixed(3)}, ${attachment.scaleY.toFixed(3)}`);
-            Logger.trace(`   > Attachment Pos: ${attachment.x.toFixed(2)}, ${attachment.y.toFixed(2)}`);
-            const em = element.matrix;
-            const elemScaleX = Math.sqrt(em.a*em.a + em.b*em.b);
-            const elemScaleY = Math.sqrt(em.c*em.c + em.d*em.d);
-            Logger.trace(`   > Element Matrix Scale: Sx=${elemScaleX.toFixed(3)}, Sy=${elemScaleY.toFixed(3)}`);
-        }
-        */
+            // Debug logging for Dash scaling issues
+            /*
+            if (baseImageName.indexOf('dash') >= 0) {
+                Logger.trace(`[DashDebug] Exporting ${attachmentName}`);
+                Logger.trace(`   > SpineImage Scale: ${spineImage.scale}`);
+                Logger.trace(`   > Attachment Scale: ${attachment.scaleX.toFixed(3)}, ${attachment.scaleY.toFixed(3)}`);
+                Logger.trace(`   > Attachment Pos: ${attachment.x.toFixed(2)}, ${attachment.y.toFixed(2)}`);
+                const em = element.matrix;
+                const elemScaleX = Math.sqrt(em.a*em.a + em.b*em.b);
+                const elemScaleY = Math.sqrt(em.c*em.c + em.d*em.d);
+                Logger.trace(`   > Element Matrix Scale: Sx=${elemScaleX.toFixed(3)}, Sy=${elemScaleY.toFixed(3)}`);
+            }
+            */
 
         SpineAnimationHelper.applySlotAttachment(
             context.global.animation,
@@ -370,7 +334,7 @@ export class Converter {
             // Debug Hierarchy
             const doc = this._document as any;
             // FORCE LOGGING to debug "asset" root symbol and potential duplicate layer names
-            Logger.trace(`[Hierarchy] Dumping layers for ${item.name} (Timeline: ${timeline.name}). AdvancedLayers=${doc.useAdvancedLayers}`);
+            // Logger.trace(`[Hierarchy] Dumping layers for ${item.name} (Timeline: ${timeline.name}). AdvancedLayers=${doc.useAdvancedLayers}`);
             for (let k = 0; k < layers.length; k++) {
                  const l = layers[k];
                  let pRef = l.parentLayer;
@@ -381,7 +345,7 @@ export class Converter {
                  
                  const pName = pRef ? pRef.name : "NULL";
                  const pType = pRef ? pRef.layerType : "-";
-                 Logger.trace(`   - Layer ${k}: '${l.name}' [${l.layerType}] -> Parent: '${pName}' [${pType}]`);
+                 // Logger.trace(`   - Layer ${k}: '${l.name}' [${l.layerType}] -> Parent: '${pName}' [${pType}]`);
             }
 
             for (let i = layers.length - 1; i >= 0; i--) {
@@ -389,18 +353,22 @@ export class Converter {
                 
                 // Detailed debug for missing skin_1 weapon
                 const isSkin1Weapon = item.name.indexOf('skin_1') >= 0 && (layer.name.toLowerCase().indexOf('weapon') >= 0);
+                /*
                 if (isSkin1Weapon) {
                      Logger.trace(`[LayerCheck] Found weapon layer '${layer.name}' in symbol '${item.name}'`);
                      Logger.trace(`   > Type: ${layer.layerType}`);
                      Logger.trace(`   > Visible: ${layer.visible}`);
                      Logger.trace(`   > Frame Count: ${layer.frames.length}`);
                 }
+                */
 
                 // Skip hidden layers to prevent exporting reference art or disabled content
                 if (!layer.visible) {
+                    /*
                     if (isSkin1Weapon) {
                         Logger.warning(`[LayerCheck] SKIPPING HIDDEN WEAPON LAYER in ${item.name}!`);
                     }
+                    */
                     // Logger.trace(`[Converter] Skipping hidden layer: '${layer.name}' in symbol '${item.name}'`);
                     continue;
                 }
@@ -448,9 +416,11 @@ export class Converter {
             // Handle empty keyframes (end of visibility) by setting attachment to null
             if (frame.elements.length === 0) {
                 // Debug logging for missing weapon in idle
+                /*
                 if (layer.name.toLowerCase().indexOf('weapon') >= 0 && context.element?.libraryItem?.name.indexOf('skin_1') >= 0) {
                      Logger.trace(`[FrameCheck] Empty/Null frame encountered for skin_1 weapon on layer '${layer.name}' at frame ${i}.`);
                 }
+                */
 
                 const slots = context.global.layersCache.get(context.layer);
                 if (slots && stageType === ConverterStageType.ANIMATION) {
@@ -492,10 +462,10 @@ export class Converter {
                     }
 
                     if (isClassic && !isGuided && isSupportedEase) {
-                        Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): Skipping Bake (Using Curve). Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
+                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): Skipping Bake (Using Curve). Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
                         continue; // Skip baking, let Spine interpolate from the keyframe
                     } else {
-                        Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): BAKING. Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
+                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): BAKING. Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
                     }
 
                     this._document.getTimeline().currentFrame = i;
@@ -601,12 +571,8 @@ export class Converter {
             const sourceTransY = bakedData ? bakedData.transformY : el.transformY;
 
             // Debug Transform Point
-            const debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
-            const isDebugTarget = (debugItem.indexOf('skin_1') >= 0 && (debugItem.indexOf('weapon') >= 0 || debugItem.indexOf('torso') >= 0));
-            if (isDebugTarget) {
-                 Logger.trace(`[Transform] ${debugItem} F=${i}: Tx=${sourceMatrix.tx.toFixed(1)} Ty=${sourceMatrix.ty.toFixed(1)} Px=${sourceTransX.toFixed(1)} Py=${sourceTransY.toFixed(1)} Baked=${!!bakedData}`);
-            }
-
+            // const debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
+            
             if (parentMat) {
                 finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
                 
@@ -628,30 +594,10 @@ export class Converter {
 
             // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
             
-            if (isDebugTarget) {
-                const logPrefix = `[ParentFix] F=${i} | Layer: ${layer.name} | Item: ${debugItem}`;
-                
-                if (parentMat) {
-                    const local = el.matrix;
-                    const parentName = layer.parentLayer ? layer.parentLayer.name : 'Unknown';
-                    
-                    Logger.trace(`${logPrefix} | PARENTING ACTIVE (Parent: ${parentName})`);
-                    Logger.trace(`   > Local Matrix:  tx=${local.tx.toFixed(2)} ty=${local.ty.toFixed(2)} a=${local.a.toFixed(3)} b=${local.b.toFixed(3)} c=${local.c.toFixed(3)} d=${local.d.toFixed(3)}`);
-                    Logger.trace(`   > Parent Matrix: tx=${parentMat.tx.toFixed(2)} ty=${parentMat.ty.toFixed(2)} a=${parentMat.a.toFixed(3)} b=${parentMat.b.toFixed(3)} c=${parentMat.c.toFixed(3)} d=${parentMat.d.toFixed(3)}`);
-                    
-                    if (finalMatrixOverride) {
-                        Logger.trace(`   > Global Matrix: tx=${finalMatrixOverride.tx.toFixed(2)} ty=${finalMatrixOverride.ty.toFixed(2)} a=${finalMatrixOverride.a.toFixed(3)} b=${finalMatrixOverride.b.toFixed(3)} c=${finalMatrixOverride.c.toFixed(3)} d=${finalMatrixOverride.d.toFixed(3)}`);
-                    }
-                    
-                    if (finalPositionOverride) {
-                        Logger.trace(`   > Pivot Transform:`);
-                        Logger.trace(`     Local (el.transform): (${el.transformX.toFixed(2)}, ${el.transformY.toFixed(2)})`);
-                        Logger.trace(`     Global (Calculated):  (${finalPositionOverride.x.toFixed(2)}, ${finalPositionOverride.y.toFixed(2)})`);
-                    }
-                } else {
-                    Logger.trace(`${logPrefix} | NO PARENT (or Parent Matrix Identity)`);
-                }
-            }
+            // if (isDebugTarget) {
+            //    const logPrefix = `[ParentFix] F=${i} | Layer: ${layer.name} | Item: ${debugItem}`;
+            //    ...
+            // }
             // ---------------------------------------------
 
             const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
@@ -802,10 +748,7 @@ private convertElement(context:ConverterContext):void {
         }
         
         // Debug detection logic (only for specific items to reduce noise)
-        const pName = layer.parentLayer.name;
-        if ((pName.indexOf('skin_1') >= 0 || pName.indexOf('skin_3') >= 0) && (pName.toLowerCase().indexOf('torso') >= 0 || pName.toLowerCase().indexOf('arm') >= 0)) {
-             Logger.trace(`[ParentDetect] Finding parent '${pName}' for frame ${frameIndex}. Found: ${layerIdx !== -1} (Method: ${matchType})`);
-        }
+        // const pName = layer.parentLayer.name;
         
         if (layerIdx !== -1) {
             this._document.getTimeline().setSelectedLayers(layerIdx);
