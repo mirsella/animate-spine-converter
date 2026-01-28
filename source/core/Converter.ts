@@ -580,12 +580,14 @@ export class Converter {
                         try {
                             // Attempt 1: Standard Document Undo (via Wrapper)
                             (this._document as any).undo(); 
+                            Logger.trace(`[Converter] Bake Undo successful (Method 1) at frame ${i}`);
                         } catch (e) {
                             // Attempt 2: Global FL Object (Direct Access)
                             try {
                                 const fl = (global as any).fl;
                                 if (fl) {
                                     fl.undo(); // Global undo
+                                    Logger.trace(`[Converter] Bake Undo successful (Method 2) at frame ${i}`);
                                 } else {
                                     throw new Error("Global 'fl' not found");
                                 }
@@ -595,6 +597,7 @@ export class Converter {
                                     /* eslint-disable no-eval */
                                     // @ts-ignore
                                     eval("fl.getDocumentDOM().undo();");
+                                    Logger.trace(`[Converter] Bake Undo successful (Method 3) at frame ${i}`);
                                 } catch (e3) {
                                      Logger.error(`[Converter] CRITICAL: Cannot Undo bake! Document structure compromised. Error: ${e3}`);
                                 }
