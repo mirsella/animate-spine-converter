@@ -405,36 +405,48 @@ export class Converter {
             // Instead of exporting the entire child timeline for every parent frame,
             // we calculate the EXACT frame of the child that corresponds to the parent's current time.
             
-            const instance = context.element as any; 
-            const tl = instance.libraryItem.timeline;
-            
-            // Calculate Current Global Frame (Absolute Index in Root Timeline)
-            const animationStartFrame = label ? label.startFrameIdx : 0;
-            // Use Math.round to avoid floating point drift from time division
-            const currentAbsFrame = animationStartFrame + Math.round(context.time * frameRate);
-            
-            // Calculate how many frames have elapsed since this instance's keyframe started
-            const parentKeyframeStart = context.parent.frame.startFrame;
-            const frameOffset = Math.max(0, currentAbsFrame - parentKeyframeStart);
-            
-            const firstFrame = instance.firstFrame || 0;
-            const loopMode = instance.loop || 'loop'; // 'loop', 'play once', 'single frame'
-            const tlFrameCount = tl.frameCount;
-            
-            let targetFrame = 0;
-            
-            if (loopMode === 'single frame') {
-                targetFrame = firstFrame;
-            } else if (loopMode === 'play once') {
-                targetFrame = firstFrame + frameOffset;
-                if (targetFrame >= tlFrameCount) targetFrame = tlFrameCount - 1;
-            } else { // loop
-                targetFrame = (firstFrame + frameOffset) % tlFrameCount;
+            try {
+                const instance = context.element as any;
+                
+                // Safety checks to prevent crashes on non-symbol instances or missing data
+                if (instance && instance.libraryItem && instance.libraryItem.timeline && context.parent && context.parent.frame) {
+                    const tl = instance.libraryItem.timeline;
+                    
+                    // Calculate Current Global Frame (Absolute Index in Root Timeline)
+                    const animationStartFrame = label ? label.startFrameIdx : 0;
+                    // Use Math.round to avoid floating point drift from time division
+                    const currentAbsFrame = animationStartFrame + Math.round(context.time * frameRate);
+                    
+                    // Calculate how many frames have elapsed since this instance's keyframe started
+                    const parentKeyframeStart = context.parent.frame.startFrame;
+                    const frameOffset = Math.max(0, currentAbsFrame - parentKeyframeStart);
+                    
+                    // Default properties for MovieClips (which don't have firstFrame/loop) or missing props
+                    // Graphic symbols have these. MovieClips behave like 'loop' starting at 0.
+                    const firstFrame = (instance.firstFrame !== undefined) ? instance.firstFrame : 0;
+                    const loopMode = (instance.loop !== undefined) ? instance.loop : 'loop'; // 'loop', 'play once', 'single frame'
+                    const tlFrameCount = tl.frameCount;
+                    
+                    let targetFrame = 0;
+                    
+                    if (loopMode === 'single frame') {
+                        targetFrame = firstFrame;
+                    } else if (loopMode === 'play once') {
+                        targetFrame = firstFrame + frameOffset;
+                        if (targetFrame >= tlFrameCount) targetFrame = tlFrameCount - 1;
+                    } else { // loop
+                        targetFrame = (firstFrame + frameOffset) % tlFrameCount;
+                    }
+                    
+                    // Restrict the loop to ONLY this frame
+                    start = targetFrame;
+                    end = targetFrame;
+                }
+            } catch (e) {
+                // If anything goes wrong in the calc (e.g. weird JSFL object state), 
+                // silently fail and fall back to standard export (0 to end) to avoid crash.
+                // We can't easily log here without flooding.
             }
-            
-            // Restrict the loop to ONLY this frame
-            start = targetFrame;
-            end = targetFrame;
         }
         
         for (let i = start; i <= end; i++) {
