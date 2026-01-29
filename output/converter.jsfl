@@ -233,7 +233,7 @@ var Converter = /** @class */ (function () {
         if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */) {
             if (context.global.processedSymbols.has(item.name))
                 return;
-            context.global.processedSymbols.add(item.name);
+            context.global.processedSymbols.set(item.name, true);
         }
         var canEdit = this._document.library.itemExists(item.name);
         if (canEdit) {
@@ -695,9 +695,7 @@ var ConverterMap_1 = __webpack_require__(/*! ./ConverterMap */ "./source/core/Co
 var ConverterContextGlobal = /** @class */ (function (_super) {
     __extends(ConverterContextGlobal, _super);
     function ConverterContextGlobal() {
-        var _this = _super.call(this) || this;
-        _this.processedSymbols = new Set();
-        return _this;
+        return _super.call(this) || this;
     }
     ConverterContextGlobal.initializeGlobal = function (element, config, frameRate, skeleton, cache) {
         var _a;
@@ -750,6 +748,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.layersCache = new ConverterMap_1.ConverterMap();
         context.assetTransforms = new ConverterMap_1.ConverterMap();
         context.attachmentVariants = new ConverterMap_1.ConverterMap();
+        context.processedSymbols = new ConverterMap_1.ConverterMap();
         return context;
     };
     return ConverterContextGlobal;
@@ -773,8 +772,15 @@ var ConverterMap = /** @class */ (function () {
         this.values = [];
         this.keys = [];
     }
+    ConverterMap.prototype.clear = function () {
+        this.values.length = 0;
+        this.keys.length = 0;
+    };
     ConverterMap.prototype.size = function () {
         return this.keys.length;
+    };
+    ConverterMap.prototype.has = function (key) {
+        return this.keys.indexOf(key) !== -1;
     };
     ConverterMap.prototype.set = function (key, value) {
         var existingIndex = this.keys.indexOf(key);

@@ -22,7 +22,7 @@ export class ConverterContextGlobal extends ConverterContext {
     public layersCache:ConverterMap<FlashLayer, SpineSlot[]>;
     public assetTransforms:ConverterMap<string, SpineTransformMatrix>;
     public attachmentVariants:ConverterMap<string, Array<{x:number, y:number, name:string}>>;
-    public processedSymbols:Set<string> = new Set<string>();
+    public processedSymbols:ConverterMap<string, boolean>;
 
     public labels:ConverterFrameLabel[];
     public stageType:ConverterStageType;
@@ -92,6 +92,7 @@ export class ConverterContextGlobal extends ConverterContext {
         context.layersCache = new ConverterMap<FlashLayer, SpineSlot[]>();
         context.assetTransforms = new ConverterMap<string, SpineTransformMatrix>();
         context.attachmentVariants = new ConverterMap<string, Array<{x:number, y:number, name:string}>>();
+        context.processedSymbols = new ConverterMap<string, boolean>();
         return context;
     }
 

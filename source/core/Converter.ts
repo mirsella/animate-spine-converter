@@ -277,7 +277,7 @@ export class Converter {
         // Avoid entering the same symbol multiple times per animation to prevent UI refresh storm and crashes.
         if (context.global.stageType === ConverterStageType.ANIMATION) {
             if (context.global.processedSymbols.has(item.name)) return;
-            context.global.processedSymbols.add(item.name);
+            context.global.processedSymbols.set(item.name, true);
         }
 
         const canEdit = this._document.library.itemExists(item.name);
