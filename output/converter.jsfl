@@ -357,31 +357,112 @@ var Converter = /** @class */ (function () {
                     this._document.getTimeline().currentFrame = i;
                     parentMat = this.getLayerParentMatrix(layer, i);
                 }
-                this._document.getTimeline().currentFrame = i;
+                var bakedData = null;
+                // INTERPOLATION HANDLING
+                if (i !== frame.startFrame) {
+                    // Optimized Skip for Classic Tweens to allow Spine Bezier Interpolation
+                    // We skip "Baking" (frame-by-frame export) if the tween is simple enough for Spine to handle.
+                    var isClassic = frame.tweenType === 'classic';
+                    var isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
+                    var isSupportedEase = true;
+                    // Force baking for any custom ease to ensure visual fidelity.
+                    // Animate's custom ease curves often do not map 1:1 to Spine's cubic bezier, especially with weird handles.
+                    // Baking is safer and we have optimized it to be fast on the temp file.
+                    if (frame.hasCustomEase) {
+                        isSupportedEase = false;
+                    }
+                    if (isClassic && !isGuided && isSupportedEase) {
+                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): Skipping Bake (Using Curve). Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
+                        continue; // Skip baking, let Spine interpolate from the keyframe
+                    }
+                    else {
+                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): BAKING. Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
+                    }
+                    this._document.getTimeline().currentFrame = i;
+                    var wasLocked = layer.locked;
+                    var wasVisible = layer.visible;
+                    layer.locked = false;
+                    layer.visible = true;
+                    // Robust selection logic
+                    var timeline = this._document.getTimeline();
+                    var layerIdx = -1;
+                    var layers = timeline.layers;
+                    for (var k = 0; k < layers.length; k++) {
+                        if (layers[k] === layer) {
+                            layerIdx = k;
+                            break;
+                        }
+                    }
+                    if (layerIdx === -1) {
+                        for (var k = 0; k < layers.length; k++) {
+                            if (layers[k].name === layer.name) {
+                                layerIdx = k;
+                                break;
+                            }
+                        }
+                    }
+                    if (layerIdx !== -1) {
+                        timeline.setSelectedLayers(layerIdx);
+                    }
+                    timeline.setSelectedFrames(i, i + 1);
+                    // FORCE BAKING via Keyframe Conversion
+                    // This is the only reliable way to get the interpolated matrix for Motion Tweens and complex Eases in JSFL.
+                    // Since we are working on a temporary file, this destructive operation is safe and doesn't need Undo.
+                    try {
+                        timeline.convertToKeyframes();
+                        // Re-fetch element from the new keyframe
+                        var freshLayer = timeline.layers[layerIdx];
+                        var freshFrame = freshLayer.frames[i];
+                        if (freshFrame.elements.length > 0) {
+                            var bakedEl = freshFrame.elements[0];
+                            bakedData = {
+                                matrix: bakedEl.matrix,
+                                transformX: bakedEl.transformX,
+                                transformY: bakedEl.transformY
+                            };
+                        }
+                    }
+                    catch (e) {
+                        Logger_1.Logger.warning("[Converter] Bake failed for frame ".concat(i, " (").concat(layer.name, "): ").concat(e));
+                    }
+                    if (!bakedData) {
+                        // Fallback to selection proxy if baking failed (though unlikely on temp file)
+                        this._document.selectNone();
+                        el.selected = true;
+                        if (this._document.selection.length > 0) {
+                            var proxy = this._document.selection[0];
+                            bakedData = {
+                                matrix: proxy.matrix,
+                                transformX: proxy.transformX,
+                                transformY: proxy.transformY
+                            };
+                        }
+                    }
+                    layer.locked = wasLocked;
+                    layer.visible = wasVisible;
+                }
+                else {
+                    this._document.getTimeline().currentFrame = i;
+                }
+                // Combine Parent Matrix with Child Matrix (which may have been updated to interpolated proxy)
                 var finalMatrixOverride = null;
                 var finalPositionOverride = null;
-                var sourceMatrix = el.matrix;
-                var sourceTransX = el.transformX;
-                var sourceTransY = el.transformY;
-                // FORCE BAKING: Select the element to read its interpolated properties (matrix/transform)
-                // This is required because 'el' refers to the keyframe data, which is static for the duration of the tween.
-                // To get the rotated/moved state at frame 'i', we must read from the stage selection.
-                if (frame.tweenType !== 'none' && i > frame.startFrame) {
-                    this._document.selectNone();
-                    el.selected = true;
-                    if (this._document.selection.length > 0) {
-                        var proxy = this._document.selection[0];
-                        sourceMatrix = proxy.matrix;
-                        // Transform point usually doesn't tween, but Animate allows it. Safe to read.
-                        sourceTransX = proxy.transformX;
-                        sourceTransY = proxy.transformY;
-                    }
-                }
+                var sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
+                var sourceTransX = bakedData ? bakedData.transformX : el.transformX;
+                var sourceTransY = bakedData ? bakedData.transformY : el.transformY;
                 if (parentMat) {
                     finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
                     finalPositionOverride = {
                         x: sourceTransX * parentMat.a + sourceTransY * parentMat.c + parentMat.tx,
                         y: sourceTransX * parentMat.b + sourceTransY * parentMat.d + parentMat.ty
+                    };
+                }
+                else if (bakedData) {
+                    // If we have baked data, we MUST use it as an override because 'el' is reverted to the static base state
+                    finalMatrixOverride = sourceMatrix;
+                    finalPositionOverride = {
+                        x: sourceTransX,
+                        y: sourceTransY
                     };
                 }
                 var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
