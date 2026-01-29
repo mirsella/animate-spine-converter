@@ -32,7 +32,52 @@ export class Converter {
         this._config = config;
     }
 
-    private convertElementSlot(context:ConverterContext, exportTarget:FlashElement | FlashItem, imageExportFactory:ImageExportFactory):void {
+    private safelyExportImage(context: ConverterContext, exportAction: () => SpineImage): SpineImage {
+        // 1. Identify the Symbol definition that contains this element
+        // We iterate up the context chain to find the nearest "Symbol Instance" context.
+        // This context represents the MovieClip/Graphic that owns the timeline where our shape resides.
+        
+        let containerItem: FlashItem | null = null;
+        let curr = context.parent;
+        
+        while (curr != null) {
+            // Check if this context represents a Symbol Instance
+            if (curr.element && curr.element.elementType === 'instance' && curr.element.instanceType === 'symbol') {
+                 if (curr.element.libraryItem) {
+                     containerItem = curr.element.libraryItem;
+                     break;
+                 }
+            }
+            curr = curr.parent;
+        }
+        
+        const dom = this._document;
+        const currentTl = dom.getTimeline();
+        
+        let mustEdit = false;
+        
+        if (containerItem && currentTl.name !== containerItem.name) {
+            // We are NOT in the timeline of the container. 
+            // We MUST switch to select the element safely.
+            if (dom.library.itemExists(containerItem.name)) {
+                mustEdit = true;
+            }
+        }
+
+        if (mustEdit) {
+            // Logger.trace(`[Converter] Context switch required for image export: ${containerItem.name}`);
+            dom.library.editItem(containerItem.name);
+            try {
+                return exportAction();
+            } finally {
+                dom.exitEditMode();
+            }
+        } else {
+            return exportAction();
+        }
+    }
+
+    private convertElementSlot(context: ConverterContext, exportTarget: FlashElement | FlashItem, imageExportFactory: ImageExportFactory): void {
         // 1. Get Base Name (for PNG path and initial cache key)
         let baseImageName = context.global.shapesCache.get(exportTarget);
         if (baseImageName == null) {
@@ -45,7 +90,19 @@ export class Converter {
         let spineImage = context.global.imagesCache.get(baseImagePath);
         if (spineImage == null) {
             try {
-                spineImage = imageExportFactory(context, baseImagePath);
+                // WRAP THE EXPORT FACTORY WITH SAFE CONTEXT SWITCHING
+                // Pass selection hints to help ImageUtil find the live element
+                const hints = this.createSelectionHints(context);
+                spineImage = this.safelyExportImage(context, () => {
+                    // We modify the factory signature via closure or just pass hints down?
+                    // ImageExportFactory signature is (context, path) -> SpineImage.
+                    // We need to inject hints into the actual call inside convertShapeElementSlot/convertBitmapElementSlot.
+                    // But here 'imageExportFactory' is a callback. 
+                    // We can't change its signature easily here without changing the interface.
+                    // Instead, let's attach hints to the context temporarily?
+                    // Or better, let's just make the factory calls below pass the hints.
+                    return imageExportFactory(context, baseImagePath);
+                });
             } catch (e) {
                 Logger.error(`[Converter] Image export error for '${baseImageName}': ${e}. Using placeholder.`);
                 // Create a 1x1 placeholder
@@ -142,6 +199,83 @@ export class Converter {
         );
     }
 
+    private createSelectionHints(context: ConverterContext): { layerIndex: number, frameIndex: number, elementIndex: number } | undefined {
+        try {
+            const el = context.element;
+            const layer = el.layer;
+            const frame = context.frame; 
+            
+            if (!layer || !frame) return undefined;
+
+            // FlashLayer doesn't have .parent property in typings usually, but we have the timeline from context logic?
+            // We can search for the layer in the current timeline if we assume we are in the right context or can access it via item.
+            // But context.element.layer gives us the layer object.
+            // We need to find this layer in the timeline.
+            
+            // We can get the timeline from the context.element.libraryItem's timeline if available, 
+            // OR we iterate the timeline we are supposedly in.
+            
+            // Since we are creating hints BEFORE the context switch, we are holding the Data Objects.
+            // We need the indices relative to THAT timeline.
+            
+            // If context.parent exists, it holds the loop state?
+            // Actually, we can just grab the timeline from the library item of the parent context?
+            
+            // Let's use a safer approach:
+            // We know 'layer' object. We need its index in its timeline.
+            // We don't have a direct link from Layer to Timeline in standard JSFL typings (it's weird).
+            // But we can scan the library item's timeline.
+            
+            let timeline: FlashTimeline | null = null;
+            // Traverse up to find the library item that owns this element
+            let curr = context.parent;
+            while(curr) {
+                 if (curr.element && curr.element.libraryItem && curr.element.libraryItem.timeline) {
+                     // Check if this timeline contains our layer
+                     const tl = curr.element.libraryItem.timeline;
+                     for(let i=0; i<tl.layers.length; i++) {
+                         if (tl.layers[i] === layer) {
+                             timeline = tl;
+                             break;
+                         }
+                     }
+                 }
+                 if (timeline) break;
+                 curr = curr.parent;
+            }
+            
+            if (!timeline) return undefined;
+
+            let layerIndex = -1;
+            for (let i = 0; i < timeline.layers.length; i++) {
+                if (timeline.layers[i] === layer) {
+                    layerIndex = i;
+                    break;
+                }
+            }
+            if (layerIndex === -1) return undefined;
+
+            let elementIndex = -1;
+            if (frame.elements) {
+                for (let i = 0; i < frame.elements.length; i++) {
+                     if (frame.elements[i] === el) {
+                         elementIndex = i;
+                         break;
+                     }
+                }
+            }
+            if (elementIndex === -1) return undefined;
+
+            return {
+                layerIndex: layerIndex,
+                frameIndex: frame.startFrame, // Use the frame's start frame index
+                elementIndex: elementIndex
+            };
+        } catch (e) {
+            return undefined;
+        }
+    }
+
     private convertBitmapElementSlot(context:ConverterContext):void {
         this.convertElementSlot(
             context, context.element.libraryItem,
@@ -184,7 +318,8 @@ export class Converter {
         this.convertElementSlot(
             context, context.element,
             (context, imagePath) => {
-                return ImageUtil.exportShape(imagePath, context.element, this._document, this._config.shapeExportScale, this._config.exportShapes);
+                const hints = this.createSelectionHints(context);
+                return ImageUtil.exportShape(imagePath, context.element, this._document, this._config.shapeExportScale, this._config.exportShapes, hints);
             }
         );
     }

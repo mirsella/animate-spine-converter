@@ -30,6 +30,46 @@ var Converter = /** @class */ (function () {
         this._workingPath = PathUtil_1.PathUtil.parentPath(document.pathURI);
         this._config = config;
     }
+    Converter.prototype.safelyExportImage = function (context, exportAction) {
+        // 1. Identify the Symbol definition that contains this element
+        // We iterate up the context chain to find the nearest "Symbol Instance" context.
+        // This context represents the MovieClip/Graphic that owns the timeline where our shape resides.
+        var containerItem = null;
+        var curr = context.parent;
+        while (curr != null) {
+            // Check if this context represents a Symbol Instance
+            if (curr.element && curr.element.elementType === 'instance' && curr.element.instanceType === 'symbol') {
+                if (curr.element.libraryItem) {
+                    containerItem = curr.element.libraryItem;
+                    break;
+                }
+            }
+            curr = curr.parent;
+        }
+        var dom = this._document;
+        var currentTl = dom.getTimeline();
+        var mustEdit = false;
+        if (containerItem && currentTl.name !== containerItem.name) {
+            // We are NOT in the timeline of the container. 
+            // We MUST switch to select the element safely.
+            if (dom.library.itemExists(containerItem.name)) {
+                mustEdit = true;
+            }
+        }
+        if (mustEdit) {
+            // Logger.trace(`[Converter] Context switch required for image export: ${containerItem.name}`);
+            dom.library.editItem(containerItem.name);
+            try {
+                return exportAction();
+            }
+            finally {
+                dom.exitEditMode();
+            }
+        }
+        else {
+            return exportAction();
+        }
+    };
     Converter.prototype.convertElementSlot = function (context, exportTarget, imageExportFactory) {
         // 1. Get Base Name (for PNG path and initial cache key)
         var baseImageName = context.global.shapesCache.get(exportTarget);
@@ -42,7 +82,19 @@ var Converter = /** @class */ (function () {
         var spineImage = context.global.imagesCache.get(baseImagePath);
         if (spineImage == null) {
             try {
-                spineImage = imageExportFactory(context, baseImagePath);
+                // WRAP THE EXPORT FACTORY WITH SAFE CONTEXT SWITCHING
+                // Pass selection hints to help ImageUtil find the live element
+                var hints = this.createSelectionHints(context);
+                spineImage = this.safelyExportImage(context, function () {
+                    // We modify the factory signature via closure or just pass hints down?
+                    // ImageExportFactory signature is (context, path) -> SpineImage.
+                    // We need to inject hints into the actual call inside convertShapeElementSlot/convertBitmapElementSlot.
+                    // But here 'imageExportFactory' is a callback. 
+                    // We can't change its signature easily here without changing the interface.
+                    // Instead, let's attach hints to the context temporarily?
+                    // Or better, let's just make the factory calls below pass the hints.
+                    return imageExportFactory(context, baseImagePath);
+                });
             }
             catch (e) {
                 Logger_1.Logger.error("[Converter] Image export error for '".concat(baseImageName, "': ").concat(e, ". Using placeholder."));
@@ -112,6 +164,77 @@ var Converter = /** @class */ (function () {
         attachment.y = spineOffsetY;
         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, slot, context, attachment, context.time);
     };
+    Converter.prototype.createSelectionHints = function (context) {
+        try {
+            var el = context.element;
+            var layer = el.layer;
+            var frame = context.frame;
+            if (!layer || !frame)
+                return undefined;
+            // FlashLayer doesn't have .parent property in typings usually, but we have the timeline from context logic?
+            // We can search for the layer in the current timeline if we assume we are in the right context or can access it via item.
+            // But context.element.layer gives us the layer object.
+            // We need to find this layer in the timeline.
+            // We can get the timeline from the context.element.libraryItem's timeline if available, 
+            // OR we iterate the timeline we are supposedly in.
+            // Since we are creating hints BEFORE the context switch, we are holding the Data Objects.
+            // We need the indices relative to THAT timeline.
+            // If context.parent exists, it holds the loop state?
+            // Actually, we can just grab the timeline from the library item of the parent context?
+            // Let's use a safer approach:
+            // We know 'layer' object. We need its index in its timeline.
+            // We don't have a direct link from Layer to Timeline in standard JSFL typings (it's weird).
+            // But we can scan the library item's timeline.
+            var timeline = null;
+            // Traverse up to find the library item that owns this element
+            var curr = context.parent;
+            while (curr) {
+                if (curr.element && curr.element.libraryItem && curr.element.libraryItem.timeline) {
+                    // Check if this timeline contains our layer
+                    var tl = curr.element.libraryItem.timeline;
+                    for (var i = 0; i < tl.layers.length; i++) {
+                        if (tl.layers[i] === layer) {
+                            timeline = tl;
+                            break;
+                        }
+                    }
+                }
+                if (timeline)
+                    break;
+                curr = curr.parent;
+            }
+            if (!timeline)
+                return undefined;
+            var layerIndex = -1;
+            for (var i = 0; i < timeline.layers.length; i++) {
+                if (timeline.layers[i] === layer) {
+                    layerIndex = i;
+                    break;
+                }
+            }
+            if (layerIndex === -1)
+                return undefined;
+            var elementIndex = -1;
+            if (frame.elements) {
+                for (var i = 0; i < frame.elements.length; i++) {
+                    if (frame.elements[i] === el) {
+                        elementIndex = i;
+                        break;
+                    }
+                }
+            }
+            if (elementIndex === -1)
+                return undefined;
+            return {
+                layerIndex: layerIndex,
+                frameIndex: frame.startFrame, // Use the frame's start frame index
+                elementIndex: elementIndex
+            };
+        }
+        catch (e) {
+            return undefined;
+        }
+    };
     Converter.prototype.convertBitmapElementSlot = function (context) {
         var _this = this;
         this.convertElementSlot(context, context.element.libraryItem, function (context, imagePath) {
@@ -141,7 +264,8 @@ var Converter = /** @class */ (function () {
     Converter.prototype.convertShapeElementSlot = function (context) {
         var _this = this;
         this.convertElementSlot(context, context.element, function (context, imagePath) {
-            return ImageUtil_1.ImageUtil.exportShape(imagePath, context.element, _this._document, _this._config.shapeExportScale, _this._config.exportShapes);
+            var hints = _this.createSelectionHints(context);
+            return ImageUtil_1.ImageUtil.exportShape(imagePath, context.element, _this._document, _this._config.shapeExportScale, _this._config.exportShapes, hints);
         });
     };
     Converter.prototype.composeElementMaskLayer = function (context, convertLayer, allowBaking) {
@@ -3117,7 +3241,9 @@ var ImageUtil = /** @class */ (function () {
             return new SpineImage_1.SpineImage(imagePath, 1, 1, scale, 0, 0);
         }
     };
-    ImageUtil.exportShape = function (imagePath, element, document, scale, exportImages) {
+    ImageUtil.exportShape = function (imagePath, element, document, scale, exportImages, 
+    // Optional selection hints to resolve "Live" element from Data element
+    selectionHint) {
         var matrix = element.matrix;
         var transPointX = element.transformX;
         var transPointY = element.transformY;
@@ -3144,7 +3270,26 @@ var ImageUtil = /** @class */ (function () {
             catch (e2) { }
         }
         dom.selectNone();
-        element.selected = true;
+        // CRITICAL FIX: If we have selection hints, use them to find the "Live" element.
+        // The 'element' reference passed might be from a read-only Data API if we switched context.
+        if (selectionHint) {
+            try {
+                var liveLayer = timeline.layers[selectionHint.layerIndex];
+                var liveFrame = liveLayer.frames[selectionHint.frameIndex];
+                var liveElement = liveFrame.elements[selectionHint.elementIndex];
+                liveElement.selected = true;
+            }
+            catch (e) {
+                Logger_1.Logger.warning("[ImageUtil] Failed to resolve live element from hints: ".concat(e, ". Falling back to object reference."));
+                element.selected = true;
+            }
+        }
+        else {
+            element.selected = true;
+        }
+        if (dom.selection.length === 0) {
+            // Selection failed logging
+        }
         var copySuccess = false;
         // Retry loop for clipCopy
         for (var attempt = 0; attempt < 4; attempt++) {
@@ -3202,6 +3347,7 @@ var ImageUtil = /** @class */ (function () {
                 ImageUtil.clearClipboard();
             }
         }
+        // ImageUtil.log(`exportShape: Copy finished. Success=${copySuccess}`);
         element.selected = false;
         layer.locked = wasLocked;
         layer.visible = wasVisible;
@@ -4272,6 +4418,9 @@ var run = function () {
         Logger_1.Logger.error("Failed to open temporary export file.");
         return;
     }
+    // Disable UI updates during heavy export process to prevent crashes and race conditions
+    var wasLivePreview = tempDoc.livePreview;
+    tempDoc.livePreview = false;
     try {
         // --- RESTORE STATE IN TEMP DOC ---
         applySelectionPaths(tempDoc, selectionData);
@@ -4281,6 +4430,8 @@ var run = function () {
         Logger_1.Logger.error("An error occurred during conversion: ".concat(e));
     }
     finally {
+        // Restore UI updates
+        tempDoc.livePreview = wasLivePreview;
         // Close temp doc without saving changes
         tempDoc.close(false);
         // Remove temp file

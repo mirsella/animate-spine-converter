@@ -1,6 +1,7 @@
 import { Logger } from '../logger/Logger';
 import { SpineImage } from '../spine/SpineImage';
 import { SpineTransformMatrix } from '../spine/transform/SpineTransformMatrix';
+import { PathUtil } from './PathUtil'; // Assuming PathUtil is available or can be imported
 
 export class ImageUtil {
     public static exportBitmap(imagePath:string, element:FlashElement, exportImages:boolean):SpineImage {
@@ -329,7 +330,15 @@ export class ImageUtil {
         }
     }
 
-    public static exportShape(imagePath:string, element:FlashElement, document:FlashDocument, scale:number, exportImages:boolean):SpineImage {
+    public static exportShape(
+        imagePath:string, 
+        element:FlashElement, 
+        document:FlashDocument, 
+        scale:number, 
+        exportImages:boolean,
+        // Optional selection hints to resolve "Live" element from Data element
+        selectionHint?: { layerIndex: number, frameIndex: number, elementIndex: number }
+    ):SpineImage {
         const matrix = element.matrix;
         const transPointX = element.transformX;
         const transPointY = element.transformY;
@@ -356,7 +365,26 @@ export class ImageUtil {
         }
 
         dom.selectNone();
-        element.selected = true;
+        
+        // CRITICAL FIX: If we have selection hints, use them to find the "Live" element.
+        // The 'element' reference passed might be from a read-only Data API if we switched context.
+        if (selectionHint) {
+            try {
+                const liveLayer = timeline.layers[selectionHint.layerIndex];
+                const liveFrame = liveLayer.frames[selectionHint.frameIndex];
+                const liveElement = liveFrame.elements[selectionHint.elementIndex];
+                liveElement.selected = true;
+            } catch(e) {
+                Logger.warning(`[ImageUtil] Failed to resolve live element from hints: ${e}. Falling back to object reference.`);
+                element.selected = true;
+            }
+        } else {
+            element.selected = true;
+        }
+        
+        if (dom.selection.length === 0) {
+             // Selection failed logging
+        }
         
         let copySuccess = false;
         
@@ -411,6 +439,8 @@ export class ImageUtil {
                 ImageUtil.clearClipboard();
             }
         }
+        
+        // ImageUtil.log(`exportShape: Copy finished. Success=${copySuccess}`);
         
         element.selected = false;
         layer.locked = wasLocked;

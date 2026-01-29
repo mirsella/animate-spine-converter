@@ -153,6 +153,10 @@ const run = () => {
         return;
     }
 
+    // Disable UI updates during heavy export process to prevent crashes and race conditions
+    const wasLivePreview = tempDoc.livePreview;
+    tempDoc.livePreview = false;
+
     try {
         // --- RESTORE STATE IN TEMP DOC ---
         applySelectionPaths(tempDoc, selectionData);
@@ -161,6 +165,9 @@ const run = () => {
     } catch (e) {
         Logger.error(`An error occurred during conversion: ${e}`);
     } finally {
+        // Restore UI updates
+        tempDoc.livePreview = wasLivePreview;
+        
         // Close temp doc without saving changes
         tempDoc.close(false);
         
