@@ -273,11 +273,68 @@ var Converter = /** @class */ (function () {
             start = label.startFrameIdx;
             end = label.endFrameIdx;
         }
+        else if (context.parent != null && stageType === "animation" /* ConverterStageType.ANIMATION */) {
+            // NESTED ANIMATION SUPPORT (FLATTENING)
+            // Instead of exporting the entire child timeline for every parent frame,
+            // we calculate the EXACT frame of the child that corresponds to the parent's current time.
+            try {
+                var instance = context.element;
+                // Safety checks to prevent crashes on non-symbol instances or missing data
+                if (instance && instance.libraryItem && instance.libraryItem.timeline && context.parent && context.parent.frame) {
+                    var tl = instance.libraryItem.timeline;
+                    // Calculate Current Global Frame (Absolute Index in Root Timeline)
+                    var animationStartFrame = label ? label.startFrameIdx : 0;
+                    // Use Math.round to avoid floating point drift from time division
+                    var currentAbsFrame = animationStartFrame + Math.round(context.time * frameRate);
+                    // Calculate how many frames have elapsed since this instance's keyframe started
+                    var parentKeyframeStart = context.parent.frame.startFrame;
+                    var frameOffset = Math.max(0, currentAbsFrame - parentKeyframeStart);
+                    // Default properties for MovieClips (which don't have firstFrame/loop) or missing props
+                    // Graphic symbols have these. MovieClips behave like 'loop' starting at 0.
+                    var firstFrame = (instance.firstFrame !== undefined) ? instance.firstFrame : 0;
+                    var loopMode = (instance.loop !== undefined) ? instance.loop : 'loop'; // 'loop', 'play once', 'single frame'
+                    var tlFrameCount = tl.frameCount;
+                    var targetFrame = 0;
+                    if (loopMode === 'single frame') {
+                        targetFrame = firstFrame;
+                    }
+                    else if (loopMode === 'play once') {
+                        targetFrame = firstFrame + frameOffset;
+                        if (targetFrame >= tlFrameCount)
+                            targetFrame = tlFrameCount - 1;
+                    }
+                    else { // loop
+                        targetFrame = (firstFrame + frameOffset) % tlFrameCount;
+                    }
+                    // Restrict the loop to ONLY this frame
+                    start = targetFrame;
+                    end = targetFrame;
+                }
+            }
+            catch (e) {
+                // If anything goes wrong in the calc (e.g. weird JSFL object state), 
+                // silently fail and fall back to standard export (0 to end) to avoid crash.
+            }
+        }
         for (var i = start; i <= end; i++) {
             var frame = layer.frames[i];
             if (!frame)
                 continue;
-            var time = (i - start) / frameRate + context.timeOffset;
+            // Time calculation:
+            // If Root: time = (i - start) / frameRate.
+            // If Nested: start = targetFrame. i = targetFrame. time = 0.
+            // This ensures keys are exported at 'context.time' (Parent Time + 0).
+            var time = (i - start) / frameRate;
+            if (context.parent != null) {
+                // For nested animations, we force the local time to be 0 (snapshot), 
+                // but we must preserve the inherited timeOffset so the key is placed correctly in the root timeline.
+                // Actually, wait - if we flatten, we want to export THIS frame of the child at the CURRENT parent time.
+                // The 'time' variable here represents the local time relative to the start of the export loop.
+                // If we restrict the loop to start=targetFrame, end=targetFrame, then (i-start) is 0.
+                // So time becomes 0.
+                // Then we add context.timeOffset.
+            }
+            time += context.timeOffset;
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */)
