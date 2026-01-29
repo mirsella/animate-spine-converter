@@ -25,6 +25,7 @@ export class ConverterContext {
     public clipping:SpineClippingAttachment;
     public slot:SpineSlot;
     public time:number;
+    public timeOffset:number = 0;
     public matrixOverride:FlashMatrix = null;
     public positionOverride:{x:number, y:number} = null;
 

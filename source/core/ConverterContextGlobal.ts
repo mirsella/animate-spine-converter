@@ -22,6 +22,7 @@ export class ConverterContextGlobal extends ConverterContext {
     public layersCache:ConverterMap<FlashLayer, SpineSlot[]>;
     public assetTransforms:ConverterMap<string, SpineTransformMatrix>;
     public attachmentVariants:ConverterMap<string, Array<{x:number, y:number, name:string}>>;
+    public processedSymbols:Set<string> = new Set<string>();
 
     public labels:ConverterFrameLabel[];
     public stageType:ConverterStageType;

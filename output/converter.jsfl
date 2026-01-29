@@ -53,8 +53,6 @@ var Converter = /** @class */ (function () {
         }
         // 3. Calculate Required Offset for THIS instance (Variant Check)
         var element = context.element;
-        // Re-calculate using current matrix and the cached image's local center
-        // If Layer Parenting is active (matrixOverride present), use it to calculate offset relative to Global Registration Point
         var calcMatrix = context.matrixOverride || element.matrix;
         var regX = element.x;
         var regY = element.y;
@@ -67,53 +65,29 @@ var Converter = /** @class */ (function () {
             transY = context.positionOverride.y;
         }
         var requiredOffset = ImageUtil_1.ImageUtil.calculateAttachmentOffset(calcMatrix, regX, regY, transX, transY, spineImage.imageCenterOffsetX, spineImage.imageCenterOffsetY, baseImageName);
-        // Consistent Inversion for Spine Y-Up
-        // Derivation: 
-        // 1. requiredOffset.y is in Animate Y-Down space (positive = visually Down).
-        // 2. SpineFormat negates the value: JSON.y = attachment.y * -1.
-        // 3. Goal for Normal Bone: Visually Down -> JSON.y should be negative (e.g. -50).
-        //    So attachment.y should be 50. (attachment.y = requiredOffset.y).
-        // 4. Goal for Flipped Bone (ScaleY = -1): Bone axis points Down. Visually Down -> local Y should be POSITIVE relative to bone.
-        //    So JSON.y should be positive (e.g. 50).
-        //    So attachment.y should be -50. (attachment.y = -requiredOffset.y).
-        // const det = element.matrix.a * element.matrix.d - element.matrix.b * element.matrix.c;
         var spineOffsetX = requiredOffset.x;
-        // const spineOffsetY = (det < 0) ? -requiredOffset.y : requiredOffset.y; 
         var spineOffsetY = requiredOffset.y;
         // 4. Resolve Variant
         var finalAttachmentName = baseImageName;
-        // Increase tolerance to avoid micro-variants due to floating point jitter
         var TOLERANCE = 2.0;
         var variants = context.global.attachmentVariants.get(baseImageName);
         if (!variants) {
             variants = [];
-            // Add the default one (from the image export) as the first variant
             variants.push({ x: spineImage.x, y: spineImage.y, name: baseImageName });
             context.global.attachmentVariants.set(baseImageName, variants);
         }
         var found = false;
-        var closestDelta = { dx: 0, dy: 0, dist: 99999 };
-        var matchedVariant = null;
         for (var _i = 0, variants_1 = variants; _i < variants_1.length; _i++) {
             var v = variants_1[_i];
             var dx = Math.abs(v.x - spineOffsetX);
             var dy = Math.abs(v.y - spineOffsetY);
-            var dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < closestDelta.dist) {
-                closestDelta = { dx: dx, dy: dy, dist: dist };
-            }
             if (dx < TOLERANCE && dy < TOLERANCE) {
                 finalAttachmentName = v.name;
-                matchedVariant = v;
                 found = true;
                 break;
             }
         }
-        // --- HIGH FIDELITY DEBUG LOGGING ---
-        // const debugName = baseImageName.toLowerCase();
-        // -----------------------------------
         if (!found) {
-            // Create new variant
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
         }
@@ -127,7 +101,6 @@ var Converter = /** @class */ (function () {
         }
         var attachmentName = this.prepareImagesAttachmentName(context, finalAttachmentName);
         var attachment = slot.createAttachment(attachmentName, "region" /* SpineAttachmentType.REGION */);
-        // Force path to reuse the PNG if variant
         if (finalAttachmentName !== baseImageName) {
             attachment.path = this.prepareImagesAttachmentName(context, baseImageName);
         }
@@ -137,19 +110,6 @@ var Converter = /** @class */ (function () {
         attachment.scaleY = 1 / spineImage.scale;
         attachment.x = spineOffsetX;
         attachment.y = spineOffsetY;
-        // Debug logging for Dash scaling issues
-        /*
-        if (baseImageName.indexOf('dash') >= 0) {
-            Logger.trace(`[DashDebug] Exporting ${attachmentName}`);
-            Logger.trace(`   > SpineImage Scale: ${spineImage.scale}`);
-            Logger.trace(`   > Attachment Scale: ${attachment.scaleX.toFixed(3)}, ${attachment.scaleY.toFixed(3)}`);
-            Logger.trace(`   > Attachment Pos: ${attachment.x.toFixed(2)}, ${attachment.y.toFixed(2)}`);
-            const em = element.matrix;
-            const elemScaleX = Math.sqrt(em.a*em.a + em.b*em.b);
-            const elemScaleY = Math.sqrt(em.c*em.c + em.d*em.d);
-            Logger.trace(`   > Element Matrix Scale: Sx=${elemScaleX.toFixed(3)}, Sy=${elemScaleY.toFixed(3)}`);
-        }
-        */
         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, slot, context, attachment, context.time);
     };
     Converter.prototype.convertBitmapElementSlot = function (context) {
@@ -268,58 +228,24 @@ var Converter = /** @class */ (function () {
         var item = context.element.libraryItem;
         if (!item)
             return;
-        // Enter the symbol to ensure we are in the correct context for selection and interpolation
-        // We only do this if we can actually edit the item
+        // ANIMATION OPTIMIZATION:
+        // Avoid entering the same symbol multiple times per animation to prevent UI refresh storm and crashes.
+        if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */) {
+            if (context.global.processedSymbols.has(item.name))
+                return;
+            context.global.processedSymbols.add(item.name);
+        }
         var canEdit = this._document.library.itemExists(item.name);
         if (canEdit) {
             this._document.library.editItem(item.name);
         }
         try {
-            // Use the ACTIVE timeline to ensure layer references are fresh and valid
-            // Accessing item.timeline directly can sometimes yield stale Layer references without parentLayer populated
             var timeline = this._document.getTimeline();
             var layers = timeline.layers;
-            // Debug Hierarchy
-            var doc = this._document;
-            // FORCE LOGGING to debug "asset" root symbol and potential duplicate layer names
-            // Logger.trace(`[Hierarchy] Dumping layers for ${item.name} (Timeline: ${timeline.name}). AdvancedLayers=${doc.useAdvancedLayers}`);
-            for (var k = 0; k < layers.length; k++) {
-                var l = layers[k];
-                var pRef = l.parentLayer;
-                // Try legacy/undocumented accessor if property is null
-                if (!pRef && l.getParentLayer) {
-                    try {
-                        pRef = l.getParentLayer();
-                    }
-                    catch (e) { }
-                }
-                var pName = pRef ? pRef.name : "NULL";
-                var pType = pRef ? pRef.layerType : "-";
-                // Logger.trace(`   - Layer ${k}: '${l.name}' [${l.layerType}] -> Parent: '${pName}' [${pType}]`);
-            }
             for (var i = layers.length - 1; i >= 0; i--) {
                 var layer = layers[i];
-                // Detailed debug for missing skin_1 weapon
-                var isSkin1Weapon = item.name.indexOf('skin_1') >= 0 && (layer.name.toLowerCase().indexOf('weapon') >= 0);
-                /*
-                if (isSkin1Weapon) {
-                     Logger.trace(`[LayerCheck] Found weapon layer '${layer.name}' in symbol '${item.name}'`);
-                     Logger.trace(`   > Type: ${layer.layerType}`);
-                     Logger.trace(`   > Visible: ${layer.visible}`);
-                     Logger.trace(`   > Frame Count: ${layer.frames.length}`);
-                }
-                */
-                // Skip hidden layers to prevent exporting reference art or disabled content
-                if (!layer.visible) {
-                    /*
-                    if (isSkin1Weapon) {
-                        Logger.warning(`[LayerCheck] SKIPPING HIDDEN WEAPON LAYER in ${item.name}!`);
-                    }
-                    */
-                    // Logger.trace(`[Converter] Skipping hidden layer: '${layer.name}' in symbol '${item.name}'`);
+                if (!layer.visible)
                     continue;
-                }
-                // Treat 'guided' layers (layers being guided by a motion guide) as normal layers
                 if (layer.layerType === 'normal' || layer.layerType === 'guided') {
                     this.convertCompositeElementLayer(context, layer);
                 }
@@ -331,9 +257,6 @@ var Converter = /** @class */ (function () {
                 }
                 else if (layer.layerType === 'mask') {
                     this.disposeElementMaskLayer(context);
-                }
-                else {
-                    // Logger.trace(`[Converter] Skipping layer '${layer.name}' with type '${layer.layerType}' in symbol '${item.name}'`);
                 }
             }
         }
@@ -350,76 +273,17 @@ var Converter = /** @class */ (function () {
             start = label.startFrameIdx;
             end = label.endFrameIdx;
         }
-        else if (context.parent != null && stageType === "animation" /* ConverterStageType.ANIMATION */) {
-            // NESTED ANIMATION SUPPORT (FLATTENING)
-            // Instead of exporting the entire child timeline for every parent frame,
-            // we calculate the EXACT frame of the child that corresponds to the parent's current time.
-            try {
-                var instance = context.element;
-                // Safety checks to prevent crashes on non-symbol instances or missing data
-                if (instance && instance.libraryItem && instance.libraryItem.timeline && context.parent && context.parent.frame) {
-                    var tl = instance.libraryItem.timeline;
-                    // Calculate Current Global Frame (Absolute Index in Root Timeline)
-                    var animationStartFrame = label ? label.startFrameIdx : 0;
-                    // Use Math.round to avoid floating point drift from time division
-                    var currentAbsFrame = animationStartFrame + Math.round(context.time * frameRate);
-                    // Calculate how many frames have elapsed since this instance's keyframe started
-                    var parentKeyframeStart = context.parent.frame.startFrame;
-                    var frameOffset = Math.max(0, currentAbsFrame - parentKeyframeStart);
-                    // Default properties for MovieClips (which don't have firstFrame/loop) or missing props
-                    // Graphic symbols have these. MovieClips behave like 'loop' starting at 0.
-                    var firstFrame = (instance.firstFrame !== undefined) ? instance.firstFrame : 0;
-                    var loopMode = (instance.loop !== undefined) ? instance.loop : 'loop'; // 'loop', 'play once', 'single frame'
-                    var tlFrameCount = tl.frameCount;
-                    var targetFrame = 0;
-                    if (loopMode === 'single frame') {
-                        targetFrame = firstFrame;
-                    }
-                    else if (loopMode === 'play once') {
-                        targetFrame = firstFrame + frameOffset;
-                        if (targetFrame >= tlFrameCount)
-                            targetFrame = tlFrameCount - 1;
-                    }
-                    else { // loop
-                        targetFrame = (firstFrame + frameOffset) % tlFrameCount;
-                    }
-                    // Restrict the loop to ONLY this frame
-                    start = targetFrame;
-                    end = targetFrame;
-                }
-            }
-            catch (e) {
-                // If anything goes wrong in the calc (e.g. weird JSFL object state), 
-                // silently fail and fall back to standard export (0 to end) to avoid crash.
-                // We can't easily log here without flooding.
-            }
-        }
         for (var i = start; i <= end; i++) {
-            // Safety check for targetFrame out of bounds (e.g. if layer is shorter than timeline)
-            if (i >= layer.frames.length)
-                continue;
             var frame = layer.frames[i];
             if (!frame)
                 continue;
-            // Time calculation:
-            // If Root: time = (i - start) / frameRate.
-            // If Nested: start = targetFrame. i = targetFrame. time = 0.
-            // This ensures keys are exported at 'context.time' (Parent Time + 0).
-            var time = (i - start) / frameRate;
-            // Export events from comments
+            var time = (i - start) / frameRate + context.timeOffset;
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */)
                     SpineAnimationHelper_1.SpineAnimationHelper.applyEventAnimation(context.global.animation, frame.name, time);
             }
-            // Handle empty keyframes (end of visibility) by setting attachment to null
             if (frame.elements.length === 0) {
-                // Debug logging for missing weapon in idle
-                /*
-                if (layer.name.toLowerCase().indexOf('weapon') >= 0 && context.element?.libraryItem?.name.indexOf('skin_1') >= 0) {
-                     Logger.trace(`[FrameCheck] Empty/Null frame encountered for skin_1 weapon on layer '${layer.name}' at frame ${i}.`);
-                }
-                */
                 var slots = context.global.layersCache.get(context.layer);
                 if (slots && stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     for (var _i = 0, slots_1 = slots; _i < slots_1.length; _i++) {
@@ -429,179 +293,43 @@ var Converter = /** @class */ (function () {
                 }
                 continue;
             }
-            // Iterate elements on the frame
             for (var eIdx = 0; eIdx < frame.elements.length; eIdx++) {
                 var el = frame.elements[eIdx];
-                // Calculate Parent Matrix if Layer Parenting is active
-                // This must be done before selecting the child element because it changes selection
                 var parentMat = null;
                 if (layer.parentLayer) {
                     this._document.getTimeline().currentFrame = i;
                     parentMat = this.getLayerParentMatrix(layer, i);
                 }
-                var bakedData = null;
-                // INTERPOLATION HANDLING
-                if (i !== frame.startFrame) {
-                    // Optimized Skip for Classic Tweens to allow Spine Bezier Interpolation
-                    // We skip "Baking" (frame-by-frame export) if the tween is simple enough for Spine to handle.
-                    // This prevents "scalloped" motion and reduces file size.
-                    var isClassic = frame.tweenType === 'classic';
-                    // If parentLayer is present and is a guide, we MUST bake (Spine doesn't support Animate guides directly without constraints)
-                    var isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
-                    var isSupportedEase = true;
-                    // Complex custom eases (>4 points) cannot be represented by a single Bezier segment, so we must bake them.
-                    if (frame.hasCustomEase) {
-                        try {
-                            var pts = frame.getCustomEase();
-                            if (pts && pts.length > 4)
-                                isSupportedEase = false;
-                        }
-                        catch (e) {
-                            isSupportedEase = false;
-                        }
-                    }
-                    if (isClassic && !isGuided && isSupportedEase) {
-                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): Skipping Bake (Using Curve). Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
-                        continue; // Skip baking, let Spine interpolate from the keyframe
-                    }
-                    else {
-                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): BAKING. Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
-                    }
-                    this._document.getTimeline().currentFrame = i;
-                    var wasLocked = layer.locked;
-                    var wasVisible = layer.visible;
-                    layer.locked = false;
-                    layer.visible = true;
-                    // Robust selection logic
-                    var timeline = this._document.getTimeline();
-                    // Find correct layer index
-                    var layerIdx = -1;
-                    var layers = timeline.layers;
-                    // Try reference match first
-                    for (var k = 0; k < layers.length; k++) {
-                        if (layers[k] === layer) {
-                            layerIdx = k;
-                            break;
-                        }
-                    }
-                    // Fallback to name match if reference fails (JSFL quirk)
-                    if (layerIdx === -1) {
-                        for (var k = 0; k < layers.length; k++) {
-                            if (layers[k].name === layer.name) {
-                                layerIdx = k;
-                                break;
-                            }
-                        }
-                    }
-                    if (layerIdx !== -1) {
-                        timeline.setSelectedLayers(layerIdx);
-                    }
-                    timeline.setSelectedFrames(i, i + 1); // Focus the specific frame
-                    // FORCE BAKING via Keyframe Conversion (Fix for Motion Tweens)
-                    // Motion Tweens often report static matrices for the 'base' element.
-                    // By converting the specific frame to a keyframe, we force Animate to bake the interpolation.
-                    // Note: Since we are running on a temporary file, we do NOT undo this operation.
-                    // This destructively converts the temporary timeline to keyframes, which is fine and faster.
-                    // Debug: Capture pre-bake state to verify if baking actually changes values
-                    var preBakeTx = el.matrix.tx;
-                    var preBakeTy = el.matrix.ty;
-                    var preBakeRot = Math.atan2(el.matrix.b, el.matrix.a) * 180 / Math.PI;
-                    try {
-                        timeline.convertToKeyframes();
-                        // Re-fetch element from the new keyframe
-                        var freshLayer = timeline.layers[layerIdx];
-                        var freshFrame = freshLayer.frames[i];
-                        if (freshFrame.elements.length > 0) {
-                            var bakedEl = freshFrame.elements[0];
-                            bakedData = {
-                                matrix: bakedEl.matrix,
-                                transformX: bakedEl.transformX,
-                                transformY: bakedEl.transformY
-                            };
-                            // Debug: Compare
-                            var postBakeTx = bakedEl.matrix.tx;
-                            var postBakeRot = Math.atan2(bakedEl.matrix.b, bakedEl.matrix.a) * 180 / Math.PI;
-                            var hasChanged = Math.abs(postBakeTx - preBakeTx) > 0.01 || Math.abs(postBakeRot - preBakeRot) > 0.01;
-                            if (hasChanged) {
-                                Logger_1.Logger.trace("[Bake] Frame ".concat(i, " (").concat(layer.name, "): Interpolation Captured! Tx: ").concat(preBakeTx.toFixed(1), "->").concat(postBakeTx.toFixed(1), ", Rot: ").concat(preBakeRot.toFixed(1), "->").concat(postBakeRot.toFixed(1)));
-                            }
-                            else {
-                                // If values didn't change, it might be a hold frame or baking failed to capture difference
-                                // Logger.trace(`[Bake] Frame ${i} (${layer.name}): No change detected.`);
-                            }
-                        }
-                    }
-                    catch (e) {
-                        Logger_1.Logger.warning("[Converter] Bake failed for frame ".concat(i, " (").concat(layer.name, "): ").concat(e));
-                    }
-                    if (!bakedData) {
-                        this._document.selectNone();
-                        // Selecting the keyframe element while playhead is at 'i' selects the interpolated instance
-                        el.selected = true;
-                        if (this._document.selection.length > 0) {
-                            el = this._document.selection[0];
-                        }
-                    }
-                    layer.locked = wasLocked;
-                    layer.visible = wasVisible;
-                }
-                else {
-                    this._document.getTimeline().currentFrame = i;
-                }
-                // Combine Parent Matrix with Child Matrix (which may have been updated to interpolated proxy)
+                this._document.getTimeline().currentFrame = i;
                 var finalMatrixOverride = null;
                 var finalPositionOverride = null;
-                var sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
-                var sourceTransX = bakedData ? bakedData.transformX : el.transformX;
-                var sourceTransY = bakedData ? bakedData.transformY : el.transformY;
-                // Debug Transform Point
-                // const debugItem = el.libraryItem ? el.libraryItem.name : (el.name || '');
+                var sourceMatrix = el.matrix;
+                var sourceTransX = el.transformX;
+                var sourceTransY = el.transformY;
                 if (parentMat) {
                     finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
-                    // Transformation Point (Pivot) is in Parent Space (relative to Parent's Origin).
-                    // We must transform it to Global Space (relative to Stage Origin) to position the Bone correctly.
-                    // P_global = P_local * ParentMatrix
                     finalPositionOverride = {
                         x: sourceTransX * parentMat.a + sourceTransY * parentMat.c + parentMat.tx,
                         y: sourceTransX * parentMat.b + sourceTransY * parentMat.d + parentMat.ty
                     };
                 }
-                else if (bakedData) {
-                    // If we have baked data, we MUST use it as an override because 'el' is reverted to the static base state
-                    finalMatrixOverride = sourceMatrix;
-                    finalPositionOverride = {
-                        x: sourceTransX,
-                        y: sourceTransY
-                    };
-                }
-                // --- DEBUG LOGGING FOR LAYER PARENTING FIX ---
-                // if (isDebugTarget) {
-                //    const logPrefix = `[ParentFix] F=${i} | Layer: ${layer.name} | Item: ${debugItem}`;
-                //    ...
-                // }
-                // ---------------------------------------------
                 var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
-                // Recurse into symbol if needed
-                // Note: We do NOT need to call editItem here; factory() -> convertElement -> convertCompositeElement handles recursion logic.
-                // However, we must ensure we don't lose our place in the current timeline loop.
+                if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === "animation" /* ConverterStageType.ANIMATION */) {
+                    var instance = el;
+                    var firstFrameOffset = (instance.firstFrame || 0) / frameRate;
+                    sub.timeOffset = time - firstFrameOffset;
+                }
                 factory(sub);
-                // RESTORE CONTEXT CHECK
-                // If the factory call (e.g. ImageUtil.exportSymbol) changed the active edit context (returned to parent/root),
-                // we must re-enter the current symbol to continue processing its timeline correctly.
                 if (context.element && context.element.libraryItem) {
                     var targetName = context.element.libraryItem.name;
                     var dom = this._document;
-                    // Check if current timeline matches our expected context
-                    // Note: timeline.name matches the Symbol name for symbols.
                     var currentTl = dom.getTimeline();
                     if (currentTl.name !== targetName) {
-                        // Logger.trace(`[Converter] Context lost (Current: '${currentTl.name}', Expected: '${targetName}'). Restoring...`);
                         if (dom.library.itemExists(targetName)) {
                             dom.library.editItem(targetName);
                         }
                     }
                 }
-                // Restore timeline frame in case recursion changed it
                 if (this._document.getTimeline().currentFrame !== i) {
                     this._document.getTimeline().currentFrame = i;
                 }
@@ -634,22 +362,21 @@ var Converter = /** @class */ (function () {
                 context.global.stageType = "structure" /* ConverterStageType.STRUCTURE */;
                 this.convertElement(context);
                 Logger_1.Logger.trace("[Converter] Converting animations for symbol instance: ".concat(element.name || element.libraryItem.name, ". Found ").concat(context.global.labels.length, " labels."));
-                // If we found specific labels, process them
                 if (context.global.labels.length > 0) {
-                    // Check if 'default' label is the only one (generated by ConvertUtil when no labels found)
                     var isDefaultOnly = context.global.labels.length === 1 && context.global.labels[0].name === 'default';
                     if (!isDefaultOnly) {
                         for (var _i = 0, _a = context.global.labels; _i < _a.length; _i++) {
                             var l = _a[_i];
                             Logger_1.Logger.trace("  - Processing label: ".concat(l.name, " (frames ").concat(l.startFrameIdx, "-").concat(l.endFrameIdx, ")"));
+                            context.global.processedSymbols.clear();
                             var sub = context.switchContextAnimation(l);
                             sub.global.stageType = "animation" /* ConverterStageType.ANIMATION */;
                             this.convertElement(sub);
                         }
                     }
                     else {
-                        // Fallback to default animation processing (full timeline as one animation)
                         Logger_1.Logger.trace("  - Processing default timeline animation (frames 0-".concat(context.global.labels[0].endFrameIdx, ")"));
+                        context.global.processedSymbols.clear();
                         var sub = context.switchContextAnimation(context.global.labels[0]);
                         sub.global.stageType = "animation" /* ConverterStageType.ANIMATION */;
                         this.convertElement(sub);
@@ -676,57 +403,42 @@ var Converter = /** @class */ (function () {
     Converter.prototype.getLayerParentMatrix = function (layer, frameIndex) {
         if (!layer.parentLayer)
             return { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
-        // Recursive call for grandparent
         var parentGlobal = this.getLayerParentMatrix(layer.parentLayer, frameIndex);
-        // Get the parent layer's element at this frame
-        // Note: layer.frames[frameIndex] might refer to a keyframe starting earlier
         var parentFrame = layer.parentLayer.frames[frameIndex];
         if (!parentFrame || parentFrame.elements.length === 0) {
-            return parentGlobal; // Parent missing? Return grandparent or Identity
+            return parentGlobal;
         }
-        // We must SELECT the parent element to get its interpolated matrix if it is tweening
-        // This is expensive but necessary for Layer Parenting + Tweens
         var wasLocked = layer.parentLayer.locked;
         var wasVisible = layer.parentLayer.visible;
         layer.parentLayer.locked = false;
         layer.parentLayer.visible = true;
         var el = parentFrame.elements[0];
-        // Find layer index to select it properly (JSFL quirk)
         var layerIdx = -1;
-        var matchType = "None";
         var layers = this._document.getTimeline().layers;
         for (var k = 0; k < layers.length; k++) {
             if (layers[k] === layer.parentLayer) {
                 layerIdx = k;
-                matchType = "Ref";
                 break;
             }
         }
-        // Fallback to name match if reference fails (JSFL quirk - happens because we iterate layers from a cached timeline)
         if (layerIdx === -1) {
             var pName = layer.parentLayer.name;
             for (var k = 0; k < layers.length; k++) {
                 if (layers[k].name === pName) {
                     layerIdx = k;
-                    matchType = "Name";
                     break;
                 }
             }
         }
-        // Debug detection logic (only for specific items to reduce noise)
-        // const pName = layer.parentLayer.name;
         if (layerIdx !== -1) {
             this._document.getTimeline().setSelectedLayers(layerIdx);
             this._document.getTimeline().setSelectedFrames(frameIndex, frameIndex + 1);
-            // Select element to get interpolated properties
             this._document.selectNone();
             el.selected = true;
             var finalMat = el.matrix;
             if (this._document.selection.length > 0) {
-                // Use the selection proxy
                 finalMat = this._document.selection[0].matrix;
             }
-            // Restore state
             layer.parentLayer.locked = wasLocked;
             layer.parentLayer.visible = wasVisible;
             return this.concatMatrix(finalMat, parentGlobal);
@@ -835,6 +547,7 @@ var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTra
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
 var ConverterContext = /** @class */ (function () {
     function ConverterContext() {
+        this.timeOffset = 0;
         this.matrixOverride = null;
         this.positionOverride = null;
         /**
@@ -982,7 +695,9 @@ var ConverterMap_1 = __webpack_require__(/*! ./ConverterMap */ "./source/core/Co
 var ConverterContextGlobal = /** @class */ (function (_super) {
     __extends(ConverterContextGlobal, _super);
     function ConverterContextGlobal() {
-        return _super.call(this) || this;
+        var _this = _super.call(this) || this;
+        _this.processedSymbols = new Set();
+        return _this;
     }
     ConverterContextGlobal.initializeGlobal = function (element, config, frameRate, skeleton, cache) {
         var _a;
