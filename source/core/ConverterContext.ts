@@ -28,6 +28,7 @@ export class ConverterContext {
     public timeOffset:number = 0;
     public matrixOverride:FlashMatrix = null;
     public positionOverride:{x:number, y:number} = null;
+    public recursionDepth:number = 0;
 
     /**
      * Offset to shift children from Parent Registration Point to Parent Anchor Point.
@@ -84,6 +85,7 @@ export class ConverterContext {
 
         context.global = this.global;
         context.parent = this;
+        context.recursionDepth = this.recursionDepth + 1;
 
         context.blendMode = ConvertUtil.obtainElementBlendMode(element);
         context.color = this.color.blend(element);

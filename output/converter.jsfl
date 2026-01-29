@@ -228,6 +228,11 @@ var Converter = /** @class */ (function () {
         var item = context.element.libraryItem;
         if (!item)
             return;
+        // Prevent infinite recursion or stack overflow
+        if (context.recursionDepth > 32) {
+            Logger_1.Logger.warning("[Converter] Max recursion depth reached for ".concat(item.name, ". Skipping."));
+            return;
+        }
         // ANIMATION OPTIMIZATION:
         // Avoid entering the same symbol multiple times per animation to prevent UI refresh storm and crashes.
         if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */) {
@@ -306,6 +311,12 @@ var Converter = /** @class */ (function () {
                     else { // loop
                         targetFrame = (firstFrame + frameOffset) % tlFrameCount;
                     }
+                    // Bounds Check: Ensure targetFrame is within the layer's actual frame count
+                    if (targetFrame >= layer.frames.length) {
+                        // This can happen if the layer is shorter than the timeline
+                        // Skip processing this layer for this frame
+                        return;
+                    }
                     // Restrict the loop to ONLY this frame
                     start = targetFrame;
                     end = targetFrame;
@@ -317,6 +328,9 @@ var Converter = /** @class */ (function () {
             }
         }
         for (var i = start; i <= end; i++) {
+            // Safety check for targetFrame out of bounds (e.g. if layer is shorter than timeline)
+            if (i < 0 || i >= layer.frames.length)
+                continue;
             var frame = layer.frames[i];
             if (!frame)
                 continue;
@@ -702,6 +716,7 @@ var ConverterContext = /** @class */ (function () {
         this.timeOffset = 0;
         this.matrixOverride = null;
         this.positionOverride = null;
+        this.recursionDepth = 0;
         /**
          * Offset to shift children from Parent Registration Point to Parent Anchor Point.
          * Calculated as: -Parent.transformationPoint
@@ -747,6 +762,7 @@ var ConverterContext = /** @class */ (function () {
         context.time = this.time + time;
         context.global = this.global;
         context.parent = this;
+        context.recursionDepth = this.recursionDepth + 1;
         context.blendMode = ConvertUtil_1.ConvertUtil.obtainElementBlendMode(element);
         context.color = this.color.blend(element);
         context.layer = this.layer;

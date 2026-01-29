@@ -273,6 +273,12 @@ export class Converter {
         const item = context.element.libraryItem;
         if (!item) return;
 
+        // Prevent infinite recursion or stack overflow
+        if (context.recursionDepth > 32) {
+            Logger.warning(`[Converter] Max recursion depth reached for ${item.name}. Skipping.`);
+            return;
+        }
+
         // ANIMATION OPTIMIZATION:
         // Avoid entering the same symbol multiple times per animation to prevent UI refresh storm and crashes.
         if (context.global.stageType === ConverterStageType.ANIMATION) {
@@ -355,6 +361,13 @@ export class Converter {
                         targetFrame = (firstFrame + frameOffset) % tlFrameCount;
                     }
                     
+                    // Bounds Check: Ensure targetFrame is within the layer's actual frame count
+                    if (targetFrame >= layer.frames.length) {
+                        // This can happen if the layer is shorter than the timeline
+                        // Skip processing this layer for this frame
+                        return;
+                    }
+
                     // Restrict the loop to ONLY this frame
                     start = targetFrame;
                     end = targetFrame;
@@ -366,6 +379,9 @@ export class Converter {
         }
         
         for (let i = start; i <= end; i++) {
+            // Safety check for targetFrame out of bounds (e.g. if layer is shorter than timeline)
+            if (i < 0 || i >= layer.frames.length) continue;
+
             const frame = layer.frames[i];
             if (!frame) continue;
             
