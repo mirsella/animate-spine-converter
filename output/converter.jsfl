@@ -319,6 +319,8 @@ var Converter = /** @class */ (function () {
                     var firstFrame = (instance.firstFrame !== undefined) ? instance.firstFrame : 0;
                     var loopMode = (instance.loop !== undefined) ? instance.loop : 'loop';
                     var tlFrameCount = tl.frameCount;
+                    if (tlFrameCount <= 0)
+                        return; // Safety check
                     if (loopMode === 'single frame') {
                         targetFrame = firstFrame;
                     }
@@ -555,7 +557,7 @@ var Converter = /** @class */ (function () {
                     sub.timeOffset = time - firstFrameOffset;
                 }
                 factory(sub);
-                if (context.element && context.element.libraryItem) {
+                if (context.element && context.element.libraryItem && allowBaking) {
                     var targetName = context.element.libraryItem.name;
                     var dom = this._document;
                     var currentTl = dom.getTimeline();
@@ -565,7 +567,7 @@ var Converter = /** @class */ (function () {
                         }
                     }
                 }
-                if (this._document.getTimeline().currentFrame !== i) {
+                if (allowBaking && this._document.getTimeline().currentFrame !== i) {
                     this._document.getTimeline().currentFrame = i;
                 }
             }
@@ -764,17 +766,6 @@ exports.ConverterColor = ConverterColor;
 /***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
-var __assign = (this && this.__assign) || function () {
-    __assign = Object.assign || function(t) {
-        for (var s, i = 1, n = arguments.length; i < n; i++) {
-            s = arguments[i];
-            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
-                t[p] = s[p];
-        }
-        return t;
-    };
-    return __assign.apply(this, arguments);
-};
 
 exports.ConverterContext = void 0;
 var SpineAnimationHelper_1 = __webpack_require__(/*! ../spine/SpineAnimationHelper */ "./source/spine/SpineAnimationHelper.ts");
@@ -843,7 +834,15 @@ var ConverterContext = /** @class */ (function () {
         if (context.bone.initialized === false) {
             context.bone.initialized = true;
             // Shift position from Parent Registration Point to Parent Anchor Point
-            var boneTransform = __assign(__assign({}, transform), { x: transform.x + this.parentOffset.x, y: transform.y + this.parentOffset.y });
+            var boneTransform = {
+                rotation: transform.rotation,
+                scaleX: transform.scaleX,
+                scaleY: transform.scaleY,
+                shearX: transform.shearX,
+                shearY: transform.shearY,
+                x: transform.x + this.parentOffset.x,
+                y: transform.y + this.parentOffset.y
+            };
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, boneTransform);
         }
         // Set parentOffset for children of this bone: shift from this bone's RP to this bone's Anchor
@@ -853,7 +852,15 @@ var ConverterContext = /** @class */ (function () {
             y: -element.transformationPoint.y
         };
         if (context.global.stageType === "animation" /* ConverterStageType.ANIMATION */) {
-            var boneTransform = __assign(__assign({}, transform), { x: transform.x + this.parentOffset.x, y: transform.y + this.parentOffset.y });
+            var boneTransform = {
+                rotation: transform.rotation,
+                scaleX: transform.scaleX,
+                scaleY: transform.scaleY,
+                shearX: transform.shearX,
+                shearY: transform.shearY,
+                x: transform.x + this.parentOffset.x,
+                y: transform.y + this.parentOffset.y
+            };
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneAnimation(context.global.animation, context.bone, context, boneTransform, context.time);
         }
         return context;
@@ -1195,37 +1202,19 @@ var SpineAnimationHelper = /** @class */ (function () {
         // Rotation Unwrapping (Shortest Path)
         // Ensure that the new angle is continuous relative to the previous keyframe
         var angle = transform.rotation - bone.rotation;
-        // Detailed Rotation Debug
-        var isDebugBone = bone.name.indexOf('weapon') >= 0 || bone.name.indexOf('torso') >= 0 || bone.name.indexOf('arm') >= 0;
-        if (isDebugBone) {
-            // Logger.trace(`[RotDetail] ${bone.name} T=${time.toFixed(3)} | MatrixRot=${transform.rotation.toFixed(2)} | BoneSetupRot=${bone.rotation.toFixed(2)} | Delta=${angle.toFixed(2)}`);
-        }
         if (rotateTimeline.frames.length > 0) {
             var prevFrame = rotateTimeline.frames[rotateTimeline.frames.length - 1];
             // Only apply unwrapping if we are moving forward in time (sequential export)
             if (time >= prevFrame.time) {
                 var prevAngle = prevFrame.angle;
-                var originalAngle = angle;
                 // Use a epsilon for time equality to avoid unwrapping the same keyframe twice
                 if (time > prevFrame.time) {
                     while (angle - prevAngle > 180)
                         angle -= 360;
                     while (angle - prevAngle < -180)
                         angle += 360;
-                    // Debug Logging for "Jump" detection or wrapping
-                    if (isDebugBone && Math.abs(angle - prevAngle) > 30) {
-                        Logger_1.Logger.trace("[RotJump] ".concat(bone.name, " T=").concat(time.toFixed(3), ": JUMP DETECTED! ").concat(prevAngle.toFixed(1), " -> ").concat(angle.toFixed(1), " (Orig: ").concat(originalAngle.toFixed(1), ")"));
-                    }
-                    else if (isDebugBone && originalAngle !== angle) {
-                        // Logger.trace(`[RotWrap] ${bone.name} T=${time.toFixed(3)}: Wrapped ${originalAngle.toFixed(1)} -> ${angle.toFixed(1)}`);
-                    }
                 }
             }
-        }
-        else {
-            // Initial frame check (if it's not 0)
-            if (isDebugBone)
-                Logger_1.Logger.trace("[RotStart] ".concat(bone.name, " T=").concat(time.toFixed(3), ": Start Angle ").concat(angle.toFixed(1), " (Matrix: ").concat(transform.rotation.toFixed(1), ")"));
         }
         var rotateFrame = rotateTimeline.createFrame(time, curve);
         rotateFrame.angle = angle;
@@ -2502,12 +2491,11 @@ exports.SpineTimelineGroupSlot = SpineTimelineGroupSlot;
 /*!********************************************************!*\
   !*** ./source/spine/transform/SpineTransformMatrix.ts ***!
   \********************************************************/
-/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+/***/ (function(__unused_webpack_module, exports) {
 
 
 
 exports.SpineTransformMatrix = void 0;
-var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/Logger.ts");
 var SpineTransformMatrix = /** @class */ (function () {
     function SpineTransformMatrix(element, reference, matrixOverride, positionOverride) {
         if (reference === void 0) { reference = null; }
@@ -2636,15 +2624,6 @@ var SpineTransformMatrix = /** @class */ (function () {
             shearY += 360;
         while (shearY > 180)
             shearY -= 360;
-        // Debug logging for specific items
-        if (debugName.indexOf('skin_1') >= 0 && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('torso') >= 0)) {
-            Logger_1.Logger.trace("[Decompose] ".concat(debugName, ":"));
-            Logger_1.Logger.trace("  > Input Matrix: a=".concat(mat.a.toFixed(3), " b=").concat(mat.b.toFixed(3), " c=").concat(mat.c.toFixed(3), " d=").concat(mat.d.toFixed(3), " tx=").concat(mat.tx.toFixed(1), " ty=").concat(mat.ty.toFixed(1)));
-            Logger_1.Logger.trace("  > Calc: Det=".concat(det.toFixed(3), " AngleX=").concat(angleX.toFixed(1), " AngleY=").concat(angleY.toFixed(1)));
-            if (reference)
-                Logger_1.Logger.trace("  > Ref: Rot=".concat(reference.rotation.toFixed(1)));
-            Logger_1.Logger.trace("  > Final: Rot=".concat(rotRaw.toFixed(1), "->").concat(rotation.toFixed(1), " Sx=").concat(scaleX.toFixed(2), " Sy=").concat(scaleY.toFixed(2), " ShearY=").concat(shearY.toFixed(1)));
-        }
         return {
             rotation: Math.round(rotation * 10000) / 10000,
             scaleX: Math.round(scaleX * 10000) / 10000,
@@ -3412,10 +3391,6 @@ var ImageUtil = /** @class */ (function () {
         // 3. Add Image Center Offset
         var finalX = localRx + localCenterX;
         var finalY = localRy + localCenterY;
-        // Debug logging for specific problematic items
-        if (debugName && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('arm') >= 0 || debugName.indexOf('torso') >= 0 || debugName.indexOf('dash') >= 0) && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
-            Logger_1.Logger.trace("[Offset] ".concat(debugName, ": WorldVec=(").concat(dx.toFixed(1), ", ").concat(dy.toFixed(1), ") -> LocalVec=(").concat(localRx.toFixed(1), ", ").concat(localRy.toFixed(1), ") Final=(").concat(finalX.toFixed(1), ", ").concat(finalY.toFixed(1), ")"));
-        }
         return { x: finalX, y: finalY };
     };
     // Helper for legacy/other paths

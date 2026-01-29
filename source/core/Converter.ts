@@ -371,6 +371,8 @@ export class Converter {
                     const loopMode = (instance.loop !== undefined) ? instance.loop : 'loop'; 
                     const tlFrameCount = tl.frameCount;
                     
+                    if (tlFrameCount <= 0) return; // Safety check
+                    
                     if (loopMode === 'single frame') {
                         targetFrame = firstFrame;
                     } else if (loopMode === 'play once') {
@@ -619,7 +621,7 @@ export class Converter {
 
                 factory(sub);
                 
-                if (context.element && context.element.libraryItem) {
+                if (context.element && context.element.libraryItem && allowBaking) {
                     const targetName = context.element.libraryItem.name;
                     const dom = this._document;
                     const currentTl = dom.getTimeline();
@@ -630,7 +632,7 @@ export class Converter {
                     }
                 }
 
-                if (this._document.getTimeline().currentFrame !== i) {
+                if (allowBaking && this._document.getTimeline().currentFrame !== i) {
                     this._document.getTimeline().currentFrame = i;
                 }
             }

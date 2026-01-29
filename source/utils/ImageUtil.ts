@@ -652,11 +652,6 @@ export class ImageUtil {
         const finalX = localRx + localCenterX;
         const finalY = localRy + localCenterY;
 
-        // Debug logging for specific problematic items
-        if (debugName && (debugName.indexOf('weapon') >= 0 || debugName.indexOf('arm') >= 0 || debugName.indexOf('torso') >= 0 || debugName.indexOf('dash') >= 0) && (Math.abs(dx) > 1 || Math.abs(dy) > 1)) {
-             Logger.trace(`[Offset] ${debugName}: WorldVec=(${dx.toFixed(1)}, ${dy.toFixed(1)}) -> LocalVec=(${localRx.toFixed(1)}, ${localRy.toFixed(1)}) Final=(${finalX.toFixed(1)}, ${finalY.toFixed(1)})`);
-        }
-
         return { x: finalX, y: finalY };
     }
 

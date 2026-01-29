@@ -102,7 +102,11 @@ export class ConverterContext {
 
             // Shift position from Parent Registration Point to Parent Anchor Point
             const boneTransform = {
-                ...transform,
+                rotation: transform.rotation,
+                scaleX: transform.scaleX,
+                scaleY: transform.scaleY,
+                shearX: transform.shearX,
+                shearY: transform.shearY,
                 x: transform.x + this.parentOffset.x,
                 y: transform.y + this.parentOffset.y
             };
@@ -119,7 +123,11 @@ export class ConverterContext {
 
         if (context.global.stageType === ConverterStageType.ANIMATION) {
             const boneTransform = {
-                ...transform,
+                rotation: transform.rotation,
+                scaleX: transform.scaleX,
+                scaleY: transform.scaleY,
+                shearX: transform.shearX,
+                shearY: transform.shearY,
                 x: transform.x + this.parentOffset.x,
                 y: transform.y + this.parentOffset.y
             };
