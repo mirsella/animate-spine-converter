@@ -513,27 +513,45 @@ var Converter = /** @class */ (function () {
         }
         // Standard Loop for Root / Non-Flattened
         for (var i = start; i <= end; i++) {
-            // Safety check for targetFrame out of bounds (e.g. if layer is shorter than timeline)
-            if (i < 0 || i >= layer.frames.length)
-                continue;
-            var frame = layer.frames[i];
-            if (!frame)
-                continue;
             // Time calculation:
             // If Root: time = (i - start) / frameRate.
-            // If Nested: start = targetFrame. i = targetFrame. time = 0.
-            // This ensures keys are exported at 'context.time' (Parent Time + 0).
             var time = (i - start) / frameRate;
             if (context.parent != null) {
-                // For nested animations, we force the local time to be 0 (snapshot), 
-                // but we must preserve the inherited timeOffset so the key is placed correctly in the root timeline.
-                // Actually, wait - if we flatten, we want to export THIS frame of the child at the CURRENT parent time.
-                // The 'time' variable here represents the local time relative to the start of the export loop.
-                // If we restrict the loop to start=targetFrame, end=targetFrame, then (i-start) is 0.
-                // So time becomes 0.
-                // Then we add context.timeOffset.
+                // For nested animations... (logic handled via isNestedFlattening mostly)
             }
             time += context.timeOffset;
+            // VISIBILITY FIX: End of Layer / Gap Handling
+            // If we are beyond the layer's actual frames, or the frame is undefined, we must hide the slots.
+            if (i < 0 || i >= layer.frames.length || !layer.frames[i]) {
+                // Determine if we need to hide slots associated with this layer
+                // We only do this if we are within the requested export range (which we are, i <= end)
+                // AND if we haven't already hidden them.
+                // Since this loop runs sequentially, we can just export a null attachment key.
+                if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
+                    var slots = context.global.layersCache.get(context.layer);
+                    if (slots) {
+                        for (var _b = 0, slots_2 = slots; _b < slots_2.length; _b++) {
+                            var s = slots_2[_b];
+                            // Only key if not already keyed at this time?
+                            // SpineAnimationHelper handles adding keys.
+                            // We need a dummy context?
+                            // We construct a fake context just for the time?
+                            // Or just call the helper directly if we have the slot.
+                            // We assume 'stepped' curve for hiding.
+                            // But we need to call applySlotAttachment.
+                            // It needs a context to get frame curve. If we pass null context, what happens?
+                            // obtainFrameCurve returns null (Linear) if context frame is null. That's fine for hiding.
+                            // Logger.trace(`[Visibility] Layer '${layer.name}' ended at frame ${i}. Hiding slots.`);
+                            SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
+                        }
+                    }
+                }
+                continue;
+            }
+            var frame = layer.frames[i];
+            if (!frame)
+                continue; // Should be covered above
+            // ... rest of loop ...
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */)
@@ -542,8 +560,9 @@ var Converter = /** @class */ (function () {
             if (frame.elements.length === 0) {
                 var slots = context.global.layersCache.get(context.layer);
                 if (slots && stageType === "animation" /* ConverterStageType.ANIMATION */) {
-                    for (var _b = 0, slots_2 = slots; _b < slots_2.length; _b++) {
-                        var s = slots_2[_b];
+                    // Logger.trace(`[Visibility] Frame ${i} (${layer.name}) is empty keyframe. Hiding slots.`);
+                    for (var _c = 0, slots_3 = slots; _c < slots_3.length; _c++) {
+                        var s = slots_3[_c];
                         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context.switchContextFrame(frame), null, time);
                     }
                 }
@@ -1368,6 +1387,16 @@ var SpineAnimationHelper = /** @class */ (function () {
         var timeline = animation.createSlotTimeline(slot);
         var curve = SpineAnimationHelper.obtainFrameCurve(context);
         var attachmentTimeline = timeline.createTimeline("attachment" /* SpineTimelineType.ATTACHMENT */);
+        // VISIBILITY FIX: Start of Animation
+        // If this is the VERY FIRST keyframe for this slot in this animation, and it is NOT at time 0,
+        // we must ensure the slot is hidden at time 0. Otherwise, the Setup Pose attachment will show
+        // from time 0 until this keyframe.
+        if (attachmentTimeline.frames.length === 0 && time > 0) {
+            Logger_1.Logger.trace("[Visibility] Auto-hiding slot '".concat(slot.name, "' at frame 0 (First key is at ").concat(time.toFixed(2), ")"));
+            // Create a null key at frame 0 with 'stepped' curve to ensure it stays hidden until 'time'
+            var hiddenFrame = attachmentTimeline.createFrame(0, 'stepped');
+            hiddenFrame.name = null;
+        }
         var attachmentFrame = attachmentTimeline.createFrame(time, curve);
         attachmentFrame.name = (attachment != null) ? attachment.name : null;
         if (context.frame != null && context.frame.startFrame === 0) {
@@ -2901,6 +2930,8 @@ var ConvertUtil = /** @class */ (function () {
             return ConvertUtil.createShapeName(context);
         }
         else {
+            // Debugging naming collisions/issues
+            // Logger.trace(`[Naming] Raw: '${result}' -> Simplified: '${StringUtil.simplify(result)}'`);
             return StringUtil_1.StringUtil.simplify(result);
         }
     };
@@ -4240,11 +4271,29 @@ var StringUtil = /** @class */ (function () {
     function StringUtil() {
     }
     StringUtil.simplify = function (value) {
-        // Do not strip the path. Replace slashes and other chars with underscores to ensure uniqueness.
-        // This prevents collisions between "folderA/item" and "folderB/item".
-        var regex = /[\/\-. ]+/gi;
-        return (value.replace(regex, '_')
-            .toLowerCase());
+        if (!value)
+            return 'unnamed';
+        // Fix for multiple underscores and naming collisions:
+        // 1. Replace illegal path characters with underscores
+        // 2. But DO NOT aggressively lowercase or strip everything if it causes collision.
+        // Actually, the user says "multiples underscore break them".
+        // Maybe "a__b" becomes "a_b"? Or maybe the regex `/[\/\-. ]+/gi` is too broad?
+        // If I have "part_sub_part", the regex matches... nothing? 
+        // Wait, the regex matches '/', '-', '.', ' '.
+        // Underscore is NOT in the regex.
+        // So "part_sub_part" remains "part_sub_part".
+        // If the user says it breaks, maybe Spine doesn't like it?
+        // Or maybe 'simplify' is NOT the problem, but 'createAttachmentName' using libraryItem name.
+        // Let's ensure we sanitize strictly but keep underscores if they are valid.
+        // Spine allows underscores.
+        // Let's replace only truly invalid chars.
+        var regex = /[\/\-. ]+/g;
+        var simplified = value.replace(regex, '_');
+        // Collapse multiple underscores to one? "a___b" -> "a_b"
+        simplified = simplified.replace(/_+/g, '_');
+        // Trim leading/trailing underscores
+        simplified = simplified.replace(/^_|_$/g, '');
+        return simplified.toLowerCase();
     };
     return StringUtil;
 }());

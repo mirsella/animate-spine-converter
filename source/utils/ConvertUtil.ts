@@ -130,6 +130,8 @@ export class ConvertUtil {
         if (result === '' || result == null) {
             return ConvertUtil.createShapeName(context);
         } else {
+            // Debugging naming collisions/issues
+            // Logger.trace(`[Naming] Raw: '${result}' -> Simplified: '${StringUtil.simplify(result)}'`);
             return StringUtil.simplify(result);
         }
     }

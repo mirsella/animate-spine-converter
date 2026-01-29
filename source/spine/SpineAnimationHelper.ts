@@ -67,6 +67,18 @@ export class SpineAnimationHelper {
         const curve = SpineAnimationHelper.obtainFrameCurve(context);
 
         const attachmentTimeline = timeline.createTimeline(SpineTimelineType.ATTACHMENT);
+        
+        // VISIBILITY FIX: Start of Animation
+        // If this is the VERY FIRST keyframe for this slot in this animation, and it is NOT at time 0,
+        // we must ensure the slot is hidden at time 0. Otherwise, the Setup Pose attachment will show
+        // from time 0 until this keyframe.
+        if (attachmentTimeline.frames.length === 0 && time > 0) {
+            Logger.trace(`[Visibility] Auto-hiding slot '${slot.name}' at frame 0 (First key is at ${time.toFixed(2)})`);
+            // Create a null key at frame 0 with 'stepped' curve to ensure it stays hidden until 'time'
+            const hiddenFrame = attachmentTimeline.createFrame(0, 'stepped');
+            hiddenFrame.name = null;
+        }
+
         const attachmentFrame = attachmentTimeline.createFrame(time, curve);
         attachmentFrame.name = (attachment != null) ? attachment.name : null;
 

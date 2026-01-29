@@ -579,27 +579,49 @@ export class Converter {
 
         // Standard Loop for Root / Non-Flattened
         for (let i = start; i <= end; i++) {
-            // Safety check for targetFrame out of bounds (e.g. if layer is shorter than timeline)
-            if (i < 0 || i >= layer.frames.length) continue;
-
-            const frame = layer.frames[i];
-            if (!frame) continue;
-            
             // Time calculation:
             // If Root: time = (i - start) / frameRate.
-            // If Nested: start = targetFrame. i = targetFrame. time = 0.
-            // This ensures keys are exported at 'context.time' (Parent Time + 0).
             let time = (i - start) / frameRate;
             if (context.parent != null) {
-                 // For nested animations, we force the local time to be 0 (snapshot), 
-                 // but we must preserve the inherited timeOffset so the key is placed correctly in the root timeline.
-                 // Actually, wait - if we flatten, we want to export THIS frame of the child at the CURRENT parent time.
-                 // The 'time' variable here represents the local time relative to the start of the export loop.
-                 // If we restrict the loop to start=targetFrame, end=targetFrame, then (i-start) is 0.
-                 // So time becomes 0.
-                 // Then we add context.timeOffset.
+                 // For nested animations... (logic handled via isNestedFlattening mostly)
             }
             time += context.timeOffset;
+
+            // VISIBILITY FIX: End of Layer / Gap Handling
+            // If we are beyond the layer's actual frames, or the frame is undefined, we must hide the slots.
+            if (i < 0 || i >= layer.frames.length || !layer.frames[i]) {
+                // Determine if we need to hide slots associated with this layer
+                // We only do this if we are within the requested export range (which we are, i <= end)
+                // AND if we haven't already hidden them.
+                // Since this loop runs sequentially, we can just export a null attachment key.
+                
+                if (stageType === ConverterStageType.ANIMATION) {
+                    const slots = context.global.layersCache.get(context.layer);
+                    if (slots) {
+                        for (const s of slots) {
+                            // Only key if not already keyed at this time?
+                            // SpineAnimationHelper handles adding keys.
+                            // We need a dummy context?
+                            // We construct a fake context just for the time?
+                            // Or just call the helper directly if we have the slot.
+                            
+                            // We assume 'stepped' curve for hiding.
+                            // But we need to call applySlotAttachment.
+                            // It needs a context to get frame curve. If we pass null context, what happens?
+                            // obtainFrameCurve returns null (Linear) if context frame is null. That's fine for hiding.
+                            
+                            // Logger.trace(`[Visibility] Layer '${layer.name}' ended at frame ${i}. Hiding slots.`);
+                            SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
+                        }
+                    }
+                }
+                continue;
+            }
+
+            const frame = layer.frames[i];
+            if (!frame) continue; // Should be covered above
+            
+            // ... rest of loop ...
             
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
@@ -609,6 +631,7 @@ export class Converter {
             if (frame.elements.length === 0) {
                 const slots = context.global.layersCache.get(context.layer);
                 if (slots && stageType === ConverterStageType.ANIMATION) {
+                    // Logger.trace(`[Visibility] Frame ${i} (${layer.name}) is empty keyframe. Hiding slots.`);
                     for (const s of slots) SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context.switchContextFrame(frame), null, time);
                 }
                 continue;
