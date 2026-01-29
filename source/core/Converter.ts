@@ -352,9 +352,24 @@ export class Converter {
                 let finalMatrixOverride: FlashMatrix = null;
                 let finalPositionOverride: {x:number, y:number} = null;
 
-                const sourceMatrix = el.matrix;
-                const sourceTransX = el.transformX;
-                const sourceTransY = el.transformY;
+                let sourceMatrix = el.matrix;
+                let sourceTransX = el.transformX;
+                let sourceTransY = el.transformY;
+
+                // FORCE BAKING: Select the element to read its interpolated properties (matrix/transform)
+                // This is required because 'el' refers to the keyframe data, which is static for the duration of the tween.
+                // To get the rotated/moved state at frame 'i', we must read from the stage selection.
+                if (frame.tweenType !== 'none' && i > frame.startFrame) {
+                    this._document.selectNone();
+                    el.selected = true;
+                    if (this._document.selection.length > 0) {
+                        const proxy = this._document.selection[0];
+                        sourceMatrix = proxy.matrix;
+                        // Transform point usually doesn't tween, but Animate allows it. Safe to read.
+                        sourceTransX = proxy.transformX; 
+                        sourceTransY = proxy.transformY;
+                    }
+                }
 
                 if (parentMat) {
                     finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
