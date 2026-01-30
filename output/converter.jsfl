@@ -3011,11 +3011,13 @@ var ConvertUtil = /** @class */ (function () {
         }
     };
     ConvertUtil.createBoneName = function (element, context) {
-        var result = ConvertUtil.createElementName(element, context);
+        var name = ConvertUtil.createElementName(element, context);
+        // Log naming decision if needed
+        // if (name.indexOf('dash') !== -1) Logger.trace(`[NAMING] Created bone name base: ${name} (Element: ${element.name}, Lib: ${element.libraryItem?.name}, Layer: ${element.layer.name})`);
         if (context != null && context.bone != null && context.bone.name !== 'root') {
-            return context.bone.name + '/' + result;
+            return context.bone.name + '/' + name;
         }
-        return result;
+        return name;
     };
     ConvertUtil.createSlotName = function (context) {
         return context.bone.name + '_slot';
