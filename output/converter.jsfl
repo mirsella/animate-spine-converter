@@ -510,7 +510,7 @@ var Converter = /** @class */ (function () {
                     else { // loop
                         targetFrame = (firstFrame + frameOffset) % tlFrameCount;
                     }
-                    Logger_1.Logger.trace("".concat(indent, "    [NESTED] Instance: ").concat(instance.name || instance.libraryItem.name, " ParentFrame: ").concat(parentInternalFrame, " Offset: ").concat(frameOffset, " Target: ").concat(targetFrame, "/").concat(tlFrameCount));
+                    Logger_1.Logger.trace("".concat(indent, "    [NESTED] Instance: ").concat(instance.name || instance.libraryItem.name, " Loop: ").concat(loopMode, " FirstFrame: ").concat(firstFrame, " ParentFrame: ").concat(parentInternalFrame, " Offset: ").concat(frameOffset, " Target: ").concat(targetFrame, "/").concat(tlFrameCount));
                     if (targetFrame >= 0 && targetFrame < layer.frames.length) {
                         isNestedFlattening = true;
                         start = targetFrame;

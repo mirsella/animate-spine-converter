@@ -573,7 +573,7 @@ export class Converter {
                         targetFrame = (firstFrame + frameOffset) % tlFrameCount;
                     }
                     
-                    Logger.trace(`${indent}    [NESTED] Instance: ${instance.name || instance.libraryItem.name} ParentFrame: ${parentInternalFrame} Offset: ${frameOffset} Target: ${targetFrame}/${tlFrameCount}`);
+                    Logger.trace(`${indent}    [NESTED] Instance: ${instance.name || instance.libraryItem.name} Loop: ${loopMode} FirstFrame: ${firstFrame} ParentFrame: ${parentInternalFrame} Offset: ${frameOffset} Target: ${targetFrame}/${tlFrameCount}`);
 
                     if (targetFrame >= 0 && targetFrame < layer.frames.length) {
                         isNestedFlattening = true;
