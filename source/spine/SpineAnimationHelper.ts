@@ -106,21 +106,7 @@ export class SpineAnimationHelper {
     }
 
     public static obtainFrameCurve(context:ConverterContext):SpineCurveType {
-        let frame = context.frame;
-
-        //-----------------------------------
-
-        while (frame != null && frame.tweenType === 'none') {
-            context = context.parent;
-
-            if (context != null) {
-                frame = context.frame;
-            } else {
-                break;
-            }
-        }
-
-        //-----------------------------------
+        const frame = context.frame;
 
         if (frame != null) {
             if (frame.tweenType === 'none') {

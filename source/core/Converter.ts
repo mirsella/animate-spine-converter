@@ -776,6 +776,7 @@ export class Converter {
                 }
 
                 const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
+                sub.internalFrame = i; // Fix: Pass current loop index as internal frame for nested time resolution
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === ConverterStageType.ANIMATION) {
                     const instance = el as any;
                     const firstFrameOffset = (instance.firstFrame || 0) / frameRate;

@@ -701,6 +701,7 @@ var Converter = /** @class */ (function () {
                     finalPositionOverride = { x: sourceTransX, y: sourceTransY };
                 }
                 var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
+                sub.internalFrame = i; // Fix: Pass current loop index as internal frame for nested time resolution
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     var instance = el;
                     var firstFrameOffset = (instance.firstFrame || 0) / frameRate;
@@ -1467,17 +1468,6 @@ var SpineAnimationHelper = /** @class */ (function () {
     };
     SpineAnimationHelper.obtainFrameCurve = function (context) {
         var frame = context.frame;
-        //-----------------------------------
-        while (frame != null && frame.tweenType === 'none') {
-            context = context.parent;
-            if (context != null) {
-                frame = context.frame;
-            }
-            else {
-                break;
-            }
-        }
-        //-----------------------------------
         if (frame != null) {
             if (frame.tweenType === 'none') {
                 return 'stepped';
