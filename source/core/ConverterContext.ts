@@ -30,6 +30,7 @@ export class ConverterContext {
     public positionOverride:{x:number, y:number} = null;
     public recursionDepth:number = 0;
     public symbolPath:string = "";
+    public internalFrame:number = 0;
 
     /**
      * Offset to shift children from Parent Registration Point to Parent Anchor Point.

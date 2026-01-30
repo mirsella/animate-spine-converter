@@ -325,31 +325,49 @@ var Converter = /** @class */ (function () {
             timeline.currentFrame = frameIndex;
             var hints = this.createSelectionHints(context);
             if (!hints) {
-                // Logger.trace(`    [LIVE] No hints for ${context.element.name || '<anon>'}`);
                 return null;
             }
-            dom.selectNone();
+            // Aggressively ensure the layer is visible and unlocked for selection
             var layer = timeline.layers[hints.layerIndex];
-            var frame = layer.frames[frameIndex]; // Use frameIndex directly
-            if (!frame)
+            var wasLocked = layer.locked;
+            var wasVisible = layer.visible;
+            layer.locked = false;
+            layer.visible = true;
+            dom.selectNone();
+            var frame = layer.frames[frameIndex];
+            if (!frame) {
+                layer.locked = wasLocked;
+                layer.visible = wasVisible;
                 return null;
+            }
             var el = frame.elements[hints.elementIndex];
             if (!el) {
                 Logger_1.Logger.trace("    [LIVE] No element at index ".concat(hints.elementIndex, " on layer ").concat(hints.layerIndex, " frame ").concat(frameIndex));
+                layer.locked = wasLocked;
+                layer.visible = wasVisible;
                 return null;
             }
             el.selected = true;
+            // Selection sometimes fails in JSFL if not forced
             if (dom.selection.length === 0) {
                 dom.selection = [el];
             }
             if (dom.selection.length > 0) {
                 var selected = dom.selection[0];
-                return {
+                var res = {
                     matrix: selected.matrix,
                     transformX: selected.transformX,
                     transformY: selected.transformY
                 };
+                layer.locked = wasLocked;
+                layer.visible = wasVisible;
+                return res;
             }
+            else {
+                Logger_1.Logger.trace("    [LIVE] Selection failed for '".concat(el.name || '<anon>', "' at frame ").concat(frameIndex, " even after forcing."));
+            }
+            layer.locked = wasLocked;
+            layer.visible = wasVisible;
         }
         catch (e) {
             Logger_1.Logger.warning("[Converter] LiveTransform failed for frame ".concat(frameIndex, " (Layer ").concat((_a = context.layer) === null || _a === void 0 ? void 0 : _a.name, "): ").concat(e));
@@ -443,9 +461,9 @@ var Converter = /** @class */ (function () {
         }
     };
     Converter.prototype.convertElementLayer = function (context, layer, factory, allowBaking) {
-        var _a;
+        var _a, _b;
         if (allowBaking === void 0) { allowBaking = true; }
-        var _b = context.global, label = _b.label, stageType = _b.stageType, frameRate = _b.frameRate;
+        var _c = context.global, label = _c.label, stageType = _c.stageType, frameRate = _c.frameRate;
         var start = 0, end = layer.frames.length - 1;
         var indent = this.getIndent(context.recursionDepth);
         var isNestedFlattening = false;
@@ -459,10 +477,12 @@ var Converter = /** @class */ (function () {
                 var instance = context.element;
                 if (instance && instance.libraryItem && instance.libraryItem.timeline && context.parent && context.parent.frame) {
                     var tl = instance.libraryItem.timeline;
-                    var animationStartFrame = label ? label.startFrameIdx : 0;
-                    var currentAbsFrame = animationStartFrame + Math.round(context.time * frameRate);
+                    // NESTED TIME RESOLUTION:
+                    // Use the parent's internal frame to determine this child's playhead position.
+                    // This ensures "Animations in Animations" stay in sync.
+                    var parentInternalFrame = (context.parent.internalFrame !== undefined) ? context.parent.internalFrame : 0;
                     var parentKeyframeStart = context.parent.frame.startFrame;
-                    var frameOffset = Math.max(0, currentAbsFrame - parentKeyframeStart);
+                    var frameOffset = Math.max(0, parentInternalFrame - parentKeyframeStart);
                     var firstFrame = (instance.firstFrame !== undefined) ? instance.firstFrame : 0;
                     var loopMode = (instance.loop !== undefined) ? instance.loop : 'loop';
                     var tlFrameCount = tl.frameCount;
@@ -479,7 +499,7 @@ var Converter = /** @class */ (function () {
                     else { // loop
                         targetFrame = (firstFrame + frameOffset) % tlFrameCount;
                     }
-                    Logger_1.Logger.trace("".concat(indent, "    [NESTED] Instance: ").concat(instance.name || instance.libraryItem.name, " Loop: ").concat(loopMode, " Offset: ").concat(frameOffset, " Target: ").concat(targetFrame, "/").concat(tlFrameCount));
+                    Logger_1.Logger.trace("".concat(indent, "    [NESTED] Instance: ").concat(instance.name || instance.libraryItem.name, " ParentFrame: ").concat(parentInternalFrame, " Offset: ").concat(frameOffset, " Target: ").concat(targetFrame, "/").concat(tlFrameCount));
                     if (targetFrame >= 0 && targetFrame < layer.frames.length) {
                         isNestedFlattening = true;
                         start = targetFrame;
@@ -522,6 +542,7 @@ var Converter = /** @class */ (function () {
                 }
                 // FIX: When flattening, we pass 0 as time because context.time is already absolute for Spine.
                 var sub = context.switchContextFrame(frame).createBone(el, 0, matrixOverride, positionOverride);
+                sub.internalFrame = start; // Store the calculated internal frame for child symbols
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     var instance = el;
                     var firstFrameOffset = (instance.firstFrame || 0) / frameRate;
@@ -557,12 +578,14 @@ var Converter = /** @class */ (function () {
                 }
                 continue;
             }
-            for (var eIdx = 0; eIdx < frame.elements.length; eIdx++) {
+            var activeSlots = [];
+            var _loop_1 = function (eIdx) {
                 var el = frame.elements[eIdx];
+                var elName = el.name || ((_b = el.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '<anon>';
                 var parentMat = null;
                 if (layer.parentLayer) {
-                    this._document.getTimeline().currentFrame = i;
-                    parentMat = this.getLayerParentMatrix(layer, i);
+                    this_1._document.getTimeline().currentFrame = i;
+                    parentMat = this_1.getLayerParentMatrix(layer, i);
                 }
                 var bakedData = null;
                 if (i !== frame.startFrame) {
@@ -570,21 +593,40 @@ var Converter = /** @class */ (function () {
                     var isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
                     var isSupportedEase = !frame.hasCustomEase;
                     if (!allowBaking || (isClassic && !isGuided && isSupportedEase)) {
-                        continue;
+                        // Skip baking, let Spine interpolate
+                        // But we MUST still mark the slot as active!
+                        // Recursively discover the slot name
+                        var sub_1 = context.switchContextFrame(frame).createBone(el, time, null, null);
+                        if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === "animation" /* ConverterStageType.ANIMATION */) {
+                            var instance = el;
+                            var firstFrameOffset = (instance.firstFrame || 0) / frameRate;
+                            sub_1.timeOffset = time - firstFrameOffset;
+                        }
+                        var tempSlot_1 = null;
+                        var originalCreateSlot_1 = sub_1.createSlot;
+                        sub_1.createSlot = function (element) {
+                            var res = originalCreateSlot_1.call(sub_1, element);
+                            tempSlot_1 = res.slot;
+                            return res;
+                        };
+                        // We need to call factory to ensure the slot is created/retrieved
+                        factory(sub_1);
+                        if (tempSlot_1)
+                            activeSlots.push(tempSlot_1);
+                        return "continue";
                     }
                     if (allowBaking) {
                         if (context.recursionDepth > 0) {
-                            // For nested symbols, use Live Sampling instead of destructive convertToKeyframes
-                            bakedData = this.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
+                            bakedData = this_1.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
                         }
                         else {
-                            // Depth 0: Standard baking
-                            this._document.getTimeline().currentFrame = i;
+                            // ... depth 0 baking ...
+                            this_1._document.getTimeline().currentFrame = i;
                             var wasLocked = layer.locked;
                             var wasVisible = layer.visible;
                             layer.locked = false;
                             layer.visible = true;
-                            var timeline = this._document.getTimeline();
+                            var timeline = this_1._document.getTimeline();
                             var layerIdx = -1;
                             for (var k = 0; k < timeline.layers.length; k++) {
                                 if (timeline.layers[k] === layer) {
@@ -621,10 +663,10 @@ var Converter = /** @class */ (function () {
                                 Logger_1.Logger.warning("[Converter] Bake failed for frame ".concat(i, " (").concat(layer.name, "): ").concat(e));
                             }
                             if (!bakedData) {
-                                this._document.selectNone();
+                                this_1._document.selectNone();
                                 el.selected = true;
-                                if (this._document.selection.length > 0) {
-                                    var proxy = this._document.selection[0];
+                                if (this_1._document.selection.length > 0) {
+                                    var proxy = this_1._document.selection[0];
                                     bakedData = {
                                         matrix: proxy.matrix,
                                         transformX: proxy.transformX,
@@ -639,7 +681,7 @@ var Converter = /** @class */ (function () {
                 }
                 else {
                     if (allowBaking) {
-                        this._document.getTimeline().currentFrame = i;
+                        this_1._document.getTimeline().currentFrame = i;
                     }
                 }
                 var finalMatrixOverride = null;
@@ -648,7 +690,7 @@ var Converter = /** @class */ (function () {
                 var sourceTransX = bakedData ? bakedData.transformX : el.transformX;
                 var sourceTransY = bakedData ? bakedData.transformY : el.transformY;
                 if (parentMat) {
-                    finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
+                    finalMatrixOverride = this_1.concatMatrix(sourceMatrix, parentMat);
                     finalPositionOverride = {
                         x: sourceTransX * parentMat.a + sourceTransY * parentMat.c + parentMat.tx,
                         y: sourceTransX * parentMat.b + sourceTransY * parentMat.d + parentMat.ty
@@ -664,10 +706,19 @@ var Converter = /** @class */ (function () {
                     var firstFrameOffset = (instance.firstFrame || 0) / frameRate;
                     sub.timeOffset = time - firstFrameOffset;
                 }
+                var frameSlot = null;
+                var originalCreateSlot = sub.createSlot;
+                sub.createSlot = function (element) {
+                    var res = originalCreateSlot.call(sub, element);
+                    frameSlot = res.slot;
+                    return res;
+                };
                 factory(sub);
+                if (frameSlot)
+                    activeSlots.push(frameSlot);
                 if (context.element && context.element.libraryItem && allowBaking) {
                     var targetName = context.element.libraryItem.name;
-                    var dom = this._document;
+                    var dom = this_1._document;
                     var currentTl = dom.getTimeline();
                     if (currentTl.name !== targetName) {
                         if (dom.library.itemExists(targetName)) {
@@ -675,8 +726,33 @@ var Converter = /** @class */ (function () {
                         }
                     }
                 }
-                if (allowBaking && this._document.getTimeline().currentFrame !== i) {
-                    this._document.getTimeline().currentFrame = i;
+                if (allowBaking && this_1._document.getTimeline().currentFrame !== i) {
+                    this_1._document.getTimeline().currentFrame = i;
+                }
+            };
+            var this_1 = this;
+            for (var eIdx = 0; eIdx < frame.elements.length; eIdx++) {
+                _loop_1(eIdx);
+            }
+            // VISIBILITY FIX: Hide inactive slots on this layer
+            if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
+                var allLayerSlots = context.global.layersCache.get(layer);
+                if (allLayerSlots) {
+                    for (var sIdx = 0; sIdx < allLayerSlots.length; sIdx++) {
+                        var s = allLayerSlots[sIdx];
+                        var isActive = false;
+                        for (var aIdx = 0; aIdx < activeSlots.length; aIdx++) {
+                            if (activeSlots[aIdx] === s) {
+                                isActive = true;
+                                break;
+                            }
+                        }
+                        if (!isActive) {
+                            Logger_1.Logger.trace("".concat(indent, "    [Visibility] Auto-hiding inactive slot '").concat(s.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
+                            SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
+                            this.hideChildSlots(context, s.bone, time);
+                        }
+                    }
                 }
             }
         }
@@ -884,6 +960,7 @@ var ConverterContext = /** @class */ (function () {
         this.positionOverride = null;
         this.recursionDepth = 0;
         this.symbolPath = "";
+        this.internalFrame = 0;
         /**
          * Offset to shift children from Parent Registration Point to Parent Anchor Point.
          * Calculated as: -Parent.transformationPoint
@@ -2692,9 +2769,9 @@ var SpineTransformMatrix = /** @class */ (function () {
         var appliedScaleY = scaleY;
         if (det < 0) {
             // Negative determinant means a flip exists.
-            // Assumption: Flip Y is the default, but we check against reference to keep continuity.
+            // Option 1: Flip Y (Default basis)
             var rot1 = angleX;
-            var sy1 = -scaleY;
+            // Option 2: Flip X (Rotate 180 and Flip Y)
             var rot2 = angleX + 180;
             while (rot2 > 180)
                 rot2 -= 360;
@@ -2704,14 +2781,14 @@ var SpineTransformMatrix = /** @class */ (function () {
                 var diff1 = Math.abs(NumberUtil_1.NumberUtil.deltaAngle(rot1, reference.rotation));
                 var diff2 = Math.abs(NumberUtil_1.NumberUtil.deltaAngle(rot2, reference.rotation));
                 Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Flip Detected. RefRot=").concat(reference.rotation.toFixed(2), ". Opt1(FlipY): ").concat(rot1.toFixed(2), " (diff ").concat(diff1.toFixed(2), "). Opt2(FlipX): ").concat(rot2.toFixed(2), " (diff ").concat(diff2.toFixed(2), ")"));
-                // If it's a TWEEN, we are much more conservative about jumping 180 degrees.
-                // We only jump if the current option is REALLY far (e.g. > 90 degrees) and the other is close.
+                // DISCONTINUITY PREVENTION:
+                // If we are tweening, we MUST prioritize staying close to the reference.
                 var threshold = isTween ? 90 : 10;
                 if (diff2 < diff1 - threshold) {
                     rotation = rot2;
                     appliedScaleX = -scaleX;
                     appliedScaleY = scaleY;
-                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Chosen Opt 2 (FlipX) - discontinuity threshold: ").concat(threshold));
+                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Chosen Opt 2 (FlipX) - stability threshold: ").concat(threshold));
                 }
                 else {
                     rotation = rot1;
@@ -2721,10 +2798,25 @@ var SpineTransformMatrix = /** @class */ (function () {
                 }
             }
             else {
-                rotation = rot1;
-                appliedScaleX = scaleX;
-                appliedScaleY = -scaleY;
-                Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Flip Detected. No reference. Defaulting to Flip Y."));
+                // NO REFERENCE (First frame of this bone)
+                // Heuristic: Prefer the option with the smaller rotation.
+                // Animate's "Flip Horizontal" often has 0 rotation and scaleX = -1.
+                // Our angleX for a flipped basis is 180.
+                // Option 1 (FlipY): 180 deg
+                // Option 2 (FlipX): 0 deg
+                // Choosing the smaller rotation (Option 2) matches Animate's visual properties better.
+                if (Math.abs(rot2) < Math.abs(rot1) - 10) {
+                    rotation = rot2;
+                    appliedScaleX = -scaleX;
+                    appliedScaleY = scaleY;
+                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Flip Detected. No reference. Heuristic: Chosen Opt 2 (FlipX) because rot ").concat(rot2.toFixed(2), " is smaller than ").concat(rot1.toFixed(2)));
+                }
+                else {
+                    rotation = rot1;
+                    appliedScaleX = scaleX;
+                    appliedScaleY = -scaleY;
+                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Flip Detected. No reference. Defaulting to Flip Y."));
+                }
             }
         }
         // Recalculate shear based on the chosen rotation/scale signs

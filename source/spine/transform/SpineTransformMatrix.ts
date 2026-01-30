@@ -74,10 +74,10 @@ export class SpineTransformMatrix implements SpineTransform {
 
         if (det < 0) {
             // Negative determinant means a flip exists.
-            // Assumption: Flip Y is the default, but we check against reference to keep continuity.
+            // Option 1: Flip Y (Default basis)
             const rot1 = angleX;
-            const sy1 = -scaleY;
             
+            // Option 2: Flip X (Rotate 180 and Flip Y)
             let rot2 = angleX + 180;
             while (rot2 > 180) rot2 -= 360;
             while (rot2 <= -180) rot2 += 360;
@@ -88,15 +88,15 @@ export class SpineTransformMatrix implements SpineTransform {
                 
                 Logger.trace(`[DECOMPOSE] '${debugName}' Flip Detected. RefRot=${reference.rotation.toFixed(2)}. Opt1(FlipY): ${rot1.toFixed(2)} (diff ${diff1.toFixed(2)}). Opt2(FlipX): ${rot2.toFixed(2)} (diff ${diff2.toFixed(2)})`);
 
-                // If it's a TWEEN, we are much more conservative about jumping 180 degrees.
-                // We only jump if the current option is REALLY far (e.g. > 90 degrees) and the other is close.
+                // DISCONTINUITY PREVENTION:
+                // If we are tweening, we MUST prioritize staying close to the reference.
                 const threshold = isTween ? 90 : 10;
                 
                 if (diff2 < diff1 - threshold) { 
                     rotation = rot2;
                     appliedScaleX = -scaleX;
                     appliedScaleY = scaleY;
-                    Logger.trace(`[DECOMPOSE] '${debugName}' Chosen Opt 2 (FlipX) - discontinuity threshold: ${threshold}`);
+                    Logger.trace(`[DECOMPOSE] '${debugName}' Chosen Opt 2 (FlipX) - stability threshold: ${threshold}`);
                 } else {
                     rotation = rot1;
                     appliedScaleX = scaleX;
@@ -104,10 +104,24 @@ export class SpineTransformMatrix implements SpineTransform {
                     Logger.trace(`[DECOMPOSE] '${debugName}' Chosen Opt 1 (FlipY) - default.`);
                 }
             } else {
-                rotation = rot1;
-                appliedScaleX = scaleX;
-                appliedScaleY = -scaleY;
-                Logger.trace(`[DECOMPOSE] '${debugName}' Flip Detected. No reference. Defaulting to Flip Y.`);
+                // NO REFERENCE (First frame of this bone)
+                // Heuristic: Prefer the option with the smaller rotation.
+                // Animate's "Flip Horizontal" often has 0 rotation and scaleX = -1.
+                // Our angleX for a flipped basis is 180.
+                // Option 1 (FlipY): 180 deg
+                // Option 2 (FlipX): 0 deg
+                // Choosing the smaller rotation (Option 2) matches Animate's visual properties better.
+                if (Math.abs(rot2) < Math.abs(rot1) - 10) {
+                    rotation = rot2;
+                    appliedScaleX = -scaleX;
+                    appliedScaleY = scaleY;
+                    Logger.trace(`[DECOMPOSE] '${debugName}' Flip Detected. No reference. Heuristic: Chosen Opt 2 (FlipX) because rot ${rot2.toFixed(2)} is smaller than ${rot1.toFixed(2)}`);
+                } else {
+                    rotation = rot1;
+                    appliedScaleX = scaleX;
+                    appliedScaleY = -scaleY;
+                    Logger.trace(`[DECOMPOSE] '${debugName}' Flip Detected. No reference. Defaulting to Flip Y.`);
+                }
             }
         }
 

@@ -375,34 +375,55 @@ export class Converter {
             timeline.currentFrame = frameIndex;
             const hints = this.createSelectionHints(context);
             if (!hints) {
-                // Logger.trace(`    [LIVE] No hints for ${context.element.name || '<anon>'}`);
                 return null;
             }
 
-            dom.selectNone();
+            // Aggressively ensure the layer is visible and unlocked for selection
             const layer = timeline.layers[hints.layerIndex];
-            const frame = layer.frames[frameIndex]; // Use frameIndex directly
-            if (!frame) return null;
+            const wasLocked = layer.locked;
+            const wasVisible = layer.visible;
+            layer.locked = false;
+            layer.visible = true;
+
+            dom.selectNone();
+            const frame = layer.frames[frameIndex];
+            if (!frame) {
+                layer.locked = wasLocked;
+                layer.visible = wasVisible;
+                return null;
+            }
 
             const el = frame.elements[hints.elementIndex];
             if (!el) {
                 Logger.trace(`    [LIVE] No element at index ${hints.elementIndex} on layer ${hints.layerIndex} frame ${frameIndex}`);
+                layer.locked = wasLocked;
+                layer.visible = wasVisible;
                 return null;
             }
             
             el.selected = true;
+            
+            // Selection sometimes fails in JSFL if not forced
             if (dom.selection.length === 0) {
                 dom.selection = [el];
             }
 
             if (dom.selection.length > 0) {
                 const selected = dom.selection[0];
-                return {
+                const res = {
                     matrix: selected.matrix,
                     transformX: selected.transformX,
                     transformY: selected.transformY
                 };
+                layer.locked = wasLocked;
+                layer.visible = wasVisible;
+                return res;
+            } else {
+                Logger.trace(`    [LIVE] Selection failed for '${el.name || '<anon>'}' at frame ${frameIndex} even after forcing.`);
             }
+
+            layer.locked = wasLocked;
+            layer.visible = wasVisible;
         } catch (e) {
             Logger.warning(`[Converter] LiveTransform failed for frame ${frameIndex} (Layer ${context.layer?.name}): ${e}`);
         }
@@ -519,10 +540,13 @@ export class Converter {
                 const instance = context.element as any;
                 if (instance && instance.libraryItem && instance.libraryItem.timeline && context.parent && context.parent.frame) {
                     const tl = instance.libraryItem.timeline;
-                    const animationStartFrame = label ? label.startFrameIdx : 0;
-                    const currentAbsFrame = animationStartFrame + Math.round(context.time * frameRate);
+                    
+                    // NESTED TIME RESOLUTION:
+                    // Use the parent's internal frame to determine this child's playhead position.
+                    // This ensures "Animations in Animations" stay in sync.
+                    const parentInternalFrame = (context.parent.internalFrame !== undefined) ? context.parent.internalFrame : 0;
                     const parentKeyframeStart = context.parent.frame.startFrame;
-                    const frameOffset = Math.max(0, currentAbsFrame - parentKeyframeStart);
+                    const frameOffset = Math.max(0, parentInternalFrame - parentKeyframeStart);
                     
                     const firstFrame = (instance.firstFrame !== undefined) ? instance.firstFrame : 0;
                     const loopMode = (instance.loop !== undefined) ? instance.loop : 'loop'; 
@@ -539,7 +563,7 @@ export class Converter {
                         targetFrame = (firstFrame + frameOffset) % tlFrameCount;
                     }
                     
-                    Logger.trace(`${indent}    [NESTED] Instance: ${instance.name || instance.libraryItem.name} Loop: ${loopMode} Offset: ${frameOffset} Target: ${targetFrame}/${tlFrameCount}`);
+                    Logger.trace(`${indent}    [NESTED] Instance: ${instance.name || instance.libraryItem.name} ParentFrame: ${parentInternalFrame} Offset: ${frameOffset} Target: ${targetFrame}/${tlFrameCount}`);
 
                     if (targetFrame >= 0 && targetFrame < layer.frames.length) {
                         isNestedFlattening = true;
@@ -585,6 +609,7 @@ export class Converter {
 
                 // FIX: When flattening, we pass 0 as time because context.time is already absolute for Spine.
                 const sub = context.switchContextFrame(frame).createBone(el, 0, matrixOverride, positionOverride);
+                sub.internalFrame = start; // Store the calculated internal frame for child symbols
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === ConverterStageType.ANIMATION) {
                     const instance = el as any;
                     const firstFrameOffset = (instance.firstFrame || 0) / frameRate;
@@ -624,8 +649,11 @@ export class Converter {
                 continue;
             }
             
+            const activeSlots: any[] = [];
             for (let eIdx = 0; eIdx < frame.elements.length; eIdx++) {
                 let el = frame.elements[eIdx];
+                const elName = el.name || el.libraryItem?.name || '<anon>';
+
                 let parentMat: FlashMatrix = null;
                 if (layer.parentLayer) {
                     this._document.getTimeline().currentFrame = i;
@@ -640,15 +668,35 @@ export class Converter {
                     let isSupportedEase = !frame.hasCustomEase;
 
                     if (!allowBaking || (isClassic && !isGuided && isSupportedEase)) {
+                        // Skip baking, let Spine interpolate
+                        // But we MUST still mark the slot as active!
+                        // Recursively discover the slot name
+                        const sub = context.switchContextFrame(frame).createBone(el, time, null, null);
+                        if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === ConverterStageType.ANIMATION) {
+                             const instance = el as any;
+                             const firstFrameOffset = (instance.firstFrame || 0) / frameRate;
+                             sub.timeOffset = time - firstFrameOffset;
+                        }
+                        
+                        let tempSlot: any = null;
+                        const originalCreateSlot = sub.createSlot;
+                        sub.createSlot = (element: FlashElement) => {
+                            const res = originalCreateSlot.call(sub, element);
+                            tempSlot = res.slot;
+                            return res;
+                        };
+                        
+                        // We need to call factory to ensure the slot is created/retrieved
+                        factory(sub);
+                        if (tempSlot) activeSlots.push(tempSlot);
                         continue;
                     }
 
                     if (allowBaking) {
                         if (context.recursionDepth > 0) {
-                            // For nested symbols, use Live Sampling instead of destructive convertToKeyframes
                             bakedData = this.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
                         } else {
-                            // Depth 0: Standard baking
+                            // ... depth 0 baking ...
                             this._document.getTimeline().currentFrame = i;
                             const wasLocked = layer.locked;
                             const wasVisible = layer.visible;
@@ -734,7 +782,16 @@ export class Converter {
                     sub.timeOffset = time - firstFrameOffset;
                 }
 
+                let frameSlot: any = null;
+                const originalCreateSlot = sub.createSlot;
+                sub.createSlot = (element: FlashElement) => {
+                    const res = originalCreateSlot.call(sub, element);
+                    frameSlot = res.slot;
+                    return res;
+                };
+
                 factory(sub);
+                if (frameSlot) activeSlots.push(frameSlot);
                 
                 if (context.element && context.element.libraryItem && allowBaking) {
                     const targetName = context.element.libraryItem.name;
@@ -749,6 +806,26 @@ export class Converter {
 
                 if (allowBaking && this._document.getTimeline().currentFrame !== i) {
                     this._document.getTimeline().currentFrame = i;
+                }
+            }
+
+            // VISIBILITY FIX: Hide inactive slots on this layer
+            if (stageType === ConverterStageType.ANIMATION) {
+                const allLayerSlots = context.global.layersCache.get(layer);
+                if (allLayerSlots) {
+                    for (let sIdx = 0; sIdx < allLayerSlots.length; sIdx++) {
+                        const s = allLayerSlots[sIdx];
+                        let isActive = false;
+                        for (let aIdx = 0; aIdx < activeSlots.length; aIdx++) {
+                            if (activeSlots[aIdx] === s) { isActive = true; break; }
+                        }
+                        
+                        if (!isActive) {
+                            Logger.trace(`${indent}    [Visibility] Auto-hiding inactive slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
+                            SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
+                            this.hideChildSlots(context, s.bone, time);
+                        }
+                    }
                 }
             }
         }
