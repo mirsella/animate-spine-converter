@@ -86,6 +86,7 @@ export class Converter {
         if (spineImage == null) {
             try {
                 const hints = this.createSelectionHints(context);
+                Logger.trace(`[IMAGE] Exporting new image: ${baseImageName} (Path: ${baseImagePath})`);
                 spineImage = this.safelyExportImage(context, () => {
                     return imageExportFactory(context, baseImagePath);
                 });
@@ -94,6 +95,8 @@ export class Converter {
                 spineImage = new SpineImage(baseImagePath, 1, 1, 1, 0, 0, 0, 0);
             }
             context.global.imagesCache.set(baseImagePath, spineImage);
+        } else {
+            // Logger.trace(`[IMAGE] Cache hit for: ${baseImageName}`);
         }
 
         const element = context.element;
@@ -147,6 +150,9 @@ export class Converter {
         if (!found) {
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
+            Logger.trace(`[VARIANT] New variant created: ${finalAttachmentName} (Offset: ${spineOffsetX.toFixed(2)}, ${spineOffsetY.toFixed(2)}) for ${baseImageName}`);
+        } else {
+            // Logger.trace(`[VARIANT] Matched variant: ${finalAttachmentName} for ${baseImageName}`);
         }
 
         const subcontext = context.createSlot(context.element);
@@ -777,6 +783,8 @@ export class Converter {
 
                 const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
                 sub.internalFrame = i; // Fix: Pass current loop index as internal frame for nested time resolution
+                Logger.trace(`${indent}    [INTERNAL] Passed internal frame ${i} to child '${el.name || el.libraryItem?.name || '<anon>'}'`);
+                
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === ConverterStageType.ANIMATION) {
                     const instance = el as any;
                     const firstFrameOffset = (instance.firstFrame || 0) / frameRate;
@@ -931,20 +939,21 @@ export class Converter {
             }
         }
         
-        if (layerIdx !== -1) {
-            this._document.getTimeline().setSelectedLayers(layerIdx);
-            this._document.getTimeline().setSelectedFrames(frameIndex, frameIndex + 1);
-            this._document.selectNone();
-            el.selected = true;
-            
-            let finalMat = el.matrix;
-            if (this._document.selection.length > 0) {
-                finalMat = this._document.selection[0].matrix;
-            }
-            
-            Logger.trace(`    [PARENTING] Resolved parent '${parentLayer.name}' (${elName}) at frame ${frameIndex}: tx=${finalMat.tx.toFixed(2)} ty=${finalMat.ty.toFixed(2)}`);
+            if (layerIdx !== -1) {
+                this._document.getTimeline().setSelectedLayers(layerIdx);
+                this._document.getTimeline().setSelectedFrames(frameIndex, frameIndex + 1);
+                this._document.selectNone();
+                el.selected = true;
+                
+                let finalMat = el.matrix;
+                if (this._document.selection.length > 0) {
+                    finalMat = this._document.selection[0].matrix;
+                }
+                
+                Logger.trace(`    [PARENTING] Resolved parent '${parentLayer.name}' (${elName}) at frame ${frameIndex}. Raw Child Mat: a=${el.matrix.a.toFixed(2)} tx=${el.matrix.tx.toFixed(2)}. Final Mat: a=${finalMat.a.toFixed(2)} tx=${finalMat.tx.toFixed(2)} ty=${finalMat.ty.toFixed(2)}`);
 
-            parentLayer.locked = wasLocked;
+                parentLayer.locked = wasLocked;
+
             parentLayer.visible = wasVisible;
             
             return this.concatMatrix(finalMat, parentGlobal);

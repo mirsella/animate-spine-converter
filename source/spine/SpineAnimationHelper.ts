@@ -60,7 +60,8 @@ export class SpineAnimationHelper {
         shearFrame.x = transform.shearX - bone.shearX;
         shearFrame.y = transform.shearY - bone.shearY;
 
-        Logger.trace(`[KEY] Bone '${bone.name}' at T=${time.toFixed(3)}: rot=${angle.toFixed(2)} pos=(${translateFrame.x.toFixed(2)}, ${translateFrame.y.toFixed(2)}) scale=(${scaleFrame.x.toFixed(2)}, ${scaleFrame.y.toFixed(2)}) shearY=${shearFrame.y.toFixed(2)}`);
+        const curveStr = (typeof curve === 'string') ? curve : (curve ? 'bezier' : 'linear');
+        Logger.trace(`[KEY] Bone '${bone.name}' at T=${time.toFixed(3)} [${curveStr}]: rot=${angle.toFixed(2)} pos=(${translateFrame.x.toFixed(2)}, ${translateFrame.y.toFixed(2)}) scale=(${scaleFrame.x.toFixed(2)}, ${scaleFrame.y.toFixed(2)}) shearY=${shearFrame.y.toFixed(2)}`);
     }
 
     public static applyBoneTransform(bone:SpineBone, transform:SpineTransform):void {

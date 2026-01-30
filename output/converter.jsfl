@@ -80,6 +80,7 @@ var Converter = /** @class */ (function () {
         if (spineImage == null) {
             try {
                 var hints = this.createSelectionHints(context);
+                Logger_1.Logger.trace("[IMAGE] Exporting new image: ".concat(baseImageName, " (Path: ").concat(baseImagePath, ")"));
                 spineImage = this.safelyExportImage(context, function () {
                     return imageExportFactory(context, baseImagePath);
                 });
@@ -89,6 +90,9 @@ var Converter = /** @class */ (function () {
                 spineImage = new SpineImage_1.SpineImage(baseImagePath, 1, 1, 1, 0, 0, 0, 0);
             }
             context.global.imagesCache.set(baseImagePath, spineImage);
+        }
+        else {
+            // Logger.trace(`[IMAGE] Cache hit for: ${baseImageName}`);
         }
         var element = context.element;
         var calcMatrix = context.matrixOverride || element.matrix;
@@ -127,6 +131,10 @@ var Converter = /** @class */ (function () {
         if (!found) {
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
+            Logger_1.Logger.trace("[VARIANT] New variant created: ".concat(finalAttachmentName, " (Offset: ").concat(spineOffsetX.toFixed(2), ", ").concat(spineOffsetY.toFixed(2), ") for ").concat(baseImageName));
+        }
+        else {
+            // Logger.trace(`[VARIANT] Matched variant: ${finalAttachmentName} for ${baseImageName}`);
         }
         var subcontext = context.createSlot(context.element);
         var slot = subcontext.slot;
@@ -461,9 +469,9 @@ var Converter = /** @class */ (function () {
         }
     };
     Converter.prototype.convertElementLayer = function (context, layer, factory, allowBaking) {
-        var _a, _b;
+        var _a, _b, _c;
         if (allowBaking === void 0) { allowBaking = true; }
-        var _c = context.global, label = _c.label, stageType = _c.stageType, frameRate = _c.frameRate;
+        var _d = context.global, label = _d.label, stageType = _d.stageType, frameRate = _d.frameRate;
         var start = 0, end = layer.frames.length - 1;
         var indent = this.getIndent(context.recursionDepth);
         var isNestedFlattening = false;
@@ -702,6 +710,7 @@ var Converter = /** @class */ (function () {
                 }
                 var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
                 sub.internalFrame = i; // Fix: Pass current loop index as internal frame for nested time resolution
+                Logger_1.Logger.trace("".concat(indent, "    [INTERNAL] Passed internal frame ").concat(i, " to child '").concat(el.name || ((_c = el.libraryItem) === null || _c === void 0 ? void 0 : _c.name) || '<anon>', "'"));
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     var instance = el;
                     var firstFrameOffset = (instance.firstFrame || 0) / frameRate;
@@ -858,7 +867,7 @@ var Converter = /** @class */ (function () {
             if (this._document.selection.length > 0) {
                 finalMat = this._document.selection[0].matrix;
             }
-            Logger_1.Logger.trace("    [PARENTING] Resolved parent '".concat(parentLayer.name, "' (").concat(elName, ") at frame ").concat(frameIndex, ": tx=").concat(finalMat.tx.toFixed(2), " ty=").concat(finalMat.ty.toFixed(2)));
+            Logger_1.Logger.trace("    [PARENTING] Resolved parent '".concat(parentLayer.name, "' (").concat(elName, ") at frame ").concat(frameIndex, ". Raw Child Mat: a=").concat(el.matrix.a.toFixed(2), " tx=").concat(el.matrix.tx.toFixed(2), ". Final Mat: a=").concat(finalMat.a.toFixed(2), " tx=").concat(finalMat.tx.toFixed(2), " ty=").concat(finalMat.ty.toFixed(2)));
             parentLayer.locked = wasLocked;
             parentLayer.visible = wasVisible;
             return this.concatMatrix(finalMat, parentGlobal);
@@ -1430,7 +1439,8 @@ var SpineAnimationHelper = /** @class */ (function () {
         var shearFrame = shearTimeline.createFrame(time, curve);
         shearFrame.x = transform.shearX - bone.shearX;
         shearFrame.y = transform.shearY - bone.shearY;
-        Logger_1.Logger.trace("[KEY] Bone '".concat(bone.name, "' at T=").concat(time.toFixed(3), ": rot=").concat(angle.toFixed(2), " pos=(").concat(translateFrame.x.toFixed(2), ", ").concat(translateFrame.y.toFixed(2), ") scale=(").concat(scaleFrame.x.toFixed(2), ", ").concat(scaleFrame.y.toFixed(2), ") shearY=").concat(shearFrame.y.toFixed(2)));
+        var curveStr = (typeof curve === 'string') ? curve : (curve ? 'bezier' : 'linear');
+        Logger_1.Logger.trace("[KEY] Bone '".concat(bone.name, "' at T=").concat(time.toFixed(3), " [").concat(curveStr, "]: rot=").concat(angle.toFixed(2), " pos=(").concat(translateFrame.x.toFixed(2), ", ").concat(translateFrame.y.toFixed(2), ") scale=(").concat(scaleFrame.x.toFixed(2), ", ").concat(scaleFrame.y.toFixed(2), ") shearY=").concat(shearFrame.y.toFixed(2)));
     };
     SpineAnimationHelper.applyBoneTransform = function (bone, transform) {
         bone.x = transform.x;
