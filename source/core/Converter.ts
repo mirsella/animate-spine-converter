@@ -508,6 +508,15 @@ export class Converter {
                 this.hideChildSlots(context, s.bone, time);
             }
         }
+
+        // Fix: Also hide slots associated with bones on this layer (for nested symbols)
+        const bones = context.global.layerBonesCache.get(layer);
+        if (bones && bones.length > 0) {
+            for (const b of bones) {
+                Logger.trace(`${indent}    [Visibility] Hiding children of bone '${b.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
+                this.hideChildSlots(context, b, time);
+            }
+        }
     }
 
     private hideChildSlots(context: ConverterContext, parentBone: any, time: number): void {
@@ -807,6 +816,18 @@ export class Converter {
                 }
 
                 const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
+                // Register bone to layer for visibility tracking (Structure Phase or Animation Phase if missed)
+                if (sub.bone) {
+                    let bones = context.global.layerBonesCache.get(layer);
+                    if (!bones) {
+                        bones = [];
+                        context.global.layerBonesCache.set(layer, bones);
+                    }
+                    if (bones.indexOf(sub.bone) === -1) {
+                        bones.push(sub.bone);
+                    }
+                }
+
                 sub.internalFrame = i; // Fix: Pass current loop index as internal frame for nested time resolution
                 Logger.trace(`${indent}    [INTERNAL] Passed internal frame ${i} to child '${el.name || el.libraryItem?.name || '<anon>'}'`);
                 

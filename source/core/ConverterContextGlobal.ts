@@ -20,6 +20,7 @@ export class ConverterContextGlobal extends ConverterContext {
     public imagesCache:ConverterMap<string, SpineImage>;
     public shapesCache:ConverterMap<FlashElement | FlashItem, string>;
     public layersCache:ConverterMap<FlashLayer, SpineSlot[]>;
+    public layerBonesCache:ConverterMap<FlashLayer, any[]>; // Cache for bones associated with a layer (e.g. nested symbols)
     public assetTransforms:ConverterMap<string, SpineTransformMatrix>;
     public attachmentVariants:ConverterMap<string, Array<{x:number, y:number, name:string}>>;
     public processedSymbols:ConverterMap<string, boolean>;
@@ -90,6 +91,7 @@ export class ConverterContextGlobal extends ConverterContext {
         context.imagesCache = new ConverterMap<string, SpineImage>();
         context.shapesCache = new ConverterMap<FlashElement | FlashItem, string>();
         context.layersCache = new ConverterMap<FlashLayer, SpineSlot[]>();
+        context.layerBonesCache = new ConverterMap<FlashLayer, any[]>();
         context.assetTransforms = new ConverterMap<string, SpineTransformMatrix>();
         context.attachmentVariants = new ConverterMap<string, Array<{x:number, y:number, name:string}>>();
         context.processedSymbols = new ConverterMap<string, boolean>();

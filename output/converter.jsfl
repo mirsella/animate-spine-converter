@@ -450,6 +450,15 @@ var Converter = /** @class */ (function () {
                 this.hideChildSlots(context, s.bone, time);
             }
         }
+        // Fix: Also hide slots associated with bones on this layer (for nested symbols)
+        var bones = context.global.layerBonesCache.get(layer);
+        if (bones && bones.length > 0) {
+            for (var _a = 0, bones_1 = bones; _a < bones_1.length; _a++) {
+                var b = bones_1[_a];
+                Logger_1.Logger.trace("".concat(indent, "    [Visibility] Hiding children of bone '").concat(b.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
+                this.hideChildSlots(context, b, time);
+            }
+        }
     };
     Converter.prototype.hideChildSlots = function (context, parentBone, time) {
         var skeleton = context.global.skeleton;
@@ -727,6 +736,17 @@ var Converter = /** @class */ (function () {
                     finalPositionOverride = { x: sourceTransX, y: sourceTransY };
                 }
                 var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
+                // Register bone to layer for visibility tracking (Structure Phase or Animation Phase if missed)
+                if (sub.bone) {
+                    var bones = context.global.layerBonesCache.get(layer);
+                    if (!bones) {
+                        bones = [];
+                        context.global.layerBonesCache.set(layer, bones);
+                    }
+                    if (bones.indexOf(sub.bone) === -1) {
+                        bones.push(sub.bone);
+                    }
+                }
                 sub.internalFrame = i; // Fix: Pass current loop index as internal frame for nested time resolution
                 Logger_1.Logger.trace("".concat(indent, "    [INTERNAL] Passed internal frame ").concat(i, " to child '").concat(el.name || ((_c = el.libraryItem) === null || _c === void 0 ? void 0 : _c.name) || '<anon>', "'"));
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === "animation" /* ConverterStageType.ANIMATION */) {
@@ -1210,6 +1230,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.imagesCache = new ConverterMap_1.ConverterMap();
         context.shapesCache = new ConverterMap_1.ConverterMap();
         context.layersCache = new ConverterMap_1.ConverterMap();
+        context.layerBonesCache = new ConverterMap_1.ConverterMap();
         context.assetTransforms = new ConverterMap_1.ConverterMap();
         context.attachmentVariants = new ConverterMap_1.ConverterMap();
         context.processedSymbols = new ConverterMap_1.ConverterMap();
