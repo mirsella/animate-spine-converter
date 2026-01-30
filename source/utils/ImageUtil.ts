@@ -655,9 +655,17 @@ export class ImageUtil {
         localCenterX: number, localCenterY: number,
         debugName?: string
     ): { x: number, y: number } {
+        // Assumption Check:
+        // Animate Registration Point (regPointX, regPointY) is the (0,0) of the symbol data.
+        // Animate Transformation Point (transPointX, transPointY) is the visual pivot.
+        // Spine Bone origin is AT the Transformation Point.
+        // We need the offset from Bone Origin to Image Center.
+        
         // 1. Vector from Bone Origin (Trans Point) to Reg Point (in Parent Space)
         const dx = regPointX - transPointX;
         const dy = regPointY - transPointY;
+
+        Logger.trace(`[OFFSET] '${debugName || 'anon'}' BoneToReg Vector: (${dx.toFixed(2)}, ${dy.toFixed(2)})`);
 
         // 2. Inverse Matrix Calculation
         const a = matrix.a;
@@ -668,19 +676,26 @@ export class ImageUtil {
         const det = a * d - b * c;
         
         if (Math.abs(det) < 0.000001) {
-            Logger.warning(`[ImageUtil] Singular matrix for ${debugName || 'unknown'}. Using center.`);
+            Logger.warning(`[OFFSET] Singular matrix for ${debugName || 'unknown'}. Det=${det}. Using center.`);
             return { x: localCenterX, y: localCenterY };
         }
 
         const invDet = 1.0 / det;
         
-        // Apply Inverse Matrix
+        // Apply Inverse Matrix to map the Parent-Space vector (dx, dy) into Local-Space
+        // Assumption: localRx, localRy is the distance from the pivot to the (0,0) of the image data in image-local coordinates.
         const localRx = (d * dx - c * dy) * invDet;
         const localRy = (-b * dx + a * dy) * invDet;
 
+        Logger.trace(`[OFFSET] '${debugName || 'anon'}' Local Offset: (${localRx.toFixed(2)}, ${localRy.toFixed(2)}) (invDet=${invDet.toFixed(6)})`);
+
         // 3. Add Image Center Offset
+        // Attachment (0,0) is at image center. 
+        // We add localCenterX/Y because the image data (0,0) is usually top-left or specified by library.
         const finalX = localRx + localCenterX;
         const finalY = localRy + localCenterY;
+
+        Logger.trace(`[OFFSET] '${debugName || 'anon'}' Final Spine Offset: (${finalX.toFixed(2)}, ${finalY.toFixed(2)}) (localCenter: ${localCenterX}, ${localCenterY})`);
 
         return { x: finalX, y: finalY };
     }

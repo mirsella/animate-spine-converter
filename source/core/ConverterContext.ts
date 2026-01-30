@@ -29,6 +29,7 @@ export class ConverterContext {
     public matrixOverride:FlashMatrix = null;
     public positionOverride:{x:number, y:number} = null;
     public recursionDepth:number = 0;
+    public symbolPath:string = "";
 
     /**
      * Offset to shift children from Parent Registration Point to Parent Anchor Point.
@@ -42,6 +43,11 @@ export class ConverterContext {
 
     public switchContextFrame(frame:FlashFrame):ConverterContext {
         this.frame = frame;
+        return this;
+    }
+
+    public switchContextElement(element:FlashElement):ConverterContext {
+        this.element = element;
         return this;
     }
 
@@ -86,6 +92,8 @@ export class ConverterContext {
         context.global = this.global;
         context.parent = this;
         context.recursionDepth = this.recursionDepth + 1;
+        const name = element.name || element.libraryItem?.name || '<anon>';
+        context.symbolPath = this.symbolPath ? this.symbolPath + " > " + name : name;
 
         context.blendMode = ConvertUtil.obtainElementBlendMode(element);
         context.color = this.color.blend(element);

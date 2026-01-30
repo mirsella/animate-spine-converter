@@ -27,15 +27,24 @@ export class SpineAnimationHelper {
                 
                 // Use a epsilon for time equality to avoid unwrapping the same keyframe twice
                 if (time > prevFrame.time) {
+                    const originalAngle = angle;
                     while (angle - prevAngle > 180) angle -= 360;
                     while (angle - prevAngle < -180) angle += 360;
+                    
+                    if (Math.abs(angle - originalAngle) > 0.1) {
+                        Logger.trace(`[UNWRAP] Bone '${bone.name}' T=${time.toFixed(2)}: ${originalAngle.toFixed(2)} -> ${angle.toFixed(2)} (relative to prev ${prevAngle.toFixed(2)})`);
+                    }
+
+                    if (Math.abs(angle - prevAngle) > 170) {
+                        Logger.trace(`[DEBUG] RotJump: ${prevAngle.toFixed(1)} -> ${angle.toFixed(1)} (Bone: ${bone.name}, T=${time.toFixed(2)})`);
+                    }
                 }
             }
         }
 
         const rotateFrame = rotateTimeline.createFrame(time, curve);
         rotateFrame.angle = angle;
-
+        
         const translateTimeline = timeline.createTimeline(SpineTimelineType.TRANSLATE);
         const translateFrame = translateTimeline.createFrame(time, curve);
         translateFrame.x = transform.x - bone.x;
@@ -50,6 +59,8 @@ export class SpineAnimationHelper {
         const shearFrame = shearTimeline.createFrame(time, curve);
         shearFrame.x = transform.shearX - bone.shearX;
         shearFrame.y = transform.shearY - bone.shearY;
+
+        Logger.trace(`[KEY] Bone '${bone.name}' at T=${time.toFixed(3)}: rot=${angle.toFixed(2)} pos=(${translateFrame.x.toFixed(2)}, ${translateFrame.y.toFixed(2)}) scale=(${scaleFrame.x.toFixed(2)}, ${scaleFrame.y.toFixed(2)}) shearY=${shearFrame.y.toFixed(2)}`);
     }
 
     public static applyBoneTransform(bone:SpineBone, transform:SpineTransform):void {
@@ -69,18 +80,16 @@ export class SpineAnimationHelper {
         const attachmentTimeline = timeline.createTimeline(SpineTimelineType.ATTACHMENT);
         
         // VISIBILITY FIX: Start of Animation
-        // If this is the VERY FIRST keyframe for this slot in this animation, and it is NOT at time 0,
-        // we must ensure the slot is hidden at time 0. Otherwise, the Setup Pose attachment will show
-        // from time 0 until this keyframe.
         if (attachmentTimeline.frames.length === 0 && time > 0) {
-            Logger.trace(`[Visibility] Auto-hiding slot '${slot.name}' at frame 0 (First key is at ${time.toFixed(2)})`);
-            // Create a null key at frame 0 with 'stepped' curve to ensure it stays hidden until 'time'
+            Logger.trace(`[VISIBILITY] Auto-hiding slot '${slot.name}' at frame 0 (First key is at ${time.toFixed(3)})`);
             const hiddenFrame = attachmentTimeline.createFrame(0, 'stepped');
             hiddenFrame.name = null;
         }
 
         const attachmentFrame = attachmentTimeline.createFrame(time, curve);
         attachmentFrame.name = (attachment != null) ? attachment.name : null;
+        
+        Logger.trace(`[VISIBILITY] Slot '${slot.name}' -> ${attachmentFrame.name ? attachmentFrame.name : 'HIDDEN'} at Time ${time.toFixed(3)} (Frame: ${context.frame?.startFrame})`);
 
         if (context.frame != null && context.frame.startFrame === 0) {
             slot.attachment = attachment;
@@ -124,24 +133,29 @@ export class SpineAnimationHelper {
             }
 
             // 1. Check Custom Ease
-            if (frame.hasCustomEase) {
-                let points = null;
-                try { points = frame.getCustomEase(); } catch (e) {}
-                
-                // Spine only supports 1 cubic bezier segment (4 points: P0, C1, C2, P3)
-                // If points > 4, it's a complex curve -> requires baking -> Linear
-                if (points && points.length === 4) {
-                    Logger.trace(`[Curve] Frame ${frame.startFrame}: Custom Ease applied. P1=(${points[1].x.toFixed(3)}, ${points[1].y.toFixed(3)}) P2=(${points[2].x.toFixed(3)}, ${points[2].y.toFixed(3)})`);
-                    return {
-                        cx1: points[1].x,
-                        cy1: points[1].y,
-                        cx2: points[2].x,
-                        cy2: points[2].y
-                    };
-                }
-                Logger.trace(`[Curve] Frame ${frame.startFrame}: Custom Ease Rejected (Points: ${points ? points.length : 'null'}). Force Linear/Bake.`);
-                return null; // Force bake for complex custom ease
+        if (frame.hasCustomEase) {
+            let points = null;
+            try { points = frame.getCustomEase(); } catch (e) {
+                Logger.warning(`[Curve] Frame ${frame.startFrame}: getCustomEase failed: ${e}`);
             }
+            
+            // Spine only supports 1 cubic bezier segment (4 points: P0, C1, C2, P3)
+            // If points > 4, it's a complex curve -> requires baking -> Linear
+            if (points && points.length === 4) {
+                Logger.trace(`[Curve] Frame ${frame.startFrame}: Custom Ease applied. P0=(${points[0].x}, ${points[0].y}) P1=(${points[1].x.toFixed(3)}, ${points[1].y.toFixed(3)}) P2=(${points[2].x.toFixed(3)}, ${points[2].y.toFixed(3)}) P3=(${points[3].x}, ${points[3].y})`);
+                return {
+                    cx1: points[1].x,
+                    cy1: points[1].y,
+                    cx2: points[2].x,
+                    cy2: points[2].y
+                };
+            }
+            if (points) {
+                Logger.trace(`[Curve] Frame ${frame.startFrame}: Custom Ease Rejected (Points: ${points.length}). Logic: Spine 4.2 only supports single-segment beziers via JSON. Multi-segment requires sampling.`);
+            }
+            return null; // Force bake for complex custom ease
+        }
+
 
             // 2. Check Standard Easing (-100 to 100)
             if (frame.tweenEasing !== 0) {

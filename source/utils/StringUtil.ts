@@ -2,32 +2,29 @@ export class StringUtil {
     public static simplify(value:string):string {
         if (!value) return 'unnamed';
         
-        // Fix for multiple underscores and naming collisions:
-        // 1. Replace illegal path characters with underscores
-        // 2. But DO NOT aggressively lowercase or strip everything if it causes collision.
-        // Actually, the user says "multiples underscore break them".
-        // Maybe "a__b" becomes "a_b"? Or maybe the regex `/[\/\-. ]+/gi` is too broad?
-        // If I have "part_sub_part", the regex matches... nothing? 
-        // Wait, the regex matches '/', '-', '.', ' '.
-        // Underscore is NOT in the regex.
-        // So "part_sub_part" remains "part_sub_part".
-        // If the user says it breaks, maybe Spine doesn't like it?
-        // Or maybe 'simplify' is NOT the problem, but 'createAttachmentName' using libraryItem name.
-        
-        // Let's ensure we sanitize strictly but keep underscores if they are valid.
-        // Spine allows underscores.
-        
-        // Let's replace only truly invalid chars.
-        const regex = /[\/\-. ]+/g; 
-        
-        let simplified = value.replace(regex, '_');
-        
-        // Collapse multiple underscores to one? "a___b" -> "a_b"
-        simplified = simplified.replace(/_+/g, '_');
-        
+        // Lowercase first
+        let result = value.toLowerCase();
+
+        // Manual replacement of common illegal characters to be safe in old JSFL
+        // Replace slashes, dots, hyphens, and whitespace (including non-breaking space) with underscore
+        const searchChars = ["/", "\\", ".", "-", " ", "\t", "\n", "\r", "\xa0"];
+        for (let i = 0; i < searchChars.length; i++) {
+            const char = searchChars[i];
+            while (result.indexOf(char) !== -1) {
+                result = result.replace(char, "_");
+            }
+        }
+
+        // Collapse multiple underscores
+        while (result.indexOf("__") !== -1) {
+            result = result.replace("__", "_");
+        }
+
         // Trim leading/trailing underscores
-        simplified = simplified.replace(/^_|_$/g, '');
+        if (result.charAt(0) === "_") result = result.substring(1);
+        if (result.charAt(result.length - 1) === "_") result = result.substring(0, result.length - 1);
         
-        return simplified.toLowerCase();
+        if (result === "") return "unnamed";
+        return result;
     }
 }

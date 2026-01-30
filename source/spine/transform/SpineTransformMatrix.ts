@@ -24,6 +24,9 @@ export class SpineTransformMatrix implements SpineTransform {
         }
 
         const name = element.name || element.libraryItem?.name || '<anon>';
+        
+        // Log transform points
+        Logger.trace(`[MATRIX] '${name}' Transform: pos=(${this.x.toFixed(2)}, ${this.y.toFixed(2)}) registration=(${element.x.toFixed(2)}, ${element.y.toFixed(2)}) pivot=(${element.transformationPoint.x.toFixed(2)}, ${element.transformationPoint.y.toFixed(2)})`);
 
         // Decompose the matrix
         // Use override if provided (e.g. for Layer Parenting resolution)
@@ -42,90 +45,83 @@ export class SpineTransformMatrix implements SpineTransform {
      * Accounts for coordinate system differences (Animate Y-Down vs Spine Y-Up).
      */
     public static decomposeMatrix(mat: FlashMatrix, reference: { rotation: number, scaleX: number, scaleY: number } = null, debugName: string = ''): { rotation: number, scaleX: number, scaleY: number, shearX: number, shearY: number } {
-        // Animate Matrix (Y-Down):
-        // [a  c  tx]
-        // [b  d  ty]
-        // [0  0  1 ]
-        //
-        // Basis Vectors in Animate:
-        // U_anim = (a, b)
-        // V_anim = (c, d)
-        
-        // Convert to Spine Space (Y-Up):
-        // P_spine = (x, -y)
-        // Transform Matrix M_spine:
-        // [ a  -c  tx]
-        // [-b   d -ty]
-        //
-        // Basis Vectors in Spine:
-        // U_spine = (a, -b)
-        // V_spine = (-c, d)
+        // Log raw matrix for debugging
+        Logger.trace(`[DECOMPOSE] '${debugName}' Raw Flash Matrix: a=${mat.a.toFixed(4)} b=${mat.b.toFixed(4)} c=${mat.c.toFixed(4)} d=${mat.d.toFixed(4)} tx=${mat.tx.toFixed(2)} ty=${mat.ty.toFixed(2)}`);
 
+        // Spine Basis Vectors derived from Animate Matrix (Y-Up conversion)
+        // Assumption Check: Animate is Y-down. We flip 'b' and 'c' because they represent 
+        // the cross-axis influence in the rotation/skew components.
         const a = mat.a;
-        const b = -mat.b; // Negate Y component of U
-        const c = -mat.c; // Negate X component of V (from M_spine derivation)
-        const d = mat.d;  // D stays positive (d -> d)
+        const b = -mat.b;
+        const c = -mat.c;
+        const d = mat.d;
 
-        // 1. Scale
+        Logger.trace(`[DECOMPOSE] '${debugName}' Y-Up Basis: a=${a.toFixed(4)} b=${b.toFixed(4)} c=${c.toFixed(4)} d=${d.toFixed(4)}`);
+
         let scaleX = Math.sqrt(a * a + b * b);
         let scaleY = Math.sqrt(c * c + d * d);
-
-        // 2. Determinant (Signed Area)
         const det = a * d - b * c;
 
-        // 3. Flip Handling
-        // If determinant is negative, the basis is flipped (handedness change).
-        // We handle this by negating ScaleY.
-        if (det < 0) {
-            scaleY = -scaleY;
-        }
+        Logger.trace(`[DECOMPOSE] '${debugName}' Magnitudes: scaleX_raw=${scaleX.toFixed(4)} scaleY_raw=${scaleY.toFixed(4)} det=${det.toFixed(6)}`);
 
-        // 4. Angles
-        // Angle of X-Axis
+        // Base angles for X and Y axes
         let angleX = Math.atan2(b, a) * (180 / Math.PI);
-        // Angle of Y-Axis (Use the sign-corrected basis if flipped?)
-        // Actually, if det < 0, we flip Y scale. 
-        // The "Geometric" Y axis we want to represent is V_spine.
-        // If scaleY is negative, Spine will render -Y_local.
-        // We want -Y_local to align with V_spine.
-        // So Y_local should align with -V_spine.
-        // So we calculate angle of V_spine, and if scaleY < 0, we treat it as...
-        // Wait, standard decomposition:
-        // angleX = atan2(u)
-        // angleY = atan2(v)
-        // shear = angleY - angleX - 90
-        // If det < 0, shear will be around 180 or -180.
-        // We don't want massive shears for simple flips. We want negative scale.
-        // If we set scaleY = -1.
-        // Then standard Spine Y axis is inverted.
-        // Angle relation: Y_actual = Y_basis * scaleY.
-        // If scaleY = -1, Y_actual = -Y_basis.
-        // So Y_basis = -Y_actual = -V_spine.
-        // So we should calculate angle of -V_spine if flipped.
-        
-        let angleY_rad = Math.atan2(d, c);
-        if (scaleY < 0) {
-            // If flipped, the "basis" Y is opposite to the visual vector
-            angleY_rad = Math.atan2(-d, -c);
-        }
-        let angleY = angleY_rad * (180 / Math.PI);
+        let angleY = Math.atan2(d, c) * (180 / Math.PI);
 
-        // 5. Rotation & Shear
         let rotation = angleX;
+        let appliedScaleX = scaleX;
+        let appliedScaleY = scaleY;
+
+        if (det < 0) {
+            // Negative determinant means a flip exists.
+            // Assumption: Flip Y is the default, but we check against reference to keep continuity.
+            const rot1 = angleX;
+            const sy1 = -scaleY;
+            
+            let rot2 = angleX + 180;
+            while (rot2 > 180) rot2 -= 360;
+            while (rot2 <= -180) rot2 += 360;
+            
+            if (reference) {
+                const diff1 = Math.abs(NumberUtil.deltaAngle(rot1, reference.rotation));
+                const diff2 = Math.abs(NumberUtil.deltaAngle(rot2, reference.rotation));
+                
+                Logger.trace(`[DECOMPOSE] '${debugName}' Flip Detected. ReferenceRot=${reference.rotation.toFixed(2)}. Option1(FlipY): ${rot1.toFixed(2)} (diff ${diff1.toFixed(2)}). Option2(FlipX): ${rot2.toFixed(2)} (diff ${diff2.toFixed(2)})`);
+
+                if (diff2 < diff1 - 10) { 
+                    rotation = rot2;
+                    appliedScaleX = -scaleX;
+                    appliedScaleY = scaleY;
+                    Logger.trace(`[DECOMPOSE] '${debugName}' Chosen Option 2 (FlipX) for continuity.`);
+                } else {
+                    rotation = rot1;
+                    appliedScaleX = scaleX;
+                    appliedScaleY = -scaleY;
+                    Logger.trace(`[DECOMPOSE] '${debugName}' Chosen Option 1 (FlipY) - default.`);
+                }
+            } else {
+                rotation = rot1;
+                appliedScaleX = scaleX;
+                appliedScaleY = -scaleY;
+                Logger.trace(`[DECOMPOSE] '${debugName}' Flip Detected. No reference. Defaulting to Flip Y.`);
+            }
+        }
+
+        // Recalculate shear based on the chosen rotation/scale signs
+        // Spine Y-Axis angle = rotation + 90 + shearY
+        let visualAngleY = angleY;
+        if (appliedScaleY < 0) {
+            visualAngleY = Math.atan2(-d, -c) * (180 / Math.PI);
+        }
         
-        // ShearY: Deviation of Y-Axis from Orthogonality relative to X-Axis
-        // Spine: y_angle = rotation + 90 + shearY
-        // shearY = y_angle - rotation - 90
-        let shearY = angleY - rotation - 90;
+        let shearY = visualAngleY - rotation - 90;
+        while (shearY <= -180) shearY += 360;
+        while (shearY > 180) shearY -= 360;
 
-        // Sign Inversion for Spine Compatibility
-        // Empirical testing:
-        // V1: shearY = -shearY (User reported "skewed the right amount but to the other direction")
-        // V2: Removed negation.
-        // shearY = -shearY;
+        // Log intermediate decomposition steps
+        Logger.trace(`[DECOMPOSE] '${debugName}' Decomposition: det=${det.toFixed(4)} angleX=${angleX.toFixed(2)} angleY=${angleY.toFixed(2)} chosenRot=${rotation.toFixed(2)}`);
 
-        // Unwrap Rotation using Reference (Continuity)
-        const rotRaw = rotation;
+        // Unwrap Rotation (Shortest path to reference)
         if (reference) {
             let diff = rotation - reference.rotation;
             while (diff > 180) {
@@ -137,21 +133,21 @@ export class SpineTransformMatrix implements SpineTransform {
                 diff += 360;
             }
         } else {
-            // Default Normalize
             while (rotation <= -180) rotation += 360;
             while (rotation > 180) rotation -= 360;
         }
-        
-        while (shearY <= -180) shearY += 360;
-        while (shearY > 180) shearY -= 360;
 
-        return {
+        const result = {
             rotation: Math.round(rotation * 10000) / 10000,
-            scaleX: Math.round(scaleX * 10000) / 10000,
-            scaleY: Math.round(scaleY * 10000) / 10000,
+            scaleX: Math.round(appliedScaleX * 10000) / 10000,
+            scaleY: Math.round(appliedScaleY * 10000) / 10000,
             shearX: 0,
             shearY: Math.round(shearY * 10000) / 10000
         };
+
+        Logger.trace(`[DECOMPOSE] '${debugName}' Result: rot=${result.rotation.toFixed(2)} sx=${result.scaleX.toFixed(2)} sy=${result.scaleY.toFixed(2)} shY=${result.shearY.toFixed(2)}`);
+
+        return result;
     }
 
 }

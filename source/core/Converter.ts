@@ -32,16 +32,17 @@ export class Converter {
         this._config = config;
     }
 
+    private getIndent(depth: number): string {
+        let indent = "";
+        for (let i = 0; i < depth; i++) indent += "  ";
+        return indent;
+    }
+
     private safelyExportImage(context: ConverterContext, exportAction: () => SpineImage): SpineImage {
-        // 1. Identify the Symbol definition that contains this element
-        // We iterate up the context chain to find the nearest "Symbol Instance" context.
-        // This context represents the MovieClip/Graphic that owns the timeline where our shape resides.
-        
         let containerItem: FlashItem | null = null;
         let curr = context.parent;
         
         while (curr != null) {
-            // Check if this context represents a Symbol Instance
             if (curr.element && curr.element.elementType === 'instance' && curr.element.instanceType === 'symbol') {
                  if (curr.element.libraryItem) {
                      containerItem = curr.element.libraryItem;
@@ -53,19 +54,15 @@ export class Converter {
         
         const dom = this._document;
         const currentTl = dom.getTimeline();
-        
         let mustEdit = false;
         
         if (containerItem && currentTl.name !== containerItem.name) {
-            // We are NOT in the timeline of the container. 
-            // We MUST switch to select the element safely.
             if (dom.library.itemExists(containerItem.name)) {
                 mustEdit = true;
             }
         }
 
         if (mustEdit) {
-            // Logger.trace(`[Converter] Context switch required for image export: ${containerItem.name}`);
             dom.library.editItem(containerItem.name);
             try {
                 return exportAction();
@@ -78,35 +75,27 @@ export class Converter {
     }
 
     private convertElementSlot(context: ConverterContext, exportTarget: FlashElement | FlashItem, imageExportFactory: ImageExportFactory): void {
-        // 1. Get Base Name (for PNG path and initial cache key)
         let baseImageName = context.global.shapesCache.get(exportTarget);
         if (baseImageName == null) {
             baseImageName = ConvertUtil.createAttachmentName(context.element, context);
             context.global.shapesCache.set(exportTarget, baseImageName);
         }
 
-        // Logger.trace(`[Slot] Converting slot for: ${baseImageName} on Layer: ${context.layer ? context.layer.name : 'unknown'}`);
-
-        // 2. Ensure Image is Exported/Cached (to get dimensions and localCenter)
         const baseImagePath = this.prepareImagesExportPath(context, baseImageName);
         let spineImage = context.global.imagesCache.get(baseImagePath);
         if (spineImage == null) {
             try {
-                // WRAP THE EXPORT FACTORY WITH SAFE CONTEXT SWITCHING
-                // Pass selection hints to help ImageUtil find the live element
                 const hints = this.createSelectionHints(context);
                 spineImage = this.safelyExportImage(context, () => {
                     return imageExportFactory(context, baseImagePath);
                 });
             } catch (e) {
                 Logger.error(`[Converter] Image export error for '${baseImageName}': ${e}. Using placeholder.`);
-                // Create a 1x1 placeholder
                 spineImage = new SpineImage(baseImagePath, 1, 1, 1, 0, 0, 0, 0);
             }
             context.global.imagesCache.set(baseImagePath, spineImage);
         }
 
-        // 3. Calculate Required Offset for THIS instance (Variant Check)
         const element = context.element;
         const calcMatrix = context.matrixOverride || element.matrix;
         
@@ -133,7 +122,6 @@ export class Converter {
         const spineOffsetX = requiredOffset.x;
         const spineOffsetY = requiredOffset.y;
         
-        // 4. Resolve Variant
         let finalAttachmentName = baseImageName;
         const TOLERANCE = 2.0; 
         
@@ -199,34 +187,12 @@ export class Converter {
             const el = context.element;
             const layer = el.layer;
             const frame = context.frame; 
-            
             if (!layer || !frame) return undefined;
 
-            // FlashLayer doesn't have .parent property in typings usually, but we have the timeline from context logic?
-            // We can search for the layer in the current timeline if we assume we are in the right context or can access it via item.
-            // But context.element.layer gives us the layer object.
-            // We need to find this layer in the timeline.
-            
-            // We can get the timeline from the context.element.libraryItem's timeline if available, 
-            // OR we iterate the timeline we are supposedly in.
-            
-            // Since we are creating hints BEFORE the context switch, we are holding the Data Objects.
-            // We need the indices relative to THAT timeline.
-            
-            // If context.parent exists, it holds the loop state?
-            // Actually, we can just grab the timeline from the library item of the parent context?
-            
-            // Let's use a safer approach:
-            // We know 'layer' object. We need its index in its timeline.
-            // We don't have a direct link from Layer to Timeline in standard JSFL typings (it's weird).
-            // But we can scan the library item's timeline.
-            
             let timeline: FlashTimeline | null = null;
-            // Traverse up to find the library item that owns this element
             let curr = context.parent;
             while(curr) {
                  if (curr.element && curr.element.libraryItem && curr.element.libraryItem.timeline) {
-                     // Check if this timeline contains our layer
                      const tl = curr.element.libraryItem.timeline;
                      for(let i=0; i<tl.layers.length; i++) {
                          if (tl.layers[i] === layer) {
@@ -263,7 +229,7 @@ export class Converter {
 
             return {
                 layerIndex: layerIndex,
-                frameIndex: frame.startFrame, // Use the frame's start frame index
+                frameIndex: frame.startFrame,
                 elementIndex: elementIndex
             };
         } catch (e) {
@@ -401,60 +367,87 @@ export class Converter {
         );
     }
 
+    private getLiveTransform(context: ConverterContext, frameIndex: number): { matrix: FlashMatrix, transformX: number, transformY: number } | null {
+        const dom = this._document;
+        const timeline = dom.getTimeline();
+        
+        // Save state
+        const oldFrame = timeline.currentFrame;
+        
+        try {
+            timeline.currentFrame = frameIndex;
+            const hints = this.createSelectionHints(context);
+            if (!hints) return null;
+
+            dom.selectNone();
+            const layer = timeline.layers[hints.layerIndex];
+            const frame = layer.frames[hints.frameIndex];
+            const el = frame.elements[hints.elementIndex];
+            
+            // Try to select
+            el.selected = true;
+            if (dom.selection.length === 0) {
+                // Fallback: try selecting by index if reference failed
+                dom.selection = [el];
+            }
+
+            if (dom.selection.length > 0) {
+                const selected = dom.selection[0];
+                return {
+                    matrix: selected.matrix,
+                    transformX: selected.transformX,
+                    transformY: selected.transformY
+                };
+            }
+        } catch (e) {
+            Logger.warning(`[Converter] LiveTransform failed for frame ${frameIndex}: ${e}`);
+        } finally {
+            // Restore state
+            // timeline.currentFrame = oldFrame; // We usually want to stay on the frame for subsequent calls
+        }
+        return null;
+    }
+
     private convertCompositeElement(context:ConverterContext):void {
         const item = context.element.libraryItem;
         if (!item) return;
 
-        // Prevent infinite recursion or stack overflow
+        const indent = this.getIndent(context.recursionDepth);
+        Logger.trace(`${indent}[STRUCT] Symbol: ${item.name} (Depth: ${context.recursionDepth})`);
+
         if (context.recursionDepth > 32) {
-            Logger.warning(`[Converter] Max recursion depth reached for ${item.name}. Skipping.`);
+            Logger.warning(`${indent}[WARN] Max recursion depth reached for ${item.name}. Skipping.`);
             return;
         }
-
-        // REMOVED: Processed Symbols check (it breaks nested animation flattening).
-        // We rely on recursion depth limit and optimizing editItem calls to prevent crashes.
-
-        // Context Switching Optimization:
-        // Only call editItem if we are not already in the correct context.
-        // And importantly, avoid editItem entirely for nested symbols if we can (to prevent UI storm).
         
         let canEdit = false;
         let mustRestoreContext = false;
         const currentTl = this._document.getTimeline();
         
-        // If we are already in the correct timeline (e.g. recursion didn't leave it), we don't need to edit.
-        // Note: item.name check is heuristic; timeline.name usually matches symbol name.
         if (currentTl.name !== item.name) {
             if (this._document.library.itemExists(item.name)) {
-                // STABILITY FIX: For nested symbols (depth > 0), avoid editItem if possible.
-                // However, we need editItem to support Baking (convertToKeyframes) and Layer Parenting logic.
-                // If we skip editItem, we must assume no baking is needed or accept lower fidelity.
-                // Given the crash reports, we prioritize stability for deep recursion.
-                
-                if (context.recursionDepth > 0) {
-                    // For nested animations, use the Library Item's timeline directly without switching context.
-                    // This prevents the UI refresh storm but disables Baking for nested components.
-                    // "Animation in Animation" usually works with keyframes, so direct timeline access is sufficient.
-                    canEdit = false;
-                } else {
-                    this._document.library.editItem(item.name);
-                    canEdit = true;
-                    mustRestoreContext = true;
-                }
+                // ALWAYS enter edit mode to enable "Live" matrix sampling for all depths.
+                // This ensures nested tweens are correctly interpolated.
+                this._document.library.editItem(item.name);
+                canEdit = true;
+                mustRestoreContext = true;
             }
         } else {
-            // Already in context
             canEdit = true; 
         }
 
         try {
-            // If we canEdit (active timeline), use it. Otherwise use the Library Item's timeline data.
             const timeline = canEdit ? this._document.getTimeline() : item.timeline;
             const layers = timeline.layers;
 
             for (let i = layers.length - 1; i >= 0; i--) {
                 const layer = layers[i];
-                if (!layer.visible) continue;
+                if (!layer.visible) {
+                    Logger.trace(`${indent}  [LAYER] Skipping Hidden Layer: ${layer.name}`);
+                    continue;
+                }
+
+                Logger.trace(`${indent}  [LAYER] Processing: ${layer.name} (Type: ${layer.layerType})`);
 
                 if (layer.layerType === 'normal' || layer.layerType === 'guided') {
                     this.convertCompositeElementLayer(context, layer, canEdit);
@@ -473,11 +466,25 @@ export class Converter {
         }
     }
 
+    private hideLayerSlots(context: ConverterContext, layer: FlashLayer, time: number): void {
+        const slots = context.global.layersCache.get(layer);
+        const indent = this.getIndent(context.recursionDepth);
+        if (slots && slots.length > 0) {
+            for (const s of slots) {
+                Logger.trace(`${indent}    [Visibility] Hiding slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
+                SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
+            }
+        } else {
+            // Logger.trace(`${indent}    [Visibility] No slots to hide for layer '${layer.name}' at Time ${time.toFixed(3)}`);
+        }
+    }
+
     private convertElementLayer(context:ConverterContext, layer:FlashLayer, factory:LayerConvertFactory, allowBaking:boolean = true):void {
         const { label, stageType, frameRate } = context.global;
         let start = 0, end = layer.frames.length - 1;
+        
+        const indent = this.getIndent(context.recursionDepth);
 
-        // Optimization: Pre-calculate target frame for nested animations to avoid Loop Logic and overhead
         let isNestedFlattening = false;
         let targetFrame = 0;
 
@@ -485,11 +492,8 @@ export class Converter {
             start = label.startFrameIdx;
             end = label.endFrameIdx;
         } else if (context.parent != null && stageType === ConverterStageType.ANIMATION) {
-            // NESTED ANIMATION SUPPORT (FLATTENING)
             try {
                 const instance = context.element as any;
-                
-                // Only process if we have valid context
                 if (instance && instance.libraryItem && instance.libraryItem.timeline && context.parent && context.parent.frame) {
                     const tl = instance.libraryItem.timeline;
                     const animationStartFrame = label ? label.startFrameIdx : 0;
@@ -501,7 +505,7 @@ export class Converter {
                     const loopMode = (instance.loop !== undefined) ? instance.loop : 'loop'; 
                     const tlFrameCount = tl.frameCount;
                     
-                    if (tlFrameCount <= 0) return; // Safety check
+                    if (tlFrameCount <= 0) return;
                     
                     if (loopMode === 'single frame') {
                         targetFrame = firstFrame;
@@ -514,41 +518,24 @@ export class Converter {
                     
                     if (targetFrame >= 0 && targetFrame < layer.frames.length) {
                         isNestedFlattening = true;
-                        // Restrict loop to just this frame
                         start = targetFrame;
                         end = targetFrame;
                     } else {
-                        return; // Out of bounds
+                        return;
                     }
                 }
-            } catch (e) {
-                // Fail safe
-            }
+            } catch (e) {}
         }
         
-        // Fast Path for Nested Flattening (Avoids baking, selection, and complex logic)
         if (isNestedFlattening) {
             const frame = layer.frames[start];
             if (!frame) return;
 
-            // Direct Export for Flattened Frame
-            // We use 'context.time + context.timeOffset' logic indirectly via 'time' variable?
-            // Actually, we want to export THIS child frame at the Parent's current time.
-            // The parent loop determined 'context.time'. 
-            // We just need to add 'timeOffset' if any (usually 0 for direct flattening, but let's keep consistent).
-            
-            // Note: time in the loop below is calculated as (i - start) / frameRate.
-            // Since i == start, time = 0.
-            // Final time = 0 + context.timeOffset.
-            // context.timeOffset is usually set by the parent to align children.
-            
-            const time = context.timeOffset; // (start - start)/frameRate + offset
-
+            const time = context.timeOffset;
+            Logger.trace(`${indent}  [FLATTEN] ${layer.name} Frame: ${start} (Time: ${time.toFixed(3)})`);
             if (frame.elements.length === 0) {
-                // Handle empty slots logic if needed, or just skip
-                const slots = context.global.layersCache.get(context.layer);
-                if (slots) {
-                    for (const s of slots) SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context.switchContextFrame(frame), null, time);
+                if (stageType === ConverterStageType.ANIMATION) {
+                    this.hideLayerSlots(context, layer, time);
                 }
                 return; 
             }
@@ -556,85 +543,62 @@ export class Converter {
             for (let eIdx = 0; eIdx < frame.elements.length; eIdx++) {
                 let el = frame.elements[eIdx];
                 
-                // No Parent Matrix calc for nested items (too heavy/unstable without editItem)
-                // No Baking. Just direct access.
+                let matrixOverride: FlashMatrix = null;
+                let positionOverride: {x:number, y:number} = null;
                 
-                const sub = context.switchContextFrame(frame).createBone(el, time, null, null);
-                
+                if (stageType === ConverterStageType.ANIMATION) {
+                    const elName = el.name || el.libraryItem?.name || '<anon>';
+                    const live = this.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), start);
+                    if (live) {
+                        Logger.trace(`${indent}    [LIVE] Sampled '${elName}' at frame ${start}: tx=${live.matrix.tx.toFixed(2)} ty=${live.matrix.ty.toFixed(2)}`);
+                        matrixOverride = live.matrix;
+                        positionOverride = { x: live.transformX, y: live.transformY };
+                    } else {
+                        Logger.trace(`${indent}    [LIVE] Sampling failed for '${elName}' at frame ${start}. Using context matrix.`);
+                    }
+                }
+
+                const sub = context.switchContextFrame(frame).createBone(el, time, matrixOverride, positionOverride);
                 if (el.elementType === 'instance' && el.instanceType === 'symbol') {
                     const instance = el as any;
                     const firstFrameOffset = (instance.firstFrame || 0) / frameRate;
                     sub.timeOffset = time - firstFrameOffset;
                 }
-
                 factory(sub);
             }
-            return; // DONE for nested
+            return;
         }
 
-        // Standard Loop for Root / Non-Flattened
+        Logger.trace(`${indent}  [LOOP] ${layer.name}: Start=${start} End=${end}`);
         for (let i = start; i <= end; i++) {
-            // Time calculation:
-            // If Root: time = (i - start) / frameRate.
             let time = (i - start) / frameRate;
-            if (context.parent != null) {
-                 // For nested animations... (logic handled via isNestedFlattening mostly)
-            }
             time += context.timeOffset;
 
-            // VISIBILITY FIX: End of Layer / Gap Handling
-            // If we are beyond the layer's actual frames, or the frame is undefined, we must hide the slots.
             if (i < 0 || i >= layer.frames.length || !layer.frames[i]) {
-                // Determine if we need to hide slots associated with this layer
-                // We only do this if we are within the requested export range (which we are, i <= end)
-                // AND if we haven't already hidden them.
-                // Since this loop runs sequentially, we can just export a null attachment key.
-                
                 if (stageType === ConverterStageType.ANIMATION) {
-                    const slots = context.global.layersCache.get(context.layer);
-                    if (slots) {
-                        for (const s of slots) {
-                            // Only key if not already keyed at this time?
-                            // SpineAnimationHelper handles adding keys.
-                            // We need a dummy context?
-                            // We construct a fake context just for the time?
-                            // Or just call the helper directly if we have the slot.
-                            
-                            // We assume 'stepped' curve for hiding.
-                            // But we need to call applySlotAttachment.
-                            // It needs a context to get frame curve. If we pass null context, what happens?
-                            // obtainFrameCurve returns null (Linear) if context frame is null. That's fine for hiding.
-                            
-                            // Logger.trace(`[Visibility] Layer '${layer.name}' ended at frame ${i}. Hiding slots.`);
-                            SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
-                        }
-                    }
+                    this.hideLayerSlots(context, layer, time);
                 }
                 continue;
             }
 
             const frame = layer.frames[i];
-            if (!frame) continue; // Should be covered above
+            if (!frame) continue;
             
-            // ... rest of loop ...
-            
+            Logger.trace(`${indent}  [STEP] Frame: ${i} (Time: ${time.toFixed(3)})`);
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
                 if (stageType === ConverterStageType.ANIMATION) SpineAnimationHelper.applyEventAnimation(context.global.animation, frame.name, time);
             }
             
             if (frame.elements.length === 0) {
-                const slots = context.global.layersCache.get(context.layer);
-                if (slots && stageType === ConverterStageType.ANIMATION) {
-                    // Logger.trace(`[Visibility] Frame ${i} (${layer.name}) is empty keyframe. Hiding slots.`);
-                    for (const s of slots) SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context.switchContextFrame(frame), null, time);
+                if (stageType === ConverterStageType.ANIMATION) {
+                    this.hideLayerSlots(context, layer, time);
                 }
                 continue;
             }
             
             for (let eIdx = 0; eIdx < frame.elements.length; eIdx++) {
                 let el = frame.elements[eIdx];
-                
                 let parentMat: FlashMatrix = null;
                 if (layer.parentLayer) {
                     this._document.getTimeline().currentFrame = i;
@@ -643,108 +607,84 @@ export class Converter {
 
                 let bakedData: { matrix: FlashMatrix, transformX: number, transformY: number } | null = null;
 
-                // INTERPOLATION HANDLING
                 if (i !== frame.startFrame) {
-                    // Optimized Skip for Classic Tweens to allow Spine Bezier Interpolation
-                    // We skip "Baking" (frame-by-frame export) if the tween is simple enough for Spine to handle.
                     const isClassic = frame.tweenType === 'classic';
-                    // We can check parentLayer on 'layer' even if we are not in edit mode (it's a property of the layer object)
-                    // But accessing parentLayer from a non-active timeline might be flaky? Usually layer object has it.
                     const isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
-                    
-                    let isSupportedEase = true;
-                    // Force baking for any custom ease to ensure visual fidelity.
-                    // Animate's custom ease curves often do not map 1:1 to Spine's cubic bezier, especially with weird handles.
-                    // Baking is safer and we have optimized it to be fast on the temp file.
-                    if (frame.hasCustomEase) {
-                        isSupportedEase = false;
-                    }
+                    let isSupportedEase = !frame.hasCustomEase;
 
-                    // If allowBaking is false (nested symbol optimization), we force skipping bake.
-                    // This means nested tweens might lose fidelity (linear interpolation), but prevents crashes.
                     if (!allowBaking || (isClassic && !isGuided && isSupportedEase)) {
-                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): Skipping Bake (Using Curve). Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
-                        continue; // Skip baking, let Spine interpolate from the keyframe
-                    } else {
-                        // Logger.trace(`[Interpolation] Frame ${i} (${layer.name}): BAKING. Classic=${isClassic}, Guided=${isGuided}, Ease=${isSupportedEase}`);
+                        continue;
                     }
 
-                    // Only perform baking if we are allowed (active timeline context)
                     if (allowBaking) {
-                        this._document.getTimeline().currentFrame = i;
-                        
-                        const wasLocked = layer.locked;
-                        const wasVisible = layer.visible;
-                        layer.locked = false;
-                        layer.visible = true;
-                        
-                        // Robust selection logic
-                        const timeline = this._document.getTimeline();
-                        let layerIdx = -1;
-                        const layers = timeline.layers;
-                        for (let k = 0; k < layers.length; k++) {
-                            if (layers[k] === layer) { layerIdx = k; break; }
-                        }
-                        if (layerIdx === -1) {
-                            for (let k = 0; k < layers.length; k++) {
-                                if (layers[k].name === layer.name) { layerIdx = k; break; }
-                            }
-                        }
-
-                        if (layerIdx !== -1) {
-                            timeline.setSelectedLayers(layerIdx); 
-                        }
-                        timeline.setSelectedFrames(i, i + 1);
-
-                        // FORCE BAKING via Keyframe Conversion
-                        // This is the only reliable way to get the interpolated matrix for Motion Tweens and complex Eases in JSFL.
-                        // Since we are working on a temporary file, this destructive operation is safe and doesn't need Undo.
-                        try {
-                            timeline.convertToKeyframes();
+                        if (context.recursionDepth > 0) {
+                            // For nested symbols, use Live Sampling instead of destructive convertToKeyframes
+                            bakedData = this.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
+                        } else {
+                            // Depth 0: Standard baking
+                            this._document.getTimeline().currentFrame = i;
+                            const wasLocked = layer.locked;
+                            const wasVisible = layer.visible;
+                            layer.locked = false;
+                            layer.visible = true;
                             
-                            // Re-fetch element from the new keyframe
-                            const freshLayer = timeline.layers[layerIdx];
-                            const freshFrame = freshLayer.frames[i];
-                            if (freshFrame.elements.length > 0) {
-                                const bakedEl = freshFrame.elements[0];
-                                bakedData = {
-                                    matrix: bakedEl.matrix,
-                                    transformX: bakedEl.transformX,
-                                    transformY: bakedEl.transformY
-                                };
+                            const timeline = this._document.getTimeline();
+                            let layerIdx = -1;
+                            for (let k = 0; k < timeline.layers.length; k++) {
+                                if (timeline.layers[k] === layer) { layerIdx = k; break; }
                             }
-                        } catch (e) {
-                             Logger.warning(`[Converter] Bake failed for frame ${i} (${layer.name}): ${e}`);
-                        }
-                        
-                        if (!bakedData) {
-                            // Fallback to selection proxy if baking failed (though unlikely on temp file)
-                            this._document.selectNone();
-                            el.selected = true;
-                            if (this._document.selection.length > 0) {
-                                const proxy = this._document.selection[0];
-                                bakedData = {
-                                    matrix: proxy.matrix,
-                                    transformX: proxy.transformX,
-                                    transformY: proxy.transformY
-                                };
+                            if (layerIdx === -1) {
+                                for (let k = 0; k < timeline.layers.length; k++) {
+                                    if (timeline.layers[k].name === layer.name) { layerIdx = k; break; }
+                                }
                             }
+
+                            if (layerIdx !== -1) {
+                                timeline.setSelectedLayers(layerIdx); 
+                            }
+                            timeline.setSelectedFrames(i, i + 1);
+
+                            try {
+                                timeline.convertToKeyframes();
+                                const freshLayer = timeline.layers[layerIdx];
+                                const freshFrame = freshLayer.frames[i];
+                                if (freshFrame.elements.length > 0) {
+                                    const bakedEl = freshFrame.elements[0];
+                                    bakedData = {
+                                        matrix: bakedEl.matrix,
+                                        transformX: bakedEl.transformX,
+                                        transformY: bakedEl.transformY
+                                    };
+                                }
+                            } catch (e) {
+                                Logger.warning(`[Converter] Bake failed for frame ${i} (${layer.name}): ${e}`);
+                            }
+                            
+                            if (!bakedData) {
+                                this._document.selectNone();
+                                el.selected = true;
+                                if (this._document.selection.length > 0) {
+                                    const proxy = this._document.selection[0];
+                                    bakedData = {
+                                        matrix: proxy.matrix,
+                                        transformX: proxy.transformX,
+                                        transformY: proxy.transformY
+                                    };
+                                }
+                            }
+                            
+                            layer.locked = wasLocked;
+                            layer.visible = wasVisible;
                         }
-                        
-                        layer.locked = wasLocked;
-                        layer.visible = wasVisible;
                     } 
                 } else {
-                    // Start Frame: ensure timeline is at position if we are in active mode
                     if (allowBaking) {
                         this._document.getTimeline().currentFrame = i;
                     }
                 }
 
-                // Combine Parent Matrix with Child Matrix (which may have been updated to interpolated proxy)
                 let finalMatrixOverride: FlashMatrix = null;
                 let finalPositionOverride: {x:number, y:number} = null;
-
                 const sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
                 const sourceTransX = bakedData ? bakedData.transformX : el.transformX;
                 const sourceTransY = bakedData ? bakedData.transformY : el.transformY;
@@ -756,16 +696,11 @@ export class Converter {
                         y: sourceTransX * parentMat.b + sourceTransY * parentMat.d + parentMat.ty
                     };
                 } else if (bakedData) {
-                    // If we have baked data, we MUST use it as an override because 'el' is reverted to the static base state
                     finalMatrixOverride = sourceMatrix;
-                    finalPositionOverride = {
-                        x: sourceTransX,
-                        y: sourceTransY
-                    };
+                    finalPositionOverride = { x: sourceTransX, y: sourceTransY };
                 }
 
                 const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
-                
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === ConverterStageType.ANIMATION) {
                     const instance = el as any;
                     const firstFrameOffset = (instance.firstFrame || 0) / frameRate;
@@ -793,6 +728,9 @@ export class Converter {
     }
 
     private convertElement(context:ConverterContext):void {
+        const indent = this.getIndent(context.recursionDepth);
+        Logger.trace(`${indent}[CONVERT] Path: ${context.symbolPath} (Depth: ${context.recursionDepth})`);
+
         if (LibraryUtil.isPrimitiveLibraryItem(context.element.libraryItem, this._config)) {
             this.convertPrimitiveElement(context);
         } else {
@@ -862,35 +800,29 @@ export class Converter {
     private getLayerParentMatrix(layer: FlashLayer, frameIndex: number): FlashMatrix {
         if (!layer.parentLayer) return { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
 
-        const parentGlobal = this.getLayerParentMatrix(layer.parentLayer, frameIndex);
-        const parentFrame = layer.parentLayer.frames[frameIndex];
+        const parentLayer = layer.parentLayer;
+        const parentGlobal = this.getLayerParentMatrix(parentLayer, frameIndex);
+        const parentFrame = parentLayer.frames[frameIndex];
+        
         if (!parentFrame || parentFrame.elements.length === 0) {
+            Logger.trace(`    [PARENTING] Layer '${layer.name}' has empty parent layer '${parentLayer.name}' at frame ${frameIndex}.`);
             return parentGlobal;
         }
 
-        const wasLocked = layer.parentLayer.locked;
-        const wasVisible = layer.parentLayer.visible;
-        layer.parentLayer.locked = false;
-        layer.parentLayer.visible = true;
+        const wasLocked = parentLayer.locked;
+        const wasVisible = parentLayer.visible;
+        parentLayer.locked = false;
+        parentLayer.visible = true;
 
         const el = parentFrame.elements[0];
+        const elName = el.name || el.libraryItem?.name || '<anon>';
         
         let layerIdx = -1;
         const layers = this._document.getTimeline().layers;
         for (let k = 0; k < layers.length; k++) {
-            if (layers[k] === layer.parentLayer) {
+            if (layers[k] === parentLayer) {
                 layerIdx = k;
                 break;
-            }
-        }
-
-        if (layerIdx === -1) {
-            const pName = layer.parentLayer.name;
-            for (let k = 0; k < layers.length; k++) {
-                if (layers[k].name === pName) {
-                    layerIdx = k;
-                    break;
-                }
             }
         }
         
@@ -905,8 +837,10 @@ export class Converter {
                 finalMat = this._document.selection[0].matrix;
             }
             
-            layer.parentLayer.locked = wasLocked;
-            layer.parentLayer.visible = wasVisible;
+            Logger.trace(`    [PARENTING] Resolved parent '${parentLayer.name}' (${elName}) at frame ${frameIndex}: tx=${finalMat.tx.toFixed(2)} ty=${finalMat.ty.toFixed(2)}`);
+
+            parentLayer.locked = wasLocked;
+            parentLayer.visible = wasVisible;
             
             return this.concatMatrix(finalMat, parentGlobal);
         }

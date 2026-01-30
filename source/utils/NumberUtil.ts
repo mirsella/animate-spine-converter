@@ -25,4 +25,11 @@ export class NumberUtil {
         const color = Math.floor(value * 255).toString(16);
         return NumberUtil.prepend(color, 0, 2);
     }
+
+    public static deltaAngle(current: number, target: number): number {
+        let delta = target - current;
+        while (delta <= -180) delta += 360;
+        while (delta > 180) delta -= 360;
+        return delta;
+    }
 }
