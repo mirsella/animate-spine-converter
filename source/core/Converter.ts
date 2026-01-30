@@ -158,6 +158,8 @@ export class Converter {
         const subcontext = context.createSlot(context.element);
         const slot = subcontext.slot;
 
+        Logger.trace(`[SLOT] Created/Retrieved slot '${slot.name}' for '${baseImageName}' (Stage: ${context.global.stageType})`);
+
         if (context.global.stageType === ConverterStageType.STRUCTURE) {
             if (context.clipping != null) {
                 context.clipping.end = slot;
@@ -659,6 +661,9 @@ export class Converter {
             for (let eIdx = 0; eIdx < frame.elements.length; eIdx++) {
                 let el = frame.elements[eIdx];
                 const elName = el.name || el.libraryItem?.name || '<anon>';
+                if (stageType === ConverterStageType.ANIMATION) {
+                    Logger.trace(`${indent}    [ELEM] Processing element '${elName}' at Frame ${i} (Start: ${frame.startFrame})`);
+                }
 
                 let parentMat: FlashMatrix = null;
                 if (layer.parentLayer) {

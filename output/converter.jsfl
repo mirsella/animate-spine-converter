@@ -138,6 +138,7 @@ var Converter = /** @class */ (function () {
         }
         var subcontext = context.createSlot(context.element);
         var slot = subcontext.slot;
+        Logger_1.Logger.trace("[SLOT] Created/Retrieved slot '".concat(slot.name, "' for '").concat(baseImageName, "' (Stage: ").concat(context.global.stageType, ")"));
         if (context.global.stageType === "structure" /* ConverterStageType.STRUCTURE */) {
             if (context.clipping != null) {
                 context.clipping.end = slot;
@@ -590,6 +591,9 @@ var Converter = /** @class */ (function () {
             var _loop_1 = function (eIdx) {
                 var el = frame.elements[eIdx];
                 var elName = el.name || ((_b = el.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '<anon>';
+                if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
+                    Logger_1.Logger.trace("".concat(indent, "    [ELEM] Processing element '").concat(elName, "' at Frame ").concat(i, " (Start: ").concat(frame.startFrame, ")"));
+                }
                 var parentMat = null;
                 if (layer.parentLayer) {
                     this_1._document.getTimeline().currentFrame = i;
