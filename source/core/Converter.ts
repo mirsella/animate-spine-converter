@@ -85,6 +85,8 @@ export class Converter {
             context.global.shapesCache.set(exportTarget, baseImageName);
         }
 
+        // Logger.trace(`[Slot] Converting slot for: ${baseImageName} on Layer: ${context.layer ? context.layer.name : 'unknown'}`);
+
         // 2. Ensure Image is Exported/Cached (to get dimensions and localCenter)
         const baseImagePath = this.prepareImagesExportPath(context, baseImageName);
         let spineImage = context.global.imagesCache.get(baseImagePath);
@@ -94,13 +96,6 @@ export class Converter {
                 // Pass selection hints to help ImageUtil find the live element
                 const hints = this.createSelectionHints(context);
                 spineImage = this.safelyExportImage(context, () => {
-                    // We modify the factory signature via closure or just pass hints down?
-                    // ImageExportFactory signature is (context, path) -> SpineImage.
-                    // We need to inject hints into the actual call inside convertShapeElementSlot/convertBitmapElementSlot.
-                    // But here 'imageExportFactory' is a callback. 
-                    // We can't change its signature easily here without changing the interface.
-                    // Instead, let's attach hints to the context temporarily?
-                    // Or better, let's just make the factory calls below pass the hints.
                     return imageExportFactory(context, baseImagePath);
                 });
             } catch (e) {
