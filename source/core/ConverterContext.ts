@@ -72,8 +72,9 @@ export class ConverterContext {
         const boneName = ConvertUtil.createBoneName(element, this);
         const referenceTransform = this.global.assetTransforms.get(boneName);
         
-        // Pass reference transform to constructor to handle flipping continuity
-        const transform = new SpineTransformMatrix(element, referenceTransform, matrixOverride, positionOverride);
+        // Pass isTween flag to constructor to handle flipping continuity correctly
+        const isTween = this.frame && this.frame.tweenType === 'classic';
+        const transform = new SpineTransformMatrix(element, referenceTransform, matrixOverride, positionOverride, isTween);
         
         // Update the cache with the current transform for the next frame
         this.global.assetTransforms.set(boneName, transform);

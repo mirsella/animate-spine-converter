@@ -318,23 +318,28 @@ var Converter = /** @class */ (function () {
         }, allowBaking);
     };
     Converter.prototype.getLiveTransform = function (context, frameIndex) {
+        var _a;
         var dom = this._document;
         var timeline = dom.getTimeline();
-        // Save state
-        var oldFrame = timeline.currentFrame;
         try {
             timeline.currentFrame = frameIndex;
             var hints = this.createSelectionHints(context);
-            if (!hints)
+            if (!hints) {
+                // Logger.trace(`    [LIVE] No hints for ${context.element.name || '<anon>'}`);
                 return null;
+            }
             dom.selectNone();
             var layer = timeline.layers[hints.layerIndex];
-            var frame = layer.frames[hints.frameIndex];
+            var frame = layer.frames[frameIndex]; // Use frameIndex directly
+            if (!frame)
+                return null;
             var el = frame.elements[hints.elementIndex];
-            // Try to select
+            if (!el) {
+                Logger_1.Logger.trace("    [LIVE] No element at index ".concat(hints.elementIndex, " on layer ").concat(hints.layerIndex, " frame ").concat(frameIndex));
+                return null;
+            }
             el.selected = true;
             if (dom.selection.length === 0) {
-                // Fallback: try selecting by index if reference failed
                 dom.selection = [el];
             }
             if (dom.selection.length > 0) {
@@ -347,11 +352,7 @@ var Converter = /** @class */ (function () {
             }
         }
         catch (e) {
-            Logger_1.Logger.warning("[Converter] LiveTransform failed for frame ".concat(frameIndex, ": ").concat(e));
-        }
-        finally {
-            // Restore state
-            // timeline.currentFrame = oldFrame; // We usually want to stay on the frame for subsequent calls
+            Logger_1.Logger.warning("[Converter] LiveTransform failed for frame ".concat(frameIndex, " (Layer ").concat((_a = context.layer) === null || _a === void 0 ? void 0 : _a.name, "): ").concat(e));
         }
         return null;
     };
@@ -418,10 +419,27 @@ var Converter = /** @class */ (function () {
                 var s = slots_1[_i];
                 Logger_1.Logger.trace("".concat(indent, "    [Visibility] Hiding slot '").concat(s.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
                 SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
+                // Also hide all children slots recursively
+                this.hideChildSlots(context, s.bone, time);
             }
         }
-        else {
-            // Logger.trace(`${indent}    [Visibility] No slots to hide for layer '${layer.name}' at Time ${time.toFixed(3)}`);
+    };
+    Converter.prototype.hideChildSlots = function (context, parentBone, time) {
+        var skeleton = context.global.skeleton;
+        var animation = context.global.animation;
+        for (var i = 0; i < skeleton.slots.length; i++) {
+            var slot = skeleton.slots[i];
+            // Optimization: slot.bone.name.indexOf(parentBone.name + "/") === 0 
+            // would also work if we used naming conventions strictly.
+            // But checking the actual parent reference is safer.
+            var curr = slot.bone;
+            while (curr) {
+                if (curr === parentBone) {
+                    SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(animation, slot, context, null, time);
+                    break;
+                }
+                curr = curr.parent;
+            }
         }
     };
     Converter.prototype.convertElementLayer = function (context, layer, factory, allowBaking) {
@@ -461,6 +479,7 @@ var Converter = /** @class */ (function () {
                     else { // loop
                         targetFrame = (firstFrame + frameOffset) % tlFrameCount;
                     }
+                    Logger_1.Logger.trace("".concat(indent, "    [NESTED] Instance: ").concat(instance.name || instance.libraryItem.name, " Loop: ").concat(loopMode, " Offset: ").concat(frameOffset, " Target: ").concat(targetFrame, "/").concat(tlFrameCount));
                     if (targetFrame >= 0 && targetFrame < layer.frames.length) {
                         isNestedFlattening = true;
                         start = targetFrame;
@@ -478,7 +497,7 @@ var Converter = /** @class */ (function () {
             if (!frame)
                 return;
             var time = context.timeOffset;
-            Logger_1.Logger.trace("".concat(indent, "  [FLATTEN] ").concat(layer.name, " Frame: ").concat(start, " (Time: ").concat(time.toFixed(3), ")"));
+            Logger_1.Logger.trace("".concat(indent, "  [FLATTEN] ").concat(layer.name, " Frame: ").concat(start, " (Time: ").concat(time.toFixed(3), ") (context.time: ").concat(context.time.toFixed(3), ")"));
             if (frame.elements.length === 0) {
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     this.hideLayerSlots(context, layer, time);
@@ -501,11 +520,13 @@ var Converter = /** @class */ (function () {
                         Logger_1.Logger.trace("".concat(indent, "    [LIVE] Sampling failed for '").concat(elName, "' at frame ").concat(start, ". Using context matrix."));
                     }
                 }
-                var sub = context.switchContextFrame(frame).createBone(el, time, matrixOverride, positionOverride);
-                if (el.elementType === 'instance' && el.instanceType === 'symbol') {
+                // FIX: When flattening, we pass 0 as time because context.time is already absolute for Spine.
+                var sub = context.switchContextFrame(frame).createBone(el, 0, matrixOverride, positionOverride);
+                if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     var instance = el;
                     var firstFrameOffset = (instance.firstFrame || 0) / frameRate;
-                    sub.timeOffset = time - firstFrameOffset;
+                    // timeOffset must be set relative to the new sub-context's absolute time
+                    sub.timeOffset = sub.time - firstFrameOffset;
                 }
                 factory(sub);
             }
@@ -899,8 +920,9 @@ var ConverterContext = /** @class */ (function () {
         if (positionOverride === void 0) { positionOverride = null; }
         var boneName = ConvertUtil_1.ConvertUtil.createBoneName(element, this);
         var referenceTransform = this.global.assetTransforms.get(boneName);
-        // Pass reference transform to constructor to handle flipping continuity
-        var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element, referenceTransform, matrixOverride, positionOverride);
+        // Pass isTween flag to constructor to handle flipping continuity correctly
+        var isTween = this.frame && this.frame.tweenType === 'classic';
+        var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element, referenceTransform, matrixOverride, positionOverride, isTween);
         // Update the cache with the current transform for the next frame
         this.global.assetTransforms.set(boneName, transform);
         var context = new ConverterContext();
@@ -1308,10 +1330,10 @@ var SpineAnimationHelper = /** @class */ (function () {
                     while (angle - prevAngle < -180)
                         angle += 360;
                     if (Math.abs(angle - originalAngle) > 0.1) {
-                        Logger_1.Logger.trace("[UNWRAP] Bone '".concat(bone.name, "' T=").concat(time.toFixed(2), ": ").concat(originalAngle.toFixed(2), " -> ").concat(angle.toFixed(2), " (relative to prev ").concat(prevAngle.toFixed(2), ")"));
+                        Logger_1.Logger.trace("[UNWRAP] Bone '".concat(bone.name, "' T=").concat(time.toFixed(3), ": ").concat(originalAngle.toFixed(2), " -> ").concat(angle.toFixed(2), " (diff ").concat(Math.abs(angle - originalAngle).toFixed(2), ")"));
                     }
                     if (Math.abs(angle - prevAngle) > 170) {
-                        Logger_1.Logger.trace("[DEBUG] RotJump: ".concat(prevAngle.toFixed(1), " -> ").concat(angle.toFixed(1), " (Bone: ").concat(bone.name, ", T=").concat(time.toFixed(2), ")"));
+                        Logger_1.Logger.trace("[DEBUG] RotJump: ".concat(prevAngle.toFixed(1), " -> ").concat(angle.toFixed(1), " (Bone: ").concat(bone.name, ", T=").concat(time.toFixed(3), ")"));
                     }
                 }
             }
@@ -2612,10 +2634,11 @@ exports.SpineTransformMatrix = void 0;
 var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/Logger.ts");
 var NumberUtil_1 = __webpack_require__(/*! ../../utils/NumberUtil */ "./source/utils/NumberUtil.ts");
 var SpineTransformMatrix = /** @class */ (function () {
-    function SpineTransformMatrix(element, reference, matrixOverride, positionOverride) {
+    function SpineTransformMatrix(element, reference, matrixOverride, positionOverride, isTween) {
         if (reference === void 0) { reference = null; }
         if (matrixOverride === void 0) { matrixOverride = null; }
         if (positionOverride === void 0) { positionOverride = null; }
+        if (isTween === void 0) { isTween = false; }
         var _a;
         // Position: The Spine bone must be positioned at the Transformation Point.
         if (positionOverride) {
@@ -2632,7 +2655,7 @@ var SpineTransformMatrix = /** @class */ (function () {
         // Decompose the matrix
         // Use override if provided (e.g. for Layer Parenting resolution)
         var mat = matrixOverride || element.matrix;
-        var decomposed = SpineTransformMatrix.decomposeMatrix(mat, reference, name);
+        var decomposed = SpineTransformMatrix.decomposeMatrix(mat, reference, name, isTween);
         this.rotation = decomposed.rotation;
         this.scaleX = decomposed.scaleX;
         this.scaleY = decomposed.scaleY;
@@ -2643,9 +2666,10 @@ var SpineTransformMatrix = /** @class */ (function () {
      * Decomposes an Animate Matrix into Spine components using a robust Basis Vector approach.
      * Accounts for coordinate system differences (Animate Y-Down vs Spine Y-Up).
      */
-    SpineTransformMatrix.decomposeMatrix = function (mat, reference, debugName) {
+    SpineTransformMatrix.decomposeMatrix = function (mat, reference, debugName, isTween) {
         if (reference === void 0) { reference = null; }
         if (debugName === void 0) { debugName = ''; }
+        if (isTween === void 0) { isTween = false; }
         // Log raw matrix for debugging
         Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Raw Flash Matrix: a=").concat(mat.a.toFixed(4), " b=").concat(mat.b.toFixed(4), " c=").concat(mat.c.toFixed(4), " d=").concat(mat.d.toFixed(4), " tx=").concat(mat.tx.toFixed(2), " ty=").concat(mat.ty.toFixed(2)));
         // Spine Basis Vectors derived from Animate Matrix (Y-Up conversion)
@@ -2679,18 +2703,21 @@ var SpineTransformMatrix = /** @class */ (function () {
             if (reference) {
                 var diff1 = Math.abs(NumberUtil_1.NumberUtil.deltaAngle(rot1, reference.rotation));
                 var diff2 = Math.abs(NumberUtil_1.NumberUtil.deltaAngle(rot2, reference.rotation));
-                Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Flip Detected. ReferenceRot=").concat(reference.rotation.toFixed(2), ". Option1(FlipY): ").concat(rot1.toFixed(2), " (diff ").concat(diff1.toFixed(2), "). Option2(FlipX): ").concat(rot2.toFixed(2), " (diff ").concat(diff2.toFixed(2), ")"));
-                if (diff2 < diff1 - 10) {
+                Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Flip Detected. RefRot=").concat(reference.rotation.toFixed(2), ". Opt1(FlipY): ").concat(rot1.toFixed(2), " (diff ").concat(diff1.toFixed(2), "). Opt2(FlipX): ").concat(rot2.toFixed(2), " (diff ").concat(diff2.toFixed(2), ")"));
+                // If it's a TWEEN, we are much more conservative about jumping 180 degrees.
+                // We only jump if the current option is REALLY far (e.g. > 90 degrees) and the other is close.
+                var threshold = isTween ? 90 : 10;
+                if (diff2 < diff1 - threshold) {
                     rotation = rot2;
                     appliedScaleX = -scaleX;
                     appliedScaleY = scaleY;
-                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Chosen Option 2 (FlipX) for continuity."));
+                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Chosen Opt 2 (FlipX) - discontinuity threshold: ").concat(threshold));
                 }
                 else {
                     rotation = rot1;
                     appliedScaleX = scaleX;
                     appliedScaleY = -scaleY;
-                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Chosen Option 1 (FlipY) - default."));
+                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Chosen Opt 1 (FlipY) - default."));
                 }
             }
             else {
@@ -4237,11 +4264,12 @@ exports.ShapeUtil = ShapeUtil;
 /*!************************************!*\
   !*** ./source/utils/StringUtil.ts ***!
   \************************************/
-/***/ (function(__unused_webpack_module, exports) {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
 
 exports.StringUtil = void 0;
+var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var StringUtil = /** @class */ (function () {
     function StringUtil() {
     }
@@ -4250,8 +4278,8 @@ var StringUtil = /** @class */ (function () {
             return 'unnamed';
         // Lowercase first
         var result = value.toLowerCase();
+        var original = result;
         // Manual replacement of common illegal characters to be safe in old JSFL
-        // Replace slashes, dots, hyphens, and whitespace (including non-breaking space) with underscore
         var searchChars = ["/", "\\", ".", "-", " ", "\t", "\n", "\r", "\xa0"];
         for (var i = 0; i < searchChars.length; i++) {
             var char = searchChars[i];
@@ -4259,6 +4287,22 @@ var StringUtil = /** @class */ (function () {
                 result = result.replace(char, "_");
             }
         }
+        // AGGRESSIVE SANITIZATION: Replace anything that is not a-z, 0-9, or _
+        var cleaned = "";
+        for (var i = 0; i < result.length; i++) {
+            var char = result.charAt(i);
+            var code = result.charCodeAt(i);
+            // Allow a-z (97-122), 0-9 (48-57), and _ (95)
+            if ((code >= 97 && code <= 122) || (code >= 48 && code <= 57) || code === 95) {
+                cleaned += char;
+            }
+            else {
+                // Log the character code to understand what we are replacing
+                Logger_1.Logger.trace("[Naming] Sanitize: Character '".concat(char, "' (code: 0x").concat(code.toString(16), ") in '").concat(original, "' replaced with '_'"));
+                cleaned += "_";
+            }
+        }
+        result = cleaned;
         // Collapse multiple underscores
         while (result.indexOf("__") !== -1) {
             result = result.replace("__", "_");

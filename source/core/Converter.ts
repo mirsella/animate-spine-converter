@@ -371,23 +371,27 @@ export class Converter {
         const dom = this._document;
         const timeline = dom.getTimeline();
         
-        // Save state
-        const oldFrame = timeline.currentFrame;
-        
         try {
             timeline.currentFrame = frameIndex;
             const hints = this.createSelectionHints(context);
-            if (!hints) return null;
+            if (!hints) {
+                // Logger.trace(`    [LIVE] No hints for ${context.element.name || '<anon>'}`);
+                return null;
+            }
 
             dom.selectNone();
             const layer = timeline.layers[hints.layerIndex];
-            const frame = layer.frames[hints.frameIndex];
+            const frame = layer.frames[frameIndex]; // Use frameIndex directly
+            if (!frame) return null;
+
             const el = frame.elements[hints.elementIndex];
+            if (!el) {
+                Logger.trace(`    [LIVE] No element at index ${hints.elementIndex} on layer ${hints.layerIndex} frame ${frameIndex}`);
+                return null;
+            }
             
-            // Try to select
             el.selected = true;
             if (dom.selection.length === 0) {
-                // Fallback: try selecting by index if reference failed
                 dom.selection = [el];
             }
 
@@ -400,10 +404,7 @@ export class Converter {
                 };
             }
         } catch (e) {
-            Logger.warning(`[Converter] LiveTransform failed for frame ${frameIndex}: ${e}`);
-        } finally {
-            // Restore state
-            // timeline.currentFrame = oldFrame; // We usually want to stay on the frame for subsequent calls
+            Logger.warning(`[Converter] LiveTransform failed for frame ${frameIndex} (Layer ${context.layer?.name}): ${e}`);
         }
         return null;
     }
@@ -473,9 +474,31 @@ export class Converter {
             for (const s of slots) {
                 Logger.trace(`${indent}    [Visibility] Hiding slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
                 SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
+                
+                // Also hide all children slots recursively
+                this.hideChildSlots(context, s.bone, time);
             }
-        } else {
-            // Logger.trace(`${indent}    [Visibility] No slots to hide for layer '${layer.name}' at Time ${time.toFixed(3)}`);
+        }
+    }
+
+    private hideChildSlots(context: ConverterContext, parentBone: any, time: number): void {
+        const skeleton = context.global.skeleton;
+        const animation = context.global.animation;
+        for (let i = 0; i < skeleton.slots.length; i++) {
+            const slot = skeleton.slots[i];
+            
+            // Optimization: slot.bone.name.indexOf(parentBone.name + "/") === 0 
+            // would also work if we used naming conventions strictly.
+            // But checking the actual parent reference is safer.
+            
+            let curr = slot.bone;
+            while (curr) {
+                if (curr === parentBone) {
+                    SpineAnimationHelper.applySlotAttachment(animation, slot, context, null, time);
+                    break;
+                }
+                curr = curr.parent;
+            }
         }
     }
 
@@ -516,6 +539,8 @@ export class Converter {
                         targetFrame = (firstFrame + frameOffset) % tlFrameCount;
                     }
                     
+                    Logger.trace(`${indent}    [NESTED] Instance: ${instance.name || instance.libraryItem.name} Loop: ${loopMode} Offset: ${frameOffset} Target: ${targetFrame}/${tlFrameCount}`);
+
                     if (targetFrame >= 0 && targetFrame < layer.frames.length) {
                         isNestedFlattening = true;
                         start = targetFrame;
@@ -532,7 +557,7 @@ export class Converter {
             if (!frame) return;
 
             const time = context.timeOffset;
-            Logger.trace(`${indent}  [FLATTEN] ${layer.name} Frame: ${start} (Time: ${time.toFixed(3)})`);
+            Logger.trace(`${indent}  [FLATTEN] ${layer.name} Frame: ${start} (Time: ${time.toFixed(3)}) (context.time: ${context.time.toFixed(3)})`);
             if (frame.elements.length === 0) {
                 if (stageType === ConverterStageType.ANIMATION) {
                     this.hideLayerSlots(context, layer, time);
@@ -558,11 +583,13 @@ export class Converter {
                     }
                 }
 
-                const sub = context.switchContextFrame(frame).createBone(el, time, matrixOverride, positionOverride);
-                if (el.elementType === 'instance' && el.instanceType === 'symbol') {
+                // FIX: When flattening, we pass 0 as time because context.time is already absolute for Spine.
+                const sub = context.switchContextFrame(frame).createBone(el, 0, matrixOverride, positionOverride);
+                if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === ConverterStageType.ANIMATION) {
                     const instance = el as any;
                     const firstFrameOffset = (instance.firstFrame || 0) / frameRate;
-                    sub.timeOffset = time - firstFrameOffset;
+                    // timeOffset must be set relative to the new sub-context's absolute time
+                    sub.timeOffset = sub.time - firstFrameOffset;
                 }
                 factory(sub);
             }

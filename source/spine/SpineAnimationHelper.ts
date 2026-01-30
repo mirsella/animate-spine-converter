@@ -32,11 +32,11 @@ export class SpineAnimationHelper {
                     while (angle - prevAngle < -180) angle += 360;
                     
                     if (Math.abs(angle - originalAngle) > 0.1) {
-                        Logger.trace(`[UNWRAP] Bone '${bone.name}' T=${time.toFixed(2)}: ${originalAngle.toFixed(2)} -> ${angle.toFixed(2)} (relative to prev ${prevAngle.toFixed(2)})`);
+                        Logger.trace(`[UNWRAP] Bone '${bone.name}' T=${time.toFixed(3)}: ${originalAngle.toFixed(2)} -> ${angle.toFixed(2)} (diff ${Math.abs(angle - originalAngle).toFixed(2)})`);
                     }
 
                     if (Math.abs(angle - prevAngle) > 170) {
-                        Logger.trace(`[DEBUG] RotJump: ${prevAngle.toFixed(1)} -> ${angle.toFixed(1)} (Bone: ${bone.name}, T=${time.toFixed(2)})`);
+                        Logger.trace(`[DEBUG] RotJump: ${prevAngle.toFixed(1)} -> ${angle.toFixed(1)} (Bone: ${bone.name}, T=${time.toFixed(3)})`);
                     }
                 }
             }

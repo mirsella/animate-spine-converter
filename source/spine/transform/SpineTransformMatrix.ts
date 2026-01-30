@@ -13,7 +13,7 @@ export class SpineTransformMatrix implements SpineTransform {
     public shearX:number;
     public shearY:number;
 
-    public constructor(element:FlashElement, reference: { rotation: number, scaleX: number, scaleY: number } = null, matrixOverride: FlashMatrix = null, positionOverride: {x:number, y:number} = null) {
+    public constructor(element:FlashElement, reference: { rotation: number, scaleX: number, scaleY: number } = null, matrixOverride: FlashMatrix = null, positionOverride: {x:number, y:number} = null, isTween: boolean = false) {
         // Position: The Spine bone must be positioned at the Transformation Point.
         if (positionOverride) {
             this.x = positionOverride.x;
@@ -31,7 +31,7 @@ export class SpineTransformMatrix implements SpineTransform {
         // Decompose the matrix
         // Use override if provided (e.g. for Layer Parenting resolution)
         const mat = matrixOverride || element.matrix;
-        const decomposed = SpineTransformMatrix.decomposeMatrix(mat, reference, name);
+        const decomposed = SpineTransformMatrix.decomposeMatrix(mat, reference, name, isTween);
         
         this.rotation = decomposed.rotation;
         this.scaleX = decomposed.scaleX;
@@ -44,7 +44,7 @@ export class SpineTransformMatrix implements SpineTransform {
      * Decomposes an Animate Matrix into Spine components using a robust Basis Vector approach.
      * Accounts for coordinate system differences (Animate Y-Down vs Spine Y-Up).
      */
-    public static decomposeMatrix(mat: FlashMatrix, reference: { rotation: number, scaleX: number, scaleY: number } = null, debugName: string = ''): { rotation: number, scaleX: number, scaleY: number, shearX: number, shearY: number } {
+    public static decomposeMatrix(mat: FlashMatrix, reference: { rotation: number, scaleX: number, scaleY: number } = null, debugName: string = '', isTween: boolean = false): { rotation: number, scaleX: number, scaleY: number, shearX: number, shearY: number } {
         // Log raw matrix for debugging
         Logger.trace(`[DECOMPOSE] '${debugName}' Raw Flash Matrix: a=${mat.a.toFixed(4)} b=${mat.b.toFixed(4)} c=${mat.c.toFixed(4)} d=${mat.d.toFixed(4)} tx=${mat.tx.toFixed(2)} ty=${mat.ty.toFixed(2)}`);
 
@@ -86,18 +86,22 @@ export class SpineTransformMatrix implements SpineTransform {
                 const diff1 = Math.abs(NumberUtil.deltaAngle(rot1, reference.rotation));
                 const diff2 = Math.abs(NumberUtil.deltaAngle(rot2, reference.rotation));
                 
-                Logger.trace(`[DECOMPOSE] '${debugName}' Flip Detected. ReferenceRot=${reference.rotation.toFixed(2)}. Option1(FlipY): ${rot1.toFixed(2)} (diff ${diff1.toFixed(2)}). Option2(FlipX): ${rot2.toFixed(2)} (diff ${diff2.toFixed(2)})`);
+                Logger.trace(`[DECOMPOSE] '${debugName}' Flip Detected. RefRot=${reference.rotation.toFixed(2)}. Opt1(FlipY): ${rot1.toFixed(2)} (diff ${diff1.toFixed(2)}). Opt2(FlipX): ${rot2.toFixed(2)} (diff ${diff2.toFixed(2)})`);
 
-                if (diff2 < diff1 - 10) { 
+                // If it's a TWEEN, we are much more conservative about jumping 180 degrees.
+                // We only jump if the current option is REALLY far (e.g. > 90 degrees) and the other is close.
+                const threshold = isTween ? 90 : 10;
+                
+                if (diff2 < diff1 - threshold) { 
                     rotation = rot2;
                     appliedScaleX = -scaleX;
                     appliedScaleY = scaleY;
-                    Logger.trace(`[DECOMPOSE] '${debugName}' Chosen Option 2 (FlipX) for continuity.`);
+                    Logger.trace(`[DECOMPOSE] '${debugName}' Chosen Opt 2 (FlipX) - discontinuity threshold: ${threshold}`);
                 } else {
                     rotation = rot1;
                     appliedScaleX = scaleX;
                     appliedScaleY = -scaleY;
-                    Logger.trace(`[DECOMPOSE] '${debugName}' Chosen Option 1 (FlipY) - default.`);
+                    Logger.trace(`[DECOMPOSE] '${debugName}' Chosen Opt 1 (FlipY) - default.`);
                 }
             } else {
                 rotation = rot1;
