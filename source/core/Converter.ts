@@ -546,14 +546,16 @@ export class Converter {
         } else if (context.parent != null && stageType === ConverterStageType.ANIMATION) {
             try {
                 const instance = context.element as any;
-                if (instance && instance.libraryItem && instance.libraryItem.timeline && context.parent && context.parent.frame) {
+                // FIX: Check context.frame instead of context.parent.frame
+                // We rely on the current context's frame/internalFrame to determine state relative to parent
+                if (instance && instance.libraryItem && instance.libraryItem.timeline && context.frame) {
                     const tl = instance.libraryItem.timeline;
                     
                     // NESTED TIME RESOLUTION:
-                    // Use the parent's internal frame to determine this child's playhead position.
-                    // This ensures "Animations in Animations" stay in sync.
-                    const parentInternalFrame = (context.parent.internalFrame !== undefined) ? context.parent.internalFrame : 0;
-                    const parentKeyframeStart = context.parent.frame.startFrame;
+                    // Use THIS context's internal frame (passed from parent's loop) to determine playhead position.
+                    // This ensures "Animations in Animations" stay in sync because context.internalFrame IS the parent's current frame index.
+                    const parentInternalFrame = (context.internalFrame !== undefined) ? context.internalFrame : 0;
+                    const parentKeyframeStart = context.frame.startFrame;
                     const frameOffset = Math.max(0, parentInternalFrame - parentKeyframeStart);
                     
                     const firstFrame = (instance.firstFrame !== undefined) ? instance.firstFrame : 0;

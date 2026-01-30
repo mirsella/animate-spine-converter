@@ -484,13 +484,15 @@ var Converter = /** @class */ (function () {
         else if (context.parent != null && stageType === "animation" /* ConverterStageType.ANIMATION */) {
             try {
                 var instance = context.element;
-                if (instance && instance.libraryItem && instance.libraryItem.timeline && context.parent && context.parent.frame) {
+                // FIX: Check context.frame instead of context.parent.frame
+                // We rely on the current context's frame/internalFrame to determine state relative to parent
+                if (instance && instance.libraryItem && instance.libraryItem.timeline && context.frame) {
                     var tl = instance.libraryItem.timeline;
                     // NESTED TIME RESOLUTION:
-                    // Use the parent's internal frame to determine this child's playhead position.
-                    // This ensures "Animations in Animations" stay in sync.
-                    var parentInternalFrame = (context.parent.internalFrame !== undefined) ? context.parent.internalFrame : 0;
-                    var parentKeyframeStart = context.parent.frame.startFrame;
+                    // Use THIS context's internal frame (passed from parent's loop) to determine playhead position.
+                    // This ensures "Animations in Animations" stay in sync because context.internalFrame IS the parent's current frame index.
+                    var parentInternalFrame = (context.internalFrame !== undefined) ? context.internalFrame : 0;
+                    var parentKeyframeStart = context.frame.startFrame;
                     var frameOffset = Math.max(0, parentInternalFrame - parentKeyframeStart);
                     var firstFrame = (instance.firstFrame !== undefined) ? instance.firstFrame : 0;
                     var loopMode = (instance.loop !== undefined) ? instance.loop : 'loop';
@@ -539,7 +541,13 @@ var Converter = /** @class */ (function () {
                 var positionOverride = null;
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     var elName = el.name || ((_a = el.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
+                    // SAVE CONTEXT STATE: getLiveTransform uses switchContext... which mutates the context
+                    var savedElement = context.element;
+                    var savedFrame = context.frame;
                     var live = this.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), start);
+                    // RESTORE CONTEXT STATE
+                    context.element = savedElement;
+                    context.frame = savedFrame;
                     if (live) {
                         Logger_1.Logger.trace("".concat(indent, "    [LIVE] Sampled '").concat(elName, "' at frame ").concat(start, ": tx=").concat(live.matrix.tx.toFixed(2), " ty=").concat(live.matrix.ty.toFixed(2)));
                         matrixOverride = live.matrix;
@@ -629,7 +637,13 @@ var Converter = /** @class */ (function () {
                     }
                     if (allowBaking) {
                         if (context.recursionDepth > 0) {
+                            // SAVE CONTEXT STATE
+                            var savedElement = context.element;
+                            var savedFrame = context.frame;
                             bakedData = this_1.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
+                            // RESTORE CONTEXT STATE
+                            context.element = savedElement;
+                            context.frame = savedFrame;
                         }
                         else {
                             // ... depth 0 baking ...
