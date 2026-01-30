@@ -605,7 +605,17 @@ export class Converter {
                 
                 if (stageType === ConverterStageType.ANIMATION) {
                     const elName = el.name || el.libraryItem?.name || '<anon>';
+                    
+                    // SAVE CONTEXT STATE: getLiveTransform uses switchContext... which mutates the context
+                    const savedElement = context.element;
+                    const savedFrame = context.frame;
+                    
                     const live = this.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), start);
+                    
+                    // RESTORE CONTEXT STATE
+                    context.element = savedElement;
+                    context.frame = savedFrame;
+
                     if (live) {
                         Logger.trace(`${indent}    [LIVE] Sampled '${elName}' at frame ${start}: tx=${live.matrix.tx.toFixed(2)} ty=${live.matrix.ty.toFixed(2)}`);
                         matrixOverride = live.matrix;
@@ -705,7 +715,15 @@ export class Converter {
 
                     if (allowBaking) {
                         if (context.recursionDepth > 0) {
+                            // SAVE CONTEXT STATE
+                            const savedElement = context.element;
+                            const savedFrame = context.frame;
+
                             bakedData = this.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
+                            
+                            // RESTORE CONTEXT STATE
+                            context.element = savedElement;
+                            context.frame = savedFrame;
                         } else {
                             // ... depth 0 baking ...
                             this._document.getTimeline().currentFrame = i;
