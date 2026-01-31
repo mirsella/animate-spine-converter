@@ -470,8 +470,15 @@ export class Converter {
             const timeline = canEdit ? this._document.getTimeline() : item.timeline;
             const layers = timeline.layers;
 
+            // SAVE CONTEXT FRAME: Prevent frame leaks between layers
+            const savedFrame = context.frame;
+
             for (let i = layers.length - 1; i >= 0; i--) {
                 const layer = layers[i];
+                
+                // RESTORE CONTEXT FRAME: Ensure each layer starts with the correct parent frame context
+                context.frame = savedFrame;
+
                 if (!layer.visible) {
                     Logger.trace(`${indent}  [LAYER] Skipping Hidden Layer: ${layer.name}`);
                     continue;
