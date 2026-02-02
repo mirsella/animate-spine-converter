@@ -704,12 +704,17 @@ var Converter = /** @class */ (function () {
                                 var freshFrame = freshLayer.frames[i];
                                 if (freshFrame.elements.length > 0) {
                                     var bakedEl = freshFrame.elements[0];
+                                    // EXTENDED DEBUGGING FOR DEPTH 0 BAKING
+                                    if (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1) {
+                                        Logger_1.Logger.trace("[BAKE_D0] Frame ".concat(i, ": Mode=").concat(bakedEl.colorMode, " Alpha%=").concat(bakedEl.colorAlphaPercent, " AlphaAmt=").concat(bakedEl.colorAlphaAmount, " Red%=").concat(bakedEl.colorRedPercent));
+                                    }
                                     bakedData = {
                                         matrix: bakedEl.matrix,
                                         transformX: bakedEl.transformX,
                                         transformY: bakedEl.transformY,
                                         colorAlpha: bakedEl.colorAlphaPercent,
-                                        colorMode: bakedEl.colorMode
+                                        colorMode: bakedEl.colorMode,
+                                        colorRed: bakedEl.colorRedPercent // Capture red for tint checks
                                     };
                                 }
                             }

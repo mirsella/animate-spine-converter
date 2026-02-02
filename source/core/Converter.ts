@@ -788,12 +788,19 @@ export class Converter {
                                 const freshFrame = freshLayer.frames[i];
                                 if (freshFrame.elements.length > 0) {
                                     const bakedEl = freshFrame.elements[0];
+                                    
+                                    // EXTENDED DEBUGGING FOR DEPTH 0 BAKING
+                                    if (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1) {
+                                        Logger.trace(`[BAKE_D0] Frame ${i}: Mode=${bakedEl.colorMode} Alpha%=${bakedEl.colorAlphaPercent} AlphaAmt=${bakedEl.colorAlphaAmount} Red%=${bakedEl.colorRedPercent}`);
+                                    }
+
                                     bakedData = {
                                         matrix: bakedEl.matrix,
                                         transformX: bakedEl.transformX,
                                         transformY: bakedEl.transformY,
                                         colorAlpha: bakedEl.colorAlphaPercent,
-                                        colorMode: bakedEl.colorMode
+                                        colorMode: bakedEl.colorMode,
+                                        colorRed: bakedEl.colorRedPercent // Capture red for tint checks
                                     };
                                 }
                             } catch (e) {
