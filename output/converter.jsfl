@@ -135,13 +135,7 @@ var Converter = /** @class */ (function () {
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
             // DEBUG: Log why variance failed
-            var diffX = Math.abs(variants[0].x - spineOffsetX).toFixed(4);
-            var diffY = Math.abs(variants[0].y - spineOffsetY).toFixed(4);
-            Logger_1.Logger.trace("[VARIANT] New variant created: ".concat(finalAttachmentName, " for ").concat(baseImageName, ". Diff:(").concat(diffX, ", ").concat(diffY, ") > ").concat(TOLERANCE));
-            Logger_1.Logger.trace("[VARIANT]   Base Var: x=".concat(variants[0].x.toFixed(4), ", y=").concat(variants[0].y.toFixed(4)));
-            Logger_1.Logger.trace("[VARIANT]   New Calc: x=".concat(spineOffsetX.toFixed(4), ", y=").concat(spineOffsetY.toFixed(4)));
-            Logger_1.Logger.trace("[VARIANT]   Inputs: Reg=(".concat(regX.toFixed(2), ",").concat(regY.toFixed(2), ") Trans=(").concat(transX.toFixed(2), ",").concat(transY.toFixed(2), ")"));
-            Logger_1.Logger.trace("[VARIANT]   Matrix: a=".concat(calcMatrix.a.toFixed(4), " d=").concat(calcMatrix.d.toFixed(4), " tx=").concat(calcMatrix.tx.toFixed(2), " ty=").concat(calcMatrix.ty.toFixed(2)));
+            // Logger.trace(`[VARIANT] New variant created: ${finalAttachmentName} for ${baseImageName}. Diff > ${TOLERANCE}`);
         }
         else {
             // Logger.trace(`[VARIANT] Matched variant: ${finalAttachmentName} for ${baseImageName}`);
@@ -689,6 +683,9 @@ var Converter = /** @class */ (function () {
                             layer.locked = false;
                             layer.visible = true;
                             var timeline = this_1._document.getTimeline();
+                            // Force update "Live" view before baking
+                            if (this_1._document.livePreview !== undefined)
+                                this_1._document.livePreview = true;
                             var layerIdx = -1;
                             for (var k = 0; k < timeline.layers.length; k++) {
                                 if (timeline.layers[k] === layer) {
@@ -723,13 +720,13 @@ var Converter = /** @class */ (function () {
                                         // Check if it's a Symbol Instance
                                         var typeLog = (bakedEl.elementType === 'instance') ? "Instance(".concat(bakedEl.instanceType, ")") : bakedEl.elementType;
                                         Logger_1.Logger.trace("[BAKE_D0] Frame ".concat(i, ": Type=").concat(typeLog, " Mode=").concat(bakedEl.colorMode, " Alpha%=").concat(bakedEl.colorAlphaPercent, " Filters=[").concat(filtersLog, "]"));
-                                        // Attempt to force read from selection if frame read fails
-                                        this_1._document.selectNone();
-                                        bakedEl.selected = true;
-                                        if (this_1._document.selection.length > 0) {
-                                            var sel = this_1._document.selection[0];
-                                            if (sel.colorMode !== bakedEl.colorMode || sel.colorAlphaPercent !== bakedEl.colorAlphaPercent) {
-                                                Logger_1.Logger.trace("[BAKE_D0]   Selection Diff: Mode=".concat(sel.colorMode, " Alpha%=").concat(sel.colorAlphaPercent));
+                                        // Dump Motion XML if Alpha is static 100 but expected to change
+                                        if (bakedEl.colorAlphaPercent === 100 && bakedEl.colorMode === 'none') {
+                                            if (frame.hasCustomEase || frame.tweenType === 'motion') {
+                                                // JSFL API for Motion Object is notoriously weird.
+                                                // Try checking if there's a Motion Object on the ORIGINAL frame
+                                                // (which we can't access easily here as we just destroyed it with convertToKeyframes)
+                                                // But we can check if the NEW element has anything.
                                             }
                                         }
                                     }

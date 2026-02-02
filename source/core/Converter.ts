@@ -156,13 +156,7 @@ export class Converter {
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
             
             // DEBUG: Log why variance failed
-            const diffX = Math.abs(variants[0].x - spineOffsetX).toFixed(4);
-            const diffY = Math.abs(variants[0].y - spineOffsetY).toFixed(4);
-            Logger.trace(`[VARIANT] New variant created: ${finalAttachmentName} for ${baseImageName}. Diff:(${diffX}, ${diffY}) > ${TOLERANCE}`);
-            Logger.trace(`[VARIANT]   Base Var: x=${variants[0].x.toFixed(4)}, y=${variants[0].y.toFixed(4)}`);
-            Logger.trace(`[VARIANT]   New Calc: x=${spineOffsetX.toFixed(4)}, y=${spineOffsetY.toFixed(4)}`);
-            Logger.trace(`[VARIANT]   Inputs: Reg=(${regX.toFixed(2)},${regY.toFixed(2)}) Trans=(${transX.toFixed(2)},${transY.toFixed(2)})`);
-            Logger.trace(`[VARIANT]   Matrix: a=${calcMatrix.a.toFixed(4)} d=${calcMatrix.d.toFixed(4)} tx=${calcMatrix.tx.toFixed(2)} ty=${calcMatrix.ty.toFixed(2)}`);
+            // Logger.trace(`[VARIANT] New variant created: ${finalAttachmentName} for ${baseImageName}. Diff > ${TOLERANCE}`);
         } else {
             // Logger.trace(`[VARIANT] Matched variant: ${finalAttachmentName} for ${baseImageName}`);
         }
@@ -778,6 +772,9 @@ export class Converter {
                             layer.visible = true;
                             
                             const timeline = this._document.getTimeline();
+                            // Force update "Live" view before baking
+                            if (this._document.livePreview !== undefined) this._document.livePreview = true;
+
                             let layerIdx = -1;
                             for (let k = 0; k < timeline.layers.length; k++) {
                                 if (timeline.layers[k] === layer) { layerIdx = k; break; }
@@ -812,13 +809,13 @@ export class Converter {
                                         
                                         Logger.trace(`[BAKE_D0] Frame ${i}: Type=${typeLog} Mode=${bakedEl.colorMode} Alpha%=${bakedEl.colorAlphaPercent} Filters=[${filtersLog}]`);
                                         
-                                        // Attempt to force read from selection if frame read fails
-                                        this._document.selectNone();
-                                        bakedEl.selected = true;
-                                        if (this._document.selection.length > 0) {
-                                            const sel = this._document.selection[0];
-                                            if (sel.colorMode !== bakedEl.colorMode || sel.colorAlphaPercent !== bakedEl.colorAlphaPercent) {
-                                                Logger.trace(`[BAKE_D0]   Selection Diff: Mode=${sel.colorMode} Alpha%=${sel.colorAlphaPercent}`);
+                                        // Dump Motion XML if Alpha is static 100 but expected to change
+                                        if (bakedEl.colorAlphaPercent === 100 && bakedEl.colorMode === 'none') {
+                                            if (frame.hasCustomEase || frame.tweenType === 'motion') {
+                                                // JSFL API for Motion Object is notoriously weird.
+                                                // Try checking if there's a Motion Object on the ORIGINAL frame
+                                                // (which we can't access easily here as we just destroyed it with convertToKeyframes)
+                                                // But we can check if the NEW element has anything.
                                             }
                                         }
                                     }
