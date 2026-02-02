@@ -31,6 +31,9 @@ export class SpineTransformMatrix implements SpineTransform {
         // Decompose the matrix
         // Use override if provided (e.g. for Layer Parenting resolution)
         const mat = matrixOverride || element.matrix;
+        if (matrixOverride && (name.indexOf('yellow')!==-1 || name.indexOf('glow')!==-1)) {
+            Logger.trace(`[MATRIX] '${name}' Using Matrix Override.`);
+        }
         const decomposed = SpineTransformMatrix.decomposeMatrix(mat, reference, name, isTween);
         
         this.rotation = decomposed.rotation;

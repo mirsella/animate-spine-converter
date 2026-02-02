@@ -16,6 +16,7 @@ import { LibraryUtil } from '../utils/LibraryUtil';
 import { PathUtil } from '../utils/PathUtil';
 import { ShapeUtil } from '../utils/ShapeUtil';
 import { StringUtil } from '../utils/StringUtil';
+import { IColorData } from './ConverterColor';
 import { ConverterConfig } from './ConverterConfig';
 import { ConverterContext } from './ConverterContext';
 import { ConverterContextGlobal } from './ConverterContextGlobal';
@@ -375,7 +376,7 @@ export class Converter {
         );
     }
 
-    private getLiveTransform(context: ConverterContext, frameIndex: number): { matrix: FlashMatrix, transformX: number, transformY: number } | null {
+    private getLiveTransform(context: ConverterContext, frameIndex: number): { matrix: FlashMatrix, transformX: number, transformY: number, colorAlpha?: number, colorRed?: number, colorMode?: string } | null {
         const dom = this._document;
         const timeline = dom.getTimeline();
         
@@ -421,7 +422,11 @@ export class Converter {
                 const res = {
                     matrix: selected.matrix,
                     transformX: selected.transformX,
-                    transformY: selected.transformY
+                    transformY: selected.transformY,
+                    // Capture live color data for debugging
+                    colorAlpha: selected.colorAlphaPercent,
+                    colorRed: selected.colorRedPercent,
+                    colorMode: selected.colorMode
                 };
                 layer.locked = wasLocked;
                 layer.visible = wasVisible;
@@ -699,12 +704,19 @@ export class Converter {
                     parentMat = this.getLayerParentMatrix(layer, i);
                 }
 
-                let bakedData: { matrix: FlashMatrix, transformX: number, transformY: number } | null = null;
+                let bakedData: { matrix: FlashMatrix, transformX: number, transformY: number, colorAlpha?: number, colorRed?: number, colorMode?: string } | null = null;
 
                 if (i !== frame.startFrame) {
                     const isClassic = frame.tweenType === 'classic';
                     const isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
                     let isSupportedEase = !frame.hasCustomEase;
+
+                    // DEBUG: Detailed Logging for Yellow/Glow/Dash elements
+                    if (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1 || elName.toLowerCase().indexOf('dash') !== -1) {
+                         const shouldBake = !(!allowBaking || (isClassic && !isGuided && isSupportedEase));
+                         Logger.trace(`[DEBUG_ANIM] Element '${elName}' Frame ${i} (Start: ${frame.startFrame}): TweenType='${frame.tweenType}' Classic=${isClassic} Guided=${isGuided} SupportedEase=${isSupportedEase} -> BAKING=${shouldBake}`);
+                         Logger.trace(`[DEBUG_ANIM]   Frame Values: Alpha=${el.colorAlphaPercent} Matrix=[a:${el.matrix.a.toFixed(2)}, tx:${el.matrix.tx.toFixed(2)}]`);
+                    }
 
                     if (!allowBaking || (isClassic && !isGuided && isSupportedEase)) {
                         // Skip baking, let Spine interpolate
@@ -739,6 +751,10 @@ export class Converter {
 
                             bakedData = this.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
                             
+                            if (bakedData && (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1)) {
+                                Logger.trace(`[DEBUG_ANIM]   BAKED Live Transform: Alpha=${bakedData.colorAlpha} Matrix=[a:${bakedData.matrix.a.toFixed(2)}, tx:${bakedData.matrix.tx.toFixed(2)}]`);
+                            }
+
                             // RESTORE CONTEXT STATE
                             context.element = savedElement;
                             context.frame = savedFrame;
@@ -775,7 +791,9 @@ export class Converter {
                                     bakedData = {
                                         matrix: bakedEl.matrix,
                                         transformX: bakedEl.transformX,
-                                        transformY: bakedEl.transformY
+                                        transformY: bakedEl.transformY,
+                                        colorAlpha: bakedEl.colorAlphaPercent,
+                                        colorMode: bakedEl.colorMode
                                     };
                                 }
                             } catch (e) {
@@ -790,7 +808,9 @@ export class Converter {
                                     bakedData = {
                                         matrix: proxy.matrix,
                                         transformX: proxy.transformX,
-                                        transformY: proxy.transformY
+                                        transformY: proxy.transformY,
+                                        colorAlpha: proxy.colorAlphaPercent,
+                                        colorMode: proxy.colorMode
                                     };
                                 }
                             }
@@ -807,9 +827,30 @@ export class Converter {
 
                 let finalMatrixOverride: FlashMatrix = null;
                 let finalPositionOverride: {x:number, y:number} = null;
+                // Capture Color Override from Baked Data
+                let finalColorOverride: IColorData = null;
+
                 const sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
                 const sourceTransX = bakedData ? bakedData.transformX : el.transformX;
                 const sourceTransY = bakedData ? bakedData.transformY : el.transformY;
+
+                if (bakedData && bakedData.colorMode) {
+                     // Normalize Color Data
+                     finalColorOverride = {
+                         visible: el.visible, // Baked element should be visible
+                         alphaPercent: bakedData.colorAlpha !== undefined ? bakedData.colorAlpha : 100,
+                         alphaAmount: 0, // JSFL live selection doesn't easily expose advanced color amounts, assume 0 for amount if unavailable
+                         redPercent: bakedData.colorRed !== undefined ? bakedData.colorRed : 100,
+                         redAmount: 0,
+                         greenPercent: 100, // Partial capture in getLiveTransform, assuming uniformed tint if RGB not fully exposed
+                         greenAmount: 0,
+                         bluePercent: 100,
+                         blueAmount: 0
+                     };
+                     
+                     // If we have full color mode support (alpha/tint), refine above. 
+                     // For now, mapping alpha is the critical part for the reported bug.
+                }
 
                 if (parentMat) {
                     finalMatrixOverride = this.concatMatrix(sourceMatrix, parentMat);
@@ -822,7 +863,8 @@ export class Converter {
                     finalPositionOverride = { x: sourceTransX, y: sourceTransY };
                 }
 
-                const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
+                // Pass finalColorOverride to createBone
+                const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride, finalColorOverride);
                 // Register bone to layer for visibility tracking (Structure Phase or Animation Phase if missed)
                 if (sub.bone) {
                     let bones = context.global.layerBonesCache.get(layer);

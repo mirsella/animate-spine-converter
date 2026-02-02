@@ -366,7 +366,11 @@ var Converter = /** @class */ (function () {
                 var res = {
                     matrix: selected.matrix,
                     transformX: selected.transformX,
-                    transformY: selected.transformY
+                    transformY: selected.transformY,
+                    // Capture live color data for debugging
+                    colorAlpha: selected.colorAlphaPercent,
+                    colorRed: selected.colorRedPercent,
+                    colorMode: selected.colorMode
                 };
                 layer.locked = wasLocked;
                 layer.visible = wasVisible;
@@ -625,6 +629,12 @@ var Converter = /** @class */ (function () {
                     var isClassic = frame.tweenType === 'classic';
                     var isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
                     var isSupportedEase = !frame.hasCustomEase;
+                    // DEBUG: Detailed Logging for Yellow/Glow/Dash elements
+                    if (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1 || elName.toLowerCase().indexOf('dash') !== -1) {
+                        var shouldBake = !(!allowBaking || (isClassic && !isGuided && isSupportedEase));
+                        Logger_1.Logger.trace("[DEBUG_ANIM] Element '".concat(elName, "' Frame ").concat(i, " (Start: ").concat(frame.startFrame, "): TweenType='").concat(frame.tweenType, "' Classic=").concat(isClassic, " Guided=").concat(isGuided, " SupportedEase=").concat(isSupportedEase, " -> BAKING=").concat(shouldBake));
+                        Logger_1.Logger.trace("[DEBUG_ANIM]   Frame Values: Alpha=".concat(el.colorAlphaPercent, " Matrix=[a:").concat(el.matrix.a.toFixed(2), ", tx:").concat(el.matrix.tx.toFixed(2), "]"));
+                    }
                     if (!allowBaking || (isClassic && !isGuided && isSupportedEase)) {
                         // Skip baking, let Spine interpolate
                         // But we MUST still mark the slot as active!
@@ -654,6 +664,9 @@ var Converter = /** @class */ (function () {
                             var savedElement = context.element;
                             var savedFrame = context.frame;
                             bakedData = this_1.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
+                            if (bakedData && (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1)) {
+                                Logger_1.Logger.trace("[DEBUG_ANIM]   BAKED Live Transform: Alpha=".concat(bakedData.colorAlpha, " Matrix=[a:").concat(bakedData.matrix.a.toFixed(2), ", tx:").concat(bakedData.matrix.tx.toFixed(2), "]"));
+                            }
                             // RESTORE CONTEXT STATE
                             context.element = savedElement;
                             context.frame = savedFrame;
@@ -694,7 +707,9 @@ var Converter = /** @class */ (function () {
                                     bakedData = {
                                         matrix: bakedEl.matrix,
                                         transformX: bakedEl.transformX,
-                                        transformY: bakedEl.transformY
+                                        transformY: bakedEl.transformY,
+                                        colorAlpha: bakedEl.colorAlphaPercent,
+                                        colorMode: bakedEl.colorMode
                                     };
                                 }
                             }
@@ -709,7 +724,9 @@ var Converter = /** @class */ (function () {
                                     bakedData = {
                                         matrix: proxy.matrix,
                                         transformX: proxy.transformX,
-                                        transformY: proxy.transformY
+                                        transformY: proxy.transformY,
+                                        colorAlpha: proxy.colorAlphaPercent,
+                                        colorMode: proxy.colorMode
                                     };
                                 }
                             }
@@ -725,9 +742,27 @@ var Converter = /** @class */ (function () {
                 }
                 var finalMatrixOverride = null;
                 var finalPositionOverride = null;
+                // Capture Color Override from Baked Data
+                var finalColorOverride = null;
                 var sourceMatrix = bakedData ? bakedData.matrix : el.matrix;
                 var sourceTransX = bakedData ? bakedData.transformX : el.transformX;
                 var sourceTransY = bakedData ? bakedData.transformY : el.transformY;
+                if (bakedData && bakedData.colorMode) {
+                    // Normalize Color Data
+                    finalColorOverride = {
+                        visible: el.visible, // Baked element should be visible
+                        alphaPercent: bakedData.colorAlpha !== undefined ? bakedData.colorAlpha : 100,
+                        alphaAmount: 0, // JSFL live selection doesn't easily expose advanced color amounts, assume 0 for amount if unavailable
+                        redPercent: bakedData.colorRed !== undefined ? bakedData.colorRed : 100,
+                        redAmount: 0,
+                        greenPercent: 100, // Partial capture in getLiveTransform, assuming uniformed tint if RGB not fully exposed
+                        greenAmount: 0,
+                        bluePercent: 100,
+                        blueAmount: 0
+                    };
+                    // If we have full color mode support (alpha/tint), refine above. 
+                    // For now, mapping alpha is the critical part for the reported bug.
+                }
                 if (parentMat) {
                     finalMatrixOverride = this_1.concatMatrix(sourceMatrix, parentMat);
                     finalPositionOverride = {
@@ -739,7 +774,8 @@ var Converter = /** @class */ (function () {
                     finalMatrixOverride = sourceMatrix;
                     finalPositionOverride = { x: sourceTransX, y: sourceTransY };
                 }
-                var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride);
+                // Pass finalColorOverride to createBone
+                var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride, finalColorOverride);
                 // Register bone to layer for visibility tracking (Structure Phase or Animation Phase if missed)
                 if (sub.bone) {
                     var bones = context.global.layerBonesCache.get(layer);
@@ -951,13 +987,30 @@ exports.Converter = Converter;
 exports.ConverterColor = void 0;
 var NumberUtil_1 = __webpack_require__(/*! ../utils/NumberUtil */ "./source/utils/NumberUtil.ts");
 var ConverterColor = /** @class */ (function () {
-    function ConverterColor(element) {
-        if (element === void 0) { element = null; }
+    function ConverterColor(data) {
+        if (data === void 0) { data = null; }
         this._parent = null;
-        this._element = element;
+        this._data = data;
     }
-    ConverterColor.prototype.blend = function (element) {
-        var color = new ConverterColor(element);
+    ConverterColor.fromElement = function (element) {
+        if (!element)
+            return null;
+        return {
+            visible: element.visible,
+            alphaPercent: element.colorAlphaPercent,
+            alphaAmount: element.colorAlphaAmount,
+            redPercent: element.colorRedPercent,
+            redAmount: element.colorRedAmount,
+            greenPercent: element.colorGreenPercent,
+            greenAmount: element.colorGreenAmount,
+            bluePercent: element.colorBluePercent,
+            blueAmount: element.colorBlueAmount
+        };
+    };
+    ConverterColor.prototype.blend = function (element, overrideData) {
+        if (overrideData === void 0) { overrideData = null; }
+        var data = overrideData || ConverterColor.fromElement(element);
+        var color = new ConverterColor(data);
         color._parent = this;
         return color;
     };
@@ -969,15 +1022,15 @@ var ConverterColor = /** @class */ (function () {
         var green = 1;
         var blue = 1;
         //-----------------------------------
-        while (current != null && current._element != null) {
-            var element = current._element;
-            if (element.visible === false) {
+        while (current != null && current._data != null) {
+            var data = current._data;
+            if (data.visible === false) {
                 visible = 0;
             }
-            alpha = visible * NumberUtil_1.NumberUtil.clamp(alpha * (element.colorAlphaPercent / 100) + element.colorAlphaAmount / 255);
-            red = NumberUtil_1.NumberUtil.clamp(red * (element.colorRedPercent / 100) + element.colorRedAmount / 255);
-            green = NumberUtil_1.NumberUtil.clamp(green * (element.colorGreenPercent / 100) + element.colorGreenAmount / 255);
-            blue = NumberUtil_1.NumberUtil.clamp(blue * (element.colorBluePercent / 100) + element.colorBlueAmount / 255);
+            alpha = visible * NumberUtil_1.NumberUtil.clamp(alpha * (data.alphaPercent / 100) + data.alphaAmount / 255);
+            red = NumberUtil_1.NumberUtil.clamp(red * (data.redPercent / 100) + data.redAmount / 255);
+            green = NumberUtil_1.NumberUtil.clamp(green * (data.greenPercent / 100) + data.greenAmount / 255);
+            blue = NumberUtil_1.NumberUtil.clamp(blue * (data.bluePercent / 100) + data.blueAmount / 255);
             current = current._parent;
         }
         //-----------------------------------
@@ -1005,11 +1058,13 @@ exports.ConverterContext = void 0;
 var SpineAnimationHelper_1 = __webpack_require__(/*! ../spine/SpineAnimationHelper */ "./source/spine/SpineAnimationHelper.ts");
 var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTransformMatrix */ "./source/spine/transform/SpineTransformMatrix.ts");
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
+var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var ConverterContext = /** @class */ (function () {
     function ConverterContext() {
         this.timeOffset = 0;
         this.matrixOverride = null;
         this.positionOverride = null;
+        this.colorOverride = null;
         this.recursionDepth = 0;
         this.symbolPath = "";
         this.internalFrame = 0;
@@ -1043,10 +1098,11 @@ var ConverterContext = /** @class */ (function () {
         }
         return this;
     };
-    ConverterContext.prototype.createBone = function (element, time, matrixOverride, positionOverride) {
-        var _a;
+    ConverterContext.prototype.createBone = function (element, time, matrixOverride, positionOverride, colorOverride) {
+        var _a, _b;
         if (matrixOverride === void 0) { matrixOverride = null; }
         if (positionOverride === void 0) { positionOverride = null; }
+        if (colorOverride === void 0) { colorOverride = null; }
         var boneName = ConvertUtil_1.ConvertUtil.createBoneName(element, this);
         var referenceTransform = this.global.assetTransforms.get(boneName);
         // Pass isTween flag to constructor to handle flipping continuity correctly
@@ -1058,6 +1114,7 @@ var ConverterContext = /** @class */ (function () {
         // Propagate overrides to children context if needed, or store for Slot creation
         context.matrixOverride = matrixOverride;
         context.positionOverride = positionOverride;
+        context.colorOverride = colorOverride;
         context.bone = this.global.skeleton.createBone(boneName, this.bone);
         context.clipping = this.clipping;
         context.slot = null;
@@ -1068,7 +1125,12 @@ var ConverterContext = /** @class */ (function () {
         var name = element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
         context.symbolPath = this.symbolPath ? this.symbolPath + " > " + name : name;
         context.blendMode = ConvertUtil_1.ConvertUtil.obtainElementBlendMode(element);
-        context.color = this.color.blend(element);
+        // Use the override color data if provided, otherwise fallback to element
+        context.color = this.color.blend(element, colorOverride);
+        var elName = element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '';
+        if (elName.indexOf('yellow') !== -1 || elName.indexOf('glow') !== -1) {
+            Logger_1.Logger.trace("[DEBUG_CTX] Created Bone Context for '".concat(elName, "': Color=").concat(context.color.merge(), " Time=").concat(context.time.toFixed(3), " ParentTime=").concat(this.time.toFixed(3)));
+        }
         context.layer = this.layer;
         context.element = element;
         context.frame = this.frame;
@@ -1209,7 +1271,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.clipping = null;
         context.slot = null;
         context.blendMode = "normal" /* SpineBlendMode.NORMAL */;
-        context.color = new ConverterColor_1.ConverterColor();
+        context.color = new ConverterColor_1.ConverterColor(ConverterColor_1.ConverterColor.fromElement(element));
         context.layer = null;
         context.element = element;
         context.frame = null;
@@ -1520,13 +1582,20 @@ var SpineAnimationHelper = /** @class */ (function () {
         colorFrame.color = color;
     };
     SpineAnimationHelper.obtainFrameCurve = function (context) {
+        var _a, _b, _c, _d;
         var frame = context.frame;
         if (frame != null) {
             if (frame.tweenType === 'none') {
+                if (frame.elements && frame.elements.length > 0 && (((_a = frame.elements[0].name) === null || _a === void 0 ? void 0 : _a.indexOf('yellow')) !== -1 || ((_b = frame.elements[0].name) === null || _b === void 0 ? void 0 : _b.indexOf('glow')) !== -1)) {
+                    Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": TweenType is NONE -> Forced Stepped. (Element: ").concat(frame.elements[0].name, ")"));
+                }
                 return 'stepped';
             }
             // If it's not a Classic Tween, we assume baking is required (Linear)
             if (frame.tweenType !== 'classic') {
+                if (frame.elements && frame.elements.length > 0 && (((_c = frame.elements[0].name) === null || _c === void 0 ? void 0 : _c.indexOf('yellow')) !== -1 || ((_d = frame.elements[0].name) === null || _d === void 0 ? void 0 : _d.indexOf('glow')) !== -1)) {
+                    Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": TweenType '").concat(frame.tweenType, "' != 'classic' -> Linear (Baking expected)."));
+                }
                 return null;
             }
             // 1. Check Custom Ease
@@ -2775,6 +2844,9 @@ var SpineTransformMatrix = /** @class */ (function () {
         // Decompose the matrix
         // Use override if provided (e.g. for Layer Parenting resolution)
         var mat = matrixOverride || element.matrix;
+        if (matrixOverride && (name.indexOf('yellow') !== -1 || name.indexOf('glow') !== -1)) {
+            Logger_1.Logger.trace("[MATRIX] '".concat(name, "' Using Matrix Override."));
+        }
         var decomposed = SpineTransformMatrix.decomposeMatrix(mat, reference, name, isTween);
         this.rotation = decomposed.rotation;
         this.scaleX = decomposed.scaleX;

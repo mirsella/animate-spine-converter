@@ -6,7 +6,7 @@ import { SpineTransformMatrix } from '../spine/transform/SpineTransformMatrix';
 import { SpineBlendMode } from '../spine/types/SpineBlendMode';
 import { ConvertUtil } from '../utils/ConvertUtil';
 import { Logger } from '../logger/Logger';
-import { ConverterColor } from './ConverterColor';
+import { ConverterColor, IColorData } from './ConverterColor';
 import { ConverterContextGlobal } from './ConverterContextGlobal';
 import { ConverterFrameLabel } from './ConverterFrameLabel';
 import { ConverterStageType } from './ConverterStageType';
@@ -28,6 +28,7 @@ export class ConverterContext {
     public timeOffset:number = 0;
     public matrixOverride:FlashMatrix = null;
     public positionOverride:{x:number, y:number} = null;
+    public colorOverride:IColorData = null;
     public recursionDepth:number = 0;
     public symbolPath:string = "";
     public internalFrame:number = 0;
@@ -69,7 +70,7 @@ export class ConverterContext {
         return this;
     }
 
-    public createBone(element:FlashElement, time:number, matrixOverride:FlashMatrix = null, positionOverride:{x:number, y:number} = null):ConverterContext {
+    public createBone(element:FlashElement, time:number, matrixOverride:FlashMatrix = null, positionOverride:{x:number, y:number} = null, colorOverride:IColorData = null):ConverterContext {
         const boneName = ConvertUtil.createBoneName(element, this);
         const referenceTransform = this.global.assetTransforms.get(boneName);
         
@@ -85,6 +86,7 @@ export class ConverterContext {
         // Propagate overrides to children context if needed, or store for Slot creation
         context.matrixOverride = matrixOverride;
         context.positionOverride = positionOverride;
+        context.colorOverride = colorOverride;
 
         context.bone = this.global.skeleton.createBone(boneName, this.bone);
         context.clipping = this.clipping;
@@ -98,7 +100,15 @@ export class ConverterContext {
         context.symbolPath = this.symbolPath ? this.symbolPath + " > " + name : name;
 
         context.blendMode = ConvertUtil.obtainElementBlendMode(element);
-        context.color = this.color.blend(element);
+        
+        // Use the override color data if provided, otherwise fallback to element
+        context.color = this.color.blend(element, colorOverride);
+        
+        const elName = element.name || element.libraryItem?.name || '';
+        if (elName.indexOf('yellow') !== -1 || elName.indexOf('glow') !== -1) {
+             Logger.trace(`[DEBUG_CTX] Created Bone Context for '${elName}': Color=${context.color.merge()} Time=${context.time.toFixed(3)} ParentTime=${this.time.toFixed(3)}`);
+        }
+
         context.layer = this.layer;
         context.element = element;
         context.frame = this.frame;

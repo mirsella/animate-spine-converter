@@ -111,11 +111,17 @@ export class SpineAnimationHelper {
 
         if (frame != null) {
             if (frame.tweenType === 'none') {
+                if (frame.elements && frame.elements.length > 0 && (frame.elements[0].name?.indexOf('yellow')!==-1 || frame.elements[0].name?.indexOf('glow')!==-1)) {
+                    Logger.trace(`[Curve] Frame ${frame.startFrame}: TweenType is NONE -> Forced Stepped. (Element: ${frame.elements[0].name})`);
+                }
                 return 'stepped';
             }
 
             // If it's not a Classic Tween, we assume baking is required (Linear)
             if (frame.tweenType !== 'classic') {
+                if (frame.elements && frame.elements.length > 0 && (frame.elements[0].name?.indexOf('yellow')!==-1 || frame.elements[0].name?.indexOf('glow')!==-1)) {
+                     Logger.trace(`[Curve] Frame ${frame.startFrame}: TweenType '${frame.tweenType}' != 'classic' -> Linear (Baking expected).`);
+                }
                 return null;
             }
 

@@ -60,7 +60,7 @@ export class ConverterContextGlobal extends ConverterContext {
         context.slot = null;
 
         context.blendMode = SpineBlendMode.NORMAL;
-        context.color = new ConverterColor();
+        context.color = new ConverterColor(ConverterColor.fromElement(element));
         context.layer = null;
         context.element = element;
         context.frame = null;
