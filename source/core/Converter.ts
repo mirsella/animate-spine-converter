@@ -132,7 +132,10 @@ export class Converter {
         let variants = context.global.attachmentVariants.get(baseImageName);
         if (!variants) {
             variants = [];
-            variants.push({ x: spineImage.x, y: spineImage.y, name: baseImageName });
+            // FIX: Initialize with the newly calculated offset, NOT the spineImage defaults.
+            // spineImage.x/y are usually 0 unless set elsewhere.
+            // We want the first encounter of this asset to define the "canonical" offset.
+            variants.push({ x: spineOffsetX, y: spineOffsetY, name: baseImageName });
             context.global.attachmentVariants.set(baseImageName, variants);
         }
         
@@ -151,7 +154,15 @@ export class Converter {
         if (!found) {
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
-            Logger.trace(`[VARIANT] New variant created: ${finalAttachmentName} (Offset: ${spineOffsetX.toFixed(2)}, ${spineOffsetY.toFixed(2)}) for ${baseImageName}`);
+            
+            // DEBUG: Log why variance failed
+            const diffX = Math.abs(variants[0].x - spineOffsetX).toFixed(4);
+            const diffY = Math.abs(variants[0].y - spineOffsetY).toFixed(4);
+            Logger.trace(`[VARIANT] New variant created: ${finalAttachmentName} for ${baseImageName}. Diff:(${diffX}, ${diffY}) > ${TOLERANCE}`);
+            Logger.trace(`[VARIANT]   Base Var: x=${variants[0].x.toFixed(4)}, y=${variants[0].y.toFixed(4)}`);
+            Logger.trace(`[VARIANT]   New Calc: x=${spineOffsetX.toFixed(4)}, y=${spineOffsetY.toFixed(4)}`);
+            Logger.trace(`[VARIANT]   Inputs: Reg=(${regX.toFixed(2)},${regY.toFixed(2)}) Trans=(${transX.toFixed(2)},${transY.toFixed(2)})`);
+            Logger.trace(`[VARIANT]   Matrix: a=${calcMatrix.a.toFixed(4)} d=${calcMatrix.d.toFixed(4)} tx=${calcMatrix.tx.toFixed(2)} ty=${calcMatrix.ty.toFixed(2)}`);
         } else {
             // Logger.trace(`[VARIANT] Matched variant: ${finalAttachmentName} for ${baseImageName}`);
         }
@@ -791,7 +802,25 @@ export class Converter {
                                     
                                     // EXTENDED DEBUGGING FOR DEPTH 0 BAKING
                                     if (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1) {
-                                        Logger.trace(`[BAKE_D0] Frame ${i}: Mode=${bakedEl.colorMode} Alpha%=${bakedEl.colorAlphaPercent} AlphaAmt=${bakedEl.colorAlphaAmount} Red%=${bakedEl.colorRedPercent}`);
+                                        let filtersLog = "None";
+                                        if (bakedEl.filters && bakedEl.filters.length > 0) {
+                                            filtersLog = bakedEl.filters.map((f:any) => f.name).join(",");
+                                        }
+                                        
+                                        // Check if it's a Symbol Instance
+                                        const typeLog = (bakedEl.elementType === 'instance') ? `Instance(${bakedEl.instanceType})` : bakedEl.elementType;
+                                        
+                                        Logger.trace(`[BAKE_D0] Frame ${i}: Type=${typeLog} Mode=${bakedEl.colorMode} Alpha%=${bakedEl.colorAlphaPercent} Filters=[${filtersLog}]`);
+                                        
+                                        // Attempt to force read from selection if frame read fails
+                                        this._document.selectNone();
+                                        bakedEl.selected = true;
+                                        if (this._document.selection.length > 0) {
+                                            const sel = this._document.selection[0];
+                                            if (sel.colorMode !== bakedEl.colorMode || sel.colorAlphaPercent !== bakedEl.colorAlphaPercent) {
+                                                Logger.trace(`[BAKE_D0]   Selection Diff: Mode=${sel.colorMode} Alpha%=${sel.colorAlphaPercent}`);
+                                            }
+                                        }
                                     }
 
                                     bakedData = {

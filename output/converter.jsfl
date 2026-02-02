@@ -114,7 +114,10 @@ var Converter = /** @class */ (function () {
         var variants = context.global.attachmentVariants.get(baseImageName);
         if (!variants) {
             variants = [];
-            variants.push({ x: spineImage.x, y: spineImage.y, name: baseImageName });
+            // FIX: Initialize with the newly calculated offset, NOT the spineImage defaults.
+            // spineImage.x/y are usually 0 unless set elsewhere.
+            // We want the first encounter of this asset to define the "canonical" offset.
+            variants.push({ x: spineOffsetX, y: spineOffsetY, name: baseImageName });
             context.global.attachmentVariants.set(baseImageName, variants);
         }
         var found = false;
@@ -131,7 +134,14 @@ var Converter = /** @class */ (function () {
         if (!found) {
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
-            Logger_1.Logger.trace("[VARIANT] New variant created: ".concat(finalAttachmentName, " (Offset: ").concat(spineOffsetX.toFixed(2), ", ").concat(spineOffsetY.toFixed(2), ") for ").concat(baseImageName));
+            // DEBUG: Log why variance failed
+            var diffX = Math.abs(variants[0].x - spineOffsetX).toFixed(4);
+            var diffY = Math.abs(variants[0].y - spineOffsetY).toFixed(4);
+            Logger_1.Logger.trace("[VARIANT] New variant created: ".concat(finalAttachmentName, " for ").concat(baseImageName, ". Diff:(").concat(diffX, ", ").concat(diffY, ") > ").concat(TOLERANCE));
+            Logger_1.Logger.trace("[VARIANT]   Base Var: x=".concat(variants[0].x.toFixed(4), ", y=").concat(variants[0].y.toFixed(4)));
+            Logger_1.Logger.trace("[VARIANT]   New Calc: x=".concat(spineOffsetX.toFixed(4), ", y=").concat(spineOffsetY.toFixed(4)));
+            Logger_1.Logger.trace("[VARIANT]   Inputs: Reg=(".concat(regX.toFixed(2), ",").concat(regY.toFixed(2), ") Trans=(").concat(transX.toFixed(2), ",").concat(transY.toFixed(2), ")"));
+            Logger_1.Logger.trace("[VARIANT]   Matrix: a=".concat(calcMatrix.a.toFixed(4), " d=").concat(calcMatrix.d.toFixed(4), " tx=").concat(calcMatrix.tx.toFixed(2), " ty=").concat(calcMatrix.ty.toFixed(2)));
         }
         else {
             // Logger.trace(`[VARIANT] Matched variant: ${finalAttachmentName} for ${baseImageName}`);
@@ -706,7 +716,22 @@ var Converter = /** @class */ (function () {
                                     var bakedEl = freshFrame.elements[0];
                                     // EXTENDED DEBUGGING FOR DEPTH 0 BAKING
                                     if (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1) {
-                                        Logger_1.Logger.trace("[BAKE_D0] Frame ".concat(i, ": Mode=").concat(bakedEl.colorMode, " Alpha%=").concat(bakedEl.colorAlphaPercent, " AlphaAmt=").concat(bakedEl.colorAlphaAmount, " Red%=").concat(bakedEl.colorRedPercent));
+                                        var filtersLog = "None";
+                                        if (bakedEl.filters && bakedEl.filters.length > 0) {
+                                            filtersLog = bakedEl.filters.map(function (f) { return f.name; }).join(",");
+                                        }
+                                        // Check if it's a Symbol Instance
+                                        var typeLog = (bakedEl.elementType === 'instance') ? "Instance(".concat(bakedEl.instanceType, ")") : bakedEl.elementType;
+                                        Logger_1.Logger.trace("[BAKE_D0] Frame ".concat(i, ": Type=").concat(typeLog, " Mode=").concat(bakedEl.colorMode, " Alpha%=").concat(bakedEl.colorAlphaPercent, " Filters=[").concat(filtersLog, "]"));
+                                        // Attempt to force read from selection if frame read fails
+                                        this_1._document.selectNone();
+                                        bakedEl.selected = true;
+                                        if (this_1._document.selection.length > 0) {
+                                            var sel = this_1._document.selection[0];
+                                            if (sel.colorMode !== bakedEl.colorMode || sel.colorAlphaPercent !== bakedEl.colorAlphaPercent) {
+                                                Logger_1.Logger.trace("[BAKE_D0]   Selection Diff: Mode=".concat(sel.colorMode, " Alpha%=").concat(sel.colorAlphaPercent));
+                                            }
+                                        }
                                     }
                                     bakedData = {
                                         matrix: bakedEl.matrix,
