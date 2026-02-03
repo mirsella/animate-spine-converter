@@ -227,20 +227,41 @@ var Converter = /** @class */ (function () {
             if (!layer || !frame)
                 return undefined;
             var timeline = null;
-            var curr = context.parent;
-            while (curr) {
-                if (curr.element && curr.element.libraryItem && curr.element.libraryItem.timeline) {
-                    var tl = curr.element.libraryItem.timeline;
-                    for (var i = 0; i < tl.layers.length; i++) {
-                        if (tl.layers[i] === layer) {
-                            timeline = tl;
+            // Prefer the active (live) timeline: this works both on stage and in edit mode.
+            // It also fixes nested symbol sampling where walking parent.libraryItem.timeline
+            // cannot ever contain the child's layer object.
+            try {
+                var activeTl = this._document.getTimeline();
+                if (activeTl && activeTl.layers) {
+                    for (var i = 0; i < activeTl.layers.length; i++) {
+                        if (activeTl.layers[i] === layer) {
+                            timeline = activeTl;
                             break;
                         }
                     }
                 }
-                if (timeline)
-                    break;
-                curr = curr.parent;
+            }
+            catch (e) {
+                // ignore
+            }
+            // Fallback: attempt to locate the layer in an ancestor's library timeline.
+            // This path is useful if we are not in edit mode for some reason.
+            if (!timeline) {
+                var curr = context.parent;
+                while (curr) {
+                    if (curr.element && curr.element.libraryItem && curr.element.libraryItem.timeline) {
+                        var tl = curr.element.libraryItem.timeline;
+                        for (var i = 0; i < tl.layers.length; i++) {
+                            if (tl.layers[i] === layer) {
+                                timeline = tl;
+                                break;
+                            }
+                        }
+                    }
+                    if (timeline)
+                        break;
+                    curr = curr.parent;
+                }
             }
             if (!timeline)
                 return undefined;
@@ -266,7 +287,9 @@ var Converter = /** @class */ (function () {
                 return undefined;
             return {
                 layerIndex: layerIndex,
-                frameIndex: frame.startFrame,
+                // Prefer the active timeline frame when available. This is important for
+                // sampling tweened (in-between) frames.
+                frameIndex: (timeline && typeof timeline.currentFrame === 'number') ? timeline.currentFrame : frame.startFrame,
                 elementIndex: elementIndex
             };
         }
@@ -424,6 +447,24 @@ var Converter = /** @class */ (function () {
                 layer.locked = wasLocked;
                 layer.visible = wasVisible;
                 return null;
+            }
+            // In some Animate tween setups, the element index can shift in in-between frames
+            // (e.g. additional helper instances). If we are debugging and selection is failing,
+            // try to locate by name within the frame.
+            if (isDbg && this.isDebugName(this.getElementDebugName(context.element))) {
+                var expectedName = this.getElementDebugName(context.element);
+                if (expectedName && expectedName !== '<anon>' && expectedName !== this.getElementDebugName(el) && frame.elements && frame.elements.length > 1) {
+                    for (var i = 0; i < frame.elements.length; i++) {
+                        var cand = frame.elements[i];
+                        if (this.getElementDebugName(cand) === expectedName) {
+                            // Override the target element for selection.
+                            hints.elementIndex = i;
+                            if (isDbg)
+                                Logger_1.Logger.trace("    [LIVE_DBG] elementIndex remap: ".concat(hints.elementIndex, " -> ").concat(i, " (name match '").concat(expectedName, "')"));
+                            break;
+                        }
+                    }
+                }
             }
             if (isDbg) {
                 var elName = this.getElementDebugName(el);
