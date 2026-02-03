@@ -655,6 +655,8 @@ export class ImageUtil {
         localCenterX: number, localCenterY: number,
         debugName?: string
     ): { x: number, y: number } {
+        const dbg = (debugName && (debugName.indexOf('yellow') !== -1 || debugName.indexOf('glow') !== -1)) ? true : false;
+
         // Assumption Check:
         // Animate Registration Point (regPointX, regPointY) is the (0,0) of the symbol data.
         // Animate Transformation Point (transPointX, transPointY) is the visual pivot.
@@ -666,6 +668,11 @@ export class ImageUtil {
         const dy = regPointY - transPointY;
 
         Logger.trace(`[OFFSET] '${debugName || 'anon'}' BoneToReg Vector: (${dx.toFixed(2)}, ${dy.toFixed(2)})`);
+
+        if (dbg) {
+            Logger.trace(`[OFFSET_DBG] '${debugName}' Inputs: reg=(${regPointX.toFixed(2)}, ${regPointY.toFixed(2)}) trans=(${transPointX.toFixed(2)}, ${transPointY.toFixed(2)}) center=(${localCenterX}, ${localCenterY})`);
+            Logger.trace(`[OFFSET_DBG] '${debugName}' Matrix: a=${matrix.a.toFixed(4)} b=${matrix.b.toFixed(4)} c=${matrix.c.toFixed(4)} d=${matrix.d.toFixed(4)} tx=${matrix.tx.toFixed(2)} ty=${matrix.ty.toFixed(2)}`);
+        }
 
         // 2. Inverse Matrix Calculation
         const a = matrix.a;
@@ -696,6 +703,15 @@ export class ImageUtil {
         const finalY = localRy + localCenterY;
 
         Logger.trace(`[OFFSET] '${debugName || 'anon'}' Final Spine Offset: (${finalX.toFixed(2)}, ${finalY.toFixed(2)}) (localCenter: ${localCenterX}, ${localCenterY})`);
+
+        if (dbg) {
+            // Sanity check: if regPoint differs from matrix.tx/ty significantly, we are mixing coordinate spaces.
+            const dTx = Math.abs(regPointX - matrix.tx);
+            const dTy = Math.abs(regPointY - matrix.ty);
+            if (dTx > 0.5 || dTy > 0.5) {
+                Logger.trace(`[OFFSET_DBG] '${debugName}' WARNING: regPoint != matrix.t. |dx|=(${dTx.toFixed(2)}, ${dTy.toFixed(2)})`);
+            }
+        }
 
         return { x: finalX, y: finalY };
     }

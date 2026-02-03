@@ -9,6 +9,12 @@ import { SpineTransform } from './transform/SpineTransform';
 import { SpineTimelineType } from './types/SpineTimelineType';
 
 export class SpineAnimationHelper {
+    private static isDebugName(name: string | null | undefined): boolean {
+        if (!name) return false;
+        const n = String(name).toLowerCase();
+        return (n.indexOf('yellow') !== -1 && n.indexOf('glow') !== -1) || (n.indexOf('yellow_glow') !== -1);
+    }
+
     public static applyBoneAnimation(animation:SpineAnimation, bone:SpineBone, context:ConverterContext, transform:SpineTransform, time:number):void {
         const timeline = animation.createBoneTimeline(bone);
         const curve = SpineAnimationHelper.obtainFrameCurve(context);
@@ -62,6 +68,10 @@ export class SpineAnimationHelper {
 
         const curveStr = (typeof curve === 'string') ? curve : (curve ? 'bezier' : 'linear');
         Logger.trace(`[KEY] Bone '${bone.name}' at T=${time.toFixed(3)} [${curveStr}]: rot=${angle.toFixed(2)} pos=(${translateFrame.x.toFixed(2)}, ${translateFrame.y.toFixed(2)}) scale=(${scaleFrame.x.toFixed(2)}, ${scaleFrame.y.toFixed(2)}) shearY=${shearFrame.y.toFixed(2)}`);
+
+        if (SpineAnimationHelper.isDebugName(bone.name)) {
+            Logger.trace(`[KEY_DBG] Bone '${bone.name}' raw: rot=${transform.rotation.toFixed(2)} x=${transform.x.toFixed(2)} y=${transform.y.toFixed(2)} sx=${transform.scaleX.toFixed(4)} sy=${transform.scaleY.toFixed(4)} shY=${transform.shearY.toFixed(2)} base: rot=${bone.rotation.toFixed(2)} x=${bone.x.toFixed(2)} y=${bone.y.toFixed(2)} sx=${bone.scaleX.toFixed(4)} sy=${bone.scaleY.toFixed(4)} curve=${curveStr}`);
+        }
     }
 
     public static applyBoneTransform(bone:SpineBone, transform:SpineTransform):void {
@@ -92,6 +102,11 @@ export class SpineAnimationHelper {
         
         Logger.trace(`[VISIBILITY] Slot '${slot.name}' -> ${attachmentFrame.name ? attachmentFrame.name : 'HIDDEN'} at Time ${time.toFixed(3)} (Frame: ${context.frame?.startFrame})`);
 
+        if (SpineAnimationHelper.isDebugName(slot.name) || SpineAnimationHelper.isDebugName(attachmentFrame.name || '')) {
+            const color = context && context.color ? context.color.merge() : '<no-color>';
+            Logger.trace(`[VIS_DBG] Slot '${slot.name}' T=${time.toFixed(3)} frame.start=${context.frame?.startFrame} attachment='${attachmentFrame.name ? attachmentFrame.name : 'HIDDEN'}' color=${color} blend=${context.blendMode}`);
+        }
+
         if (context.frame != null && context.frame.startFrame === 0) {
             slot.attachment = attachment;
         }
@@ -104,6 +119,11 @@ export class SpineAnimationHelper {
         const colorTimeline = timeline.createTimeline(SpineTimelineType.COLOR);
         const colorFrame = colorTimeline.createFrame(time, curve);
         colorFrame.color = color;
+
+        if (SpineAnimationHelper.isDebugName(slot.name)) {
+            const curveStr = (typeof curve === 'string') ? curve : (curve ? 'bezier' : 'linear');
+            Logger.trace(`[COLOR_DBG] Slot '${slot.name}' T=${time.toFixed(3)} [${curveStr}] color=${color}`);
+        }
     }
 
     public static obtainFrameCurve(context:ConverterContext):SpineCurveType {

@@ -145,6 +145,7 @@ var Converter = /** @class */ (function () {
             Logger_1.Logger.trace("[ATTACH_DBG]   RegUsed=(".concat(regX.toFixed(2), ", ").concat(regY.toFixed(2), ") TransUsed=(").concat(transX.toFixed(2), ", ").concat(transY.toFixed(2), ") TP_Local=(").concat(((_b = (_a = e.transformationPoint) === null || _a === void 0 ? void 0 : _a.x) === null || _b === void 0 ? void 0 : _b.toFixed) ? e.transformationPoint.x.toFixed(2) : 'NA', ", ").concat(((_d = (_c = e.transformationPoint) === null || _c === void 0 ? void 0 : _c.y) === null || _d === void 0 ? void 0 : _d.toFixed) ? e.transformationPoint.y.toFixed(2) : 'NA', ")"));
             Logger_1.Logger.trace("[ATTACH_DBG]   ElementReg=(".concat(((_e = e.x) === null || _e === void 0 ? void 0 : _e.toFixed) ? e.x.toFixed(2) : 'NA', ", ").concat(((_f = e.y) === null || _f === void 0 ? void 0 : _f.toFixed) ? e.y.toFixed(2) : 'NA', ") ElementTrans=(").concat(((_g = e.transformX) === null || _g === void 0 ? void 0 : _g.toFixed) ? e.transformX.toFixed(2) : 'NA', ", ").concat(((_h = e.transformY) === null || _h === void 0 ? void 0 : _h.toFixed) ? e.transformY.toFixed(2) : 'NA', ")"));
             Logger_1.Logger.trace("[ATTACH_DBG]   MatUsed: a=".concat(cm.a.toFixed(4), " b=").concat(cm.b.toFixed(4), " c=").concat(cm.c.toFixed(4), " d=").concat(cm.d.toFixed(4), " tx=").concat(cm.tx.toFixed(2), " ty=").concat(cm.ty.toFixed(2)));
+            Logger_1.Logger.trace("[ATTACH_DBG]   Image: path='".concat(spineImage.path, "' w=").concat(spineImage.width, " h=").concat(spineImage.height, " scale=").concat(spineImage.scale, " center=(").concat(spineImage.imageCenterOffsetX, ", ").concat(spineImage.imageCenterOffsetY, ")"));
         }
         var requiredOffset = ImageUtil_1.ImageUtil.calculateAttachmentOffset(calcMatrix, regX, regY, transX, transY, spineImage.imageCenterOffsetX, spineImage.imageCenterOffsetY, baseImageName);
         var spineOffsetX = requiredOffset.x;
@@ -224,9 +225,16 @@ var Converter = /** @class */ (function () {
             var el = context.element;
             var layer = el.layer;
             var frame = context.frame;
-            if (!layer || !frame)
+            var debugName = this.getElementDebugName(el);
+            var debug = this.isDebugName(debugName) || this.isDebugName(context.symbolPath);
+            if (!layer || !frame) {
+                if (debug) {
+                    Logger_1.Logger.trace("[HINT_DBG] No layer/frame for '".concat(debugName, "'. layer=").concat(layer ? layer.name : '<null>', " frame=").concat(frame ? frame.startFrame : '<null>', " Path='").concat(context.symbolPath, "'"));
+                }
                 return undefined;
+            }
             var timeline = null;
+            var timelineSource = '';
             // Prefer the active (live) timeline: this works both on stage and in edit mode.
             // It also fixes nested symbol sampling where walking parent.libraryItem.timeline
             // cannot ever contain the child's layer object.
@@ -236,6 +244,7 @@ var Converter = /** @class */ (function () {
                     for (var i = 0; i < activeTl.layers.length; i++) {
                         if (activeTl.layers[i] === layer) {
                             timeline = activeTl;
+                            timelineSource = "active:".concat(activeTl.name);
                             break;
                         }
                     }
@@ -254,6 +263,7 @@ var Converter = /** @class */ (function () {
                         for (var i = 0; i < tl.layers.length; i++) {
                             if (tl.layers[i] === layer) {
                                 timeline = tl;
+                                timelineSource = "ancestor:".concat(tl.name);
                                 break;
                             }
                         }
@@ -263,8 +273,20 @@ var Converter = /** @class */ (function () {
                     curr = curr.parent;
                 }
             }
-            if (!timeline)
+            if (!timeline) {
+                if (debug) {
+                    try {
+                        var activeTl = this._document.getTimeline();
+                        var activeName = activeTl ? activeTl.name : '<null>';
+                        var activeLayers = activeTl && activeTl.layers ? activeTl.layers.length : 0;
+                        Logger_1.Logger.trace("[HINT_DBG] Failed to resolve timeline for '".concat(debugName, "'. ActiveTL='").concat(activeName, "' layers=").concat(activeLayers, ". Layer='").concat(layer.name, "'. Frame.start=").concat(frame.startFrame, ". Path='").concat(context.symbolPath, "'"));
+                    }
+                    catch (eTl) {
+                        Logger_1.Logger.trace("[HINT_DBG] Failed to resolve timeline for '".concat(debugName, "'. Layer='").concat(layer.name, "'. Frame.start=").concat(frame.startFrame, ". Path='").concat(context.symbolPath, "'"));
+                    }
+                }
                 return undefined;
+            }
             var layerIndex = -1;
             for (var i = 0; i < timeline.layers.length; i++) {
                 if (timeline.layers[i] === layer) {
@@ -272,8 +294,13 @@ var Converter = /** @class */ (function () {
                     break;
                 }
             }
-            if (layerIndex === -1)
+            if (layerIndex === -1) {
+                if (debug) {
+                    var tlName = timeline.name || '<unknown>';
+                    Logger_1.Logger.trace("[HINT_DBG] Timeline resolved (".concat(timelineSource, ") but layer not found. TL='").concat(tlName, "' layers=").concat(timeline.layers.length, " wantedLayer='").concat(layer.name, "' Path='").concat(context.symbolPath, "'"));
+                }
                 return undefined;
+            }
             var elementIndex = -1;
             if (frame.elements) {
                 for (var i = 0; i < frame.elements.length; i++) {
@@ -283,8 +310,25 @@ var Converter = /** @class */ (function () {
                     }
                 }
             }
-            if (elementIndex === -1)
+            if (elementIndex === -1) {
+                if (debug) {
+                    var tlName = timeline.name || '<unknown>';
+                    var elems = frame.elements || [];
+                    var list = [];
+                    for (var i = 0; i < elems.length && i < 8; i++) {
+                        var ee = elems[i];
+                        var n = this.getElementDebugName(ee);
+                        list.push("".concat(i, ":").concat(n, ":").concat(ee.elementType).concat(ee.instanceType ? '/' + ee.instanceType : ''));
+                    }
+                    Logger_1.Logger.trace("[HINT_DBG] Layer ok (idx=".concat(layerIndex, ") but element not found by identity. TL='").concat(tlName, "' (").concat(timelineSource, ") frame.start=").concat(frame.startFrame, " frameIdx=").concat(timeline.currentFrame, " elems=").concat(elems.length, " [").concat(list.join(', '), "] wanted='").concat(debugName, "'"));
+                }
                 return undefined;
+            }
+            if (debug) {
+                var tlName = timeline.name || '<unknown>';
+                var cf = timeline.currentFrame;
+                Logger_1.Logger.trace("[HINT_DBG] Resolved (".concat(timelineSource, ") '").concat(debugName, "': tl='").concat(tlName, "' cf=").concat(cf, " layerIdx=").concat(layerIndex, " elIdx=").concat(elementIndex, " frame.start=").concat(frame.startFrame, " Path='").concat(context.symbolPath, "'"));
+            }
             return {
                 layerIndex: layerIndex,
                 // Prefer the active timeline frame when available. This is important for
@@ -411,11 +455,15 @@ var Converter = /** @class */ (function () {
         }, allowBaking);
     };
     Converter.prototype.getLiveTransform = function (context, frameIndex) {
-        var _a;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l;
         var dom = this._document;
         var timeline = dom.getTimeline();
         try {
             timeline.currentFrame = frameIndex;
+            var isDbg = this.shouldDebugElement(context, context.element, undefined);
+            if (isDbg) {
+                Logger_1.Logger.trace("    [LIVE_DBG] Enter '".concat(this.getElementDebugName(context.element), "' frame=").concat(frameIndex, " tl='").concat(timeline.name, "' cf=").concat(timeline.currentFrame, " editModeTl='").concat(this._document.getTimeline().name, "' Path='").concat(context.symbolPath, "'"));
+            }
             var hints = this.createSelectionHints(context);
             if (!hints) {
                 var dn = this.getElementDebugName(context.element);
@@ -424,7 +472,6 @@ var Converter = /** @class */ (function () {
                 }
                 return null;
             }
-            var isDbg = this.shouldDebugElement(context, context.element, undefined);
             if (isDbg) {
                 Logger_1.Logger.trace("    [LIVE_DBG] Hints for '".concat(this.getElementDebugName(context.element), "' @").concat(frameIndex, ": layerIdx=").concat(hints.layerIndex, " frameIdx=").concat(hints.frameIndex, " elIdx=").concat(hints.elementIndex, " tl='").concat(timeline.name, "'"));
             }
@@ -440,6 +487,17 @@ var Converter = /** @class */ (function () {
                 layer.locked = wasLocked;
                 layer.visible = wasVisible;
                 return null;
+            }
+            if (isDbg) {
+                var elems = frame.elements || [];
+                var list = [];
+                for (var i = 0; i < elems.length && i < 10; i++) {
+                    var ee = elems[i];
+                    var n = this.getElementDebugName(ee);
+                    var m = ee.matrix;
+                    list.push("".concat(i, ":").concat(n, ":").concat(ee.elementType).concat(ee.instanceType ? '/' + ee.instanceType : '', "(tx=").concat(((_a = m === null || m === void 0 ? void 0 : m.tx) === null || _a === void 0 ? void 0 : _a.toFixed) ? m.tx.toFixed(2) : 'NA', " ty=").concat(((_b = m === null || m === void 0 ? void 0 : m.ty) === null || _b === void 0 ? void 0 : _b.toFixed) ? m.ty.toFixed(2) : 'NA', ")"));
+                }
+                Logger_1.Logger.trace("    [LIVE_DBG] Frame snapshot: layer='".concat(layer.name, "' frame.start=").concat(frame.startFrame, " tween='").concat(frame.tweenType, "' elems=").concat(elems.length, " [").concat(list.join(', '), "]"));
             }
             var el = frame.elements[hints.elementIndex];
             if (!el) {
@@ -478,11 +536,31 @@ var Converter = /** @class */ (function () {
             if (isDbg) {
                 Logger_1.Logger.trace("    [LIVE_DBG] Selection count=".concat(dom.selection.length, " after select for '").concat(this.getElementDebugName(el), "' @").concat(frameIndex));
             }
+            // Additional fallback: if selection is empty, try selecting by layer+frame range.
+            if (dom.selection.length === 0) {
+                try {
+                    // Attempt to force-refresh selection by selecting the exact frame range.
+                    timeline.setSelectedLayers(hints.layerIndex);
+                    timeline.setSelectedFrames(frameIndex, frameIndex + 1);
+                    dom.selectNone();
+                    el.selected = true;
+                    if (dom.selection.length === 0)
+                        dom.selection = [el];
+                    if (isDbg) {
+                        Logger_1.Logger.trace("    [LIVE_DBG] After layer/frame select fallback: selection=".concat(dom.selection.length, " @").concat(frameIndex));
+                    }
+                }
+                catch (eSel) {
+                    if (isDbg)
+                        Logger_1.Logger.trace("    [LIVE_DBG] Layer/frame select fallback failed: ".concat(eSel));
+                }
+            }
             if (dom.selection.length > 0) {
                 var selected = dom.selection[0];
                 if (isDbg) {
                     var sm = selected.matrix;
                     Logger_1.Logger.trace("    [LIVE_DBG] Selected '".concat(this.getElementDebugName(selected), "' @").concat(frameIndex, ": tx=").concat(sm.tx.toFixed(2), " ty=").concat(sm.ty.toFixed(2), " a=").concat(sm.a.toFixed(4), " d=").concat(sm.d.toFixed(4), " alpha=").concat(selected.colorAlphaPercent));
+                    Logger_1.Logger.trace("    [LIVE_DBG] Selected props: x=".concat(((_c = selected.x) === null || _c === void 0 ? void 0 : _c.toFixed) ? selected.x.toFixed(2) : 'NA', " y=").concat(((_d = selected.y) === null || _d === void 0 ? void 0 : _d.toFixed) ? selected.y.toFixed(2) : 'NA', " transform=(").concat(((_e = selected.transformX) === null || _e === void 0 ? void 0 : _e.toFixed) ? selected.transformX.toFixed(2) : 'NA', ", ").concat(((_f = selected.transformY) === null || _f === void 0 ? void 0 : _f.toFixed) ? selected.transformY.toFixed(2) : 'NA', ") pivot=(").concat(((_h = (_g = selected.transformationPoint) === null || _g === void 0 ? void 0 : _g.x) === null || _h === void 0 ? void 0 : _h.toFixed) ? selected.transformationPoint.x.toFixed(2) : 'NA', ", ").concat(((_k = (_j = selected.transformationPoint) === null || _j === void 0 ? void 0 : _j.y) === null || _k === void 0 ? void 0 : _k.toFixed) ? selected.transformationPoint.y.toFixed(2) : 'NA', ") colorMode=").concat(selected.colorMode));
                 }
                 var res = {
                     matrix: selected.matrix,
@@ -504,7 +582,7 @@ var Converter = /** @class */ (function () {
             layer.visible = wasVisible;
         }
         catch (e) {
-            Logger_1.Logger.warning("[Converter] LiveTransform failed for frame ".concat(frameIndex, " (Layer ").concat((_a = context.layer) === null || _a === void 0 ? void 0 : _a.name, "): ").concat(e));
+            Logger_1.Logger.warning("[Converter] LiveTransform failed for frame ".concat(frameIndex, " (Layer ").concat((_l = context.layer) === null || _l === void 0 ? void 0 : _l.name, "): ").concat(e));
         }
         return null;
     };
@@ -694,6 +772,13 @@ var Converter = /** @class */ (function () {
                     else {
                         Logger_1.Logger.trace("".concat(indent, "    [LIVE] Sampling failed for '").concat(elName, "' at frame ").concat(start, ". Using context matrix."));
                     }
+                    if (this.isDebugName(elName)) {
+                        var m = el.matrix;
+                        var mo = matrixOverride;
+                        var px = positionOverride ? positionOverride.x.toFixed(2) : 'NA';
+                        var py = positionOverride ? positionOverride.y.toFixed(2) : 'NA';
+                        Logger_1.Logger.trace("".concat(indent, "    [FLATTEN_DBG] '").concat(elName, "' frame=").concat(start, " ctxTime=").concat(context.time.toFixed(3), " timeOffset=").concat(context.timeOffset.toFixed(3), " el.matrix(tx=").concat(m.tx.toFixed(2), " ty=").concat(m.ty.toFixed(2), " a=").concat(m.a.toFixed(4), " d=").concat(m.d.toFixed(4), ") override=").concat(mo ? "tx=".concat(mo.tx.toFixed(2), " ty=").concat(mo.ty.toFixed(2), " a=").concat(mo.a.toFixed(4), " d=").concat(mo.d.toFixed(4)) : 'none', " posOverride=(").concat(px, ", ").concat(py, ")"));
+                    }
                 }
                 // FIX: When flattening, we pass 0 as time because context.time is already absolute for Spine.
                 var sub = context.switchContextFrame(frame).createBone(el, 0, matrixOverride, positionOverride);
@@ -750,6 +835,9 @@ var Converter = /** @class */ (function () {
                     var isClassic = frame.tweenType === 'classic';
                     var isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
                     var isSupportedEase = !frame.hasCustomEase;
+                    if (this_1.isDebugName(elName)) {
+                        Logger_1.Logger.trace("[FRAME_DBG] '".concat(elName, "' i=").concat(i, " frame.start=").concat(frame.startFrame, " dur=").concat(frame.duration, " tween='").concat(frame.tweenType, "' hasCustomEase=").concat(frame.hasCustomEase, " tweenEasing=").concat(frame.tweenEasing, " labelType=").concat(frame.labelType || '', " label='").concat(frame.name || '', "'"));
+                    }
                     // DEBUG: Detailed Logging for Yellow/Glow/Dash elements
                     if (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1 || elName.toLowerCase().indexOf('dash') !== -1) {
                         var shouldBake = !(!allowBaking || (isClassic && !isGuided && isSupportedEase));
@@ -1646,6 +1734,12 @@ var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logg
 var SpineAnimationHelper = /** @class */ (function () {
     function SpineAnimationHelper() {
     }
+    SpineAnimationHelper.isDebugName = function (name) {
+        if (!name)
+            return false;
+        var n = String(name).toLowerCase();
+        return (n.indexOf('yellow') !== -1 && n.indexOf('glow') !== -1) || (n.indexOf('yellow_glow') !== -1);
+    };
     SpineAnimationHelper.applyBoneAnimation = function (animation, bone, context, transform, time) {
         var timeline = animation.createBoneTimeline(bone);
         var curve = SpineAnimationHelper.obtainFrameCurve(context);
@@ -1690,6 +1784,9 @@ var SpineAnimationHelper = /** @class */ (function () {
         shearFrame.y = transform.shearY - bone.shearY;
         var curveStr = (typeof curve === 'string') ? curve : (curve ? 'bezier' : 'linear');
         Logger_1.Logger.trace("[KEY] Bone '".concat(bone.name, "' at T=").concat(time.toFixed(3), " [").concat(curveStr, "]: rot=").concat(angle.toFixed(2), " pos=(").concat(translateFrame.x.toFixed(2), ", ").concat(translateFrame.y.toFixed(2), ") scale=(").concat(scaleFrame.x.toFixed(2), ", ").concat(scaleFrame.y.toFixed(2), ") shearY=").concat(shearFrame.y.toFixed(2)));
+        if (SpineAnimationHelper.isDebugName(bone.name)) {
+            Logger_1.Logger.trace("[KEY_DBG] Bone '".concat(bone.name, "' raw: rot=").concat(transform.rotation.toFixed(2), " x=").concat(transform.x.toFixed(2), " y=").concat(transform.y.toFixed(2), " sx=").concat(transform.scaleX.toFixed(4), " sy=").concat(transform.scaleY.toFixed(4), " shY=").concat(transform.shearY.toFixed(2), " base: rot=").concat(bone.rotation.toFixed(2), " x=").concat(bone.x.toFixed(2), " y=").concat(bone.y.toFixed(2), " sx=").concat(bone.scaleX.toFixed(4), " sy=").concat(bone.scaleY.toFixed(4), " curve=").concat(curveStr));
+        }
     };
     SpineAnimationHelper.applyBoneTransform = function (bone, transform) {
         bone.x = transform.x;
@@ -1701,7 +1798,7 @@ var SpineAnimationHelper = /** @class */ (function () {
         bone.shearY = transform.shearY;
     };
     SpineAnimationHelper.applySlotAttachment = function (animation, slot, context, attachment, time) {
-        var _a;
+        var _a, _b;
         var timeline = animation.createSlotTimeline(slot);
         var curve = SpineAnimationHelper.obtainFrameCurve(context);
         var attachmentTimeline = timeline.createTimeline("attachment" /* SpineTimelineType.ATTACHMENT */);
@@ -1714,6 +1811,10 @@ var SpineAnimationHelper = /** @class */ (function () {
         var attachmentFrame = attachmentTimeline.createFrame(time, curve);
         attachmentFrame.name = (attachment != null) ? attachment.name : null;
         Logger_1.Logger.trace("[VISIBILITY] Slot '".concat(slot.name, "' -> ").concat(attachmentFrame.name ? attachmentFrame.name : 'HIDDEN', " at Time ").concat(time.toFixed(3), " (Frame: ").concat((_a = context.frame) === null || _a === void 0 ? void 0 : _a.startFrame, ")"));
+        if (SpineAnimationHelper.isDebugName(slot.name) || SpineAnimationHelper.isDebugName(attachmentFrame.name || '')) {
+            var color = context && context.color ? context.color.merge() : '<no-color>';
+            Logger_1.Logger.trace("[VIS_DBG] Slot '".concat(slot.name, "' T=").concat(time.toFixed(3), " frame.start=").concat((_b = context.frame) === null || _b === void 0 ? void 0 : _b.startFrame, " attachment='").concat(attachmentFrame.name ? attachmentFrame.name : 'HIDDEN', "' color=").concat(color, " blend=").concat(context.blendMode));
+        }
         if (context.frame != null && context.frame.startFrame === 0) {
             slot.attachment = attachment;
         }
@@ -1724,6 +1825,10 @@ var SpineAnimationHelper = /** @class */ (function () {
         var colorTimeline = timeline.createTimeline("color" /* SpineTimelineType.COLOR */);
         var colorFrame = colorTimeline.createFrame(time, curve);
         colorFrame.color = color;
+        if (SpineAnimationHelper.isDebugName(slot.name)) {
+            var curveStr = (typeof curve === 'string') ? curve : (curve ? 'bezier' : 'linear');
+            Logger_1.Logger.trace("[COLOR_DBG] Slot '".concat(slot.name, "' T=").concat(time.toFixed(3), " [").concat(curveStr, "] color=").concat(color));
+        }
     };
     SpineAnimationHelper.obtainFrameCurve = function (context) {
         var _a, _b, _c, _d;
@@ -3884,6 +3989,7 @@ var ImageUtil = /** @class */ (function () {
      * Bone's Local Space.
      */
     ImageUtil.calculateAttachmentOffset = function (matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, debugName) {
+        var dbg = (debugName && (debugName.indexOf('yellow') !== -1 || debugName.indexOf('glow') !== -1)) ? true : false;
         // Assumption Check:
         // Animate Registration Point (regPointX, regPointY) is the (0,0) of the symbol data.
         // Animate Transformation Point (transPointX, transPointY) is the visual pivot.
@@ -3893,6 +3999,10 @@ var ImageUtil = /** @class */ (function () {
         var dx = regPointX - transPointX;
         var dy = regPointY - transPointY;
         Logger_1.Logger.trace("[OFFSET] '".concat(debugName || 'anon', "' BoneToReg Vector: (").concat(dx.toFixed(2), ", ").concat(dy.toFixed(2), ")"));
+        if (dbg) {
+            Logger_1.Logger.trace("[OFFSET_DBG] '".concat(debugName, "' Inputs: reg=(").concat(regPointX.toFixed(2), ", ").concat(regPointY.toFixed(2), ") trans=(").concat(transPointX.toFixed(2), ", ").concat(transPointY.toFixed(2), ") center=(").concat(localCenterX, ", ").concat(localCenterY, ")"));
+            Logger_1.Logger.trace("[OFFSET_DBG] '".concat(debugName, "' Matrix: a=").concat(matrix.a.toFixed(4), " b=").concat(matrix.b.toFixed(4), " c=").concat(matrix.c.toFixed(4), " d=").concat(matrix.d.toFixed(4), " tx=").concat(matrix.tx.toFixed(2), " ty=").concat(matrix.ty.toFixed(2)));
+        }
         // 2. Inverse Matrix Calculation
         var a = matrix.a;
         var b = matrix.b;
@@ -3915,6 +4025,14 @@ var ImageUtil = /** @class */ (function () {
         var finalX = localRx + localCenterX;
         var finalY = localRy + localCenterY;
         Logger_1.Logger.trace("[OFFSET] '".concat(debugName || 'anon', "' Final Spine Offset: (").concat(finalX.toFixed(2), ", ").concat(finalY.toFixed(2), ") (localCenter: ").concat(localCenterX, ", ").concat(localCenterY, ")"));
+        if (dbg) {
+            // Sanity check: if regPoint differs from matrix.tx/ty significantly, we are mixing coordinate spaces.
+            var dTx = Math.abs(regPointX - matrix.tx);
+            var dTy = Math.abs(regPointY - matrix.ty);
+            if (dTx > 0.5 || dTy > 0.5) {
+                Logger_1.Logger.trace("[OFFSET_DBG] '".concat(debugName, "' WARNING: regPoint != matrix.t. |dx|=(").concat(dTx.toFixed(2), ", ").concat(dTy.toFixed(2), ")"));
+            }
+        }
         return { x: finalX, y: finalY };
     };
     // Helper for legacy/other paths

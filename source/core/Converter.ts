@@ -149,6 +149,7 @@ export class Converter {
             Logger.trace(`[ATTACH_DBG]   RegUsed=(${regX.toFixed(2)}, ${regY.toFixed(2)}) TransUsed=(${transX.toFixed(2)}, ${transY.toFixed(2)}) TP_Local=(${e.transformationPoint?.x?.toFixed ? e.transformationPoint.x.toFixed(2) : 'NA'}, ${e.transformationPoint?.y?.toFixed ? e.transformationPoint.y.toFixed(2) : 'NA'})`);
             Logger.trace(`[ATTACH_DBG]   ElementReg=(${e.x?.toFixed ? e.x.toFixed(2) : 'NA'}, ${e.y?.toFixed ? e.y.toFixed(2) : 'NA'}) ElementTrans=(${e.transformX?.toFixed ? e.transformX.toFixed(2) : 'NA'}, ${e.transformY?.toFixed ? e.transformY.toFixed(2) : 'NA'})`);
             Logger.trace(`[ATTACH_DBG]   MatUsed: a=${cm.a.toFixed(4)} b=${cm.b.toFixed(4)} c=${cm.c.toFixed(4)} d=${cm.d.toFixed(4)} tx=${cm.tx.toFixed(2)} ty=${cm.ty.toFixed(2)}`);
+            Logger.trace(`[ATTACH_DBG]   Image: path='${spineImage.path}' w=${spineImage.width} h=${spineImage.height} scale=${spineImage.scale} center=(${spineImage.imageCenterOffsetX}, ${spineImage.imageCenterOffsetY})`);
         }
 
         const requiredOffset = ImageUtil.calculateAttachmentOffset(
@@ -256,9 +257,17 @@ export class Converter {
             const el = context.element;
             const layer = el.layer;
             const frame = context.frame; 
-            if (!layer || !frame) return undefined;
+            const debugName = this.getElementDebugName(el);
+            const debug = this.isDebugName(debugName) || this.isDebugName(context.symbolPath);
+            if (!layer || !frame) {
+                if (debug) {
+                    Logger.trace(`[HINT_DBG] No layer/frame for '${debugName}'. layer=${layer ? layer.name : '<null>'} frame=${frame ? frame.startFrame : '<null>'} Path='${context.symbolPath}'`);
+                }
+                return undefined;
+            }
 
             let timeline: FlashTimeline | null = null;
+            let timelineSource = '';
 
             // Prefer the active (live) timeline: this works both on stage and in edit mode.
             // It also fixes nested symbol sampling where walking parent.libraryItem.timeline
@@ -269,6 +278,7 @@ export class Converter {
                     for (let i = 0; i < activeTl.layers.length; i++) {
                         if (activeTl.layers[i] === layer) {
                             timeline = activeTl;
+                            timelineSource = `active:${activeTl.name}`;
                             break;
                         }
                     }
@@ -287,6 +297,7 @@ export class Converter {
                         for(let i=0; i<tl.layers.length; i++) {
                             if (tl.layers[i] === layer) {
                                 timeline = tl;
+                                timelineSource = `ancestor:${tl.name}`;
                                 break;
                             }
                         }
@@ -296,7 +307,19 @@ export class Converter {
                 }
             }
             
-            if (!timeline) return undefined;
+            if (!timeline) {
+                if (debug) {
+                    try {
+                        const activeTl = this._document.getTimeline();
+                        const activeName = activeTl ? activeTl.name : '<null>';
+                        const activeLayers = activeTl && activeTl.layers ? activeTl.layers.length : 0;
+                        Logger.trace(`[HINT_DBG] Failed to resolve timeline for '${debugName}'. ActiveTL='${activeName}' layers=${activeLayers}. Layer='${layer.name}'. Frame.start=${frame.startFrame}. Path='${context.symbolPath}'`);
+                    } catch (eTl) {
+                        Logger.trace(`[HINT_DBG] Failed to resolve timeline for '${debugName}'. Layer='${layer.name}'. Frame.start=${frame.startFrame}. Path='${context.symbolPath}'`);
+                    }
+                }
+                return undefined;
+            }
 
             let layerIndex = -1;
             for (let i = 0; i < timeline.layers.length; i++) {
@@ -305,7 +328,13 @@ export class Converter {
                     break;
                 }
             }
-            if (layerIndex === -1) return undefined;
+            if (layerIndex === -1) {
+                if (debug) {
+                    const tlName = (timeline as any).name || '<unknown>';
+                    Logger.trace(`[HINT_DBG] Timeline resolved (${timelineSource}) but layer not found. TL='${tlName}' layers=${timeline.layers.length} wantedLayer='${layer.name}' Path='${context.symbolPath}'`);
+                }
+                return undefined;
+            }
 
             let elementIndex = -1;
             if (frame.elements) {
@@ -316,7 +345,26 @@ export class Converter {
                      }
                 }
             }
-            if (elementIndex === -1) return undefined;
+            if (elementIndex === -1) {
+                if (debug) {
+                    const tlName = (timeline as any).name || '<unknown>';
+                    const elems = frame.elements || [];
+                    const list: string[] = [];
+                    for (let i = 0; i < elems.length && i < 8; i++) {
+                        const ee:any = elems[i];
+                        const n = this.getElementDebugName(ee);
+                        list.push(`${i}:${n}:${ee.elementType}${ee.instanceType ? '/' + ee.instanceType : ''}`);
+                    }
+                    Logger.trace(`[HINT_DBG] Layer ok (idx=${layerIndex}) but element not found by identity. TL='${tlName}' (${timelineSource}) frame.start=${frame.startFrame} frameIdx=${(timeline as any).currentFrame} elems=${elems.length} [${list.join(', ')}] wanted='${debugName}'`);
+                }
+                return undefined;
+            }
+
+            if (debug) {
+                const tlName = (timeline as any).name || '<unknown>';
+                const cf = (timeline as any).currentFrame;
+                Logger.trace(`[HINT_DBG] Resolved (${timelineSource}) '${debugName}': tl='${tlName}' cf=${cf} layerIdx=${layerIndex} elIdx=${elementIndex} frame.start=${frame.startFrame} Path='${context.symbolPath}'`);
+            }
 
             return {
                 layerIndex: layerIndex,
@@ -466,6 +514,12 @@ export class Converter {
         
         try {
             timeline.currentFrame = frameIndex;
+            const isDbg = this.shouldDebugElement(context, context.element, undefined);
+
+            if (isDbg) {
+                Logger.trace(`    [LIVE_DBG] Enter '${this.getElementDebugName(context.element)}' frame=${frameIndex} tl='${timeline.name}' cf=${timeline.currentFrame} editModeTl='${this._document.getTimeline().name}' Path='${context.symbolPath}'`);
+            }
+
             const hints = this.createSelectionHints(context);
             if (!hints) {
                 const dn = this.getElementDebugName(context.element);
@@ -474,8 +528,6 @@ export class Converter {
                 }
                 return null;
             }
-
-            const isDbg = this.shouldDebugElement(context, context.element, undefined);
             if (isDbg) {
                 Logger.trace(`    [LIVE_DBG] Hints for '${this.getElementDebugName(context.element)}' @${frameIndex}: layerIdx=${hints.layerIndex} frameIdx=${hints.frameIndex} elIdx=${hints.elementIndex} tl='${timeline.name}'`);
             }
@@ -493,6 +545,18 @@ export class Converter {
                 layer.locked = wasLocked;
                 layer.visible = wasVisible;
                 return null;
+            }
+
+            if (isDbg) {
+                const elems = frame.elements || [];
+                const list: string[] = [];
+                for (let i = 0; i < elems.length && i < 10; i++) {
+                    const ee:any = elems[i];
+                    const n = this.getElementDebugName(ee);
+                    const m:any = ee.matrix;
+                    list.push(`${i}:${n}:${ee.elementType}${ee.instanceType ? '/' + ee.instanceType : ''}(tx=${m?.tx?.toFixed ? m.tx.toFixed(2) : 'NA'} ty=${m?.ty?.toFixed ? m.ty.toFixed(2) : 'NA'})`);
+                }
+                Logger.trace(`    [LIVE_DBG] Frame snapshot: layer='${layer.name}' frame.start=${frame.startFrame} tween='${frame.tweenType}' elems=${elems.length} [${list.join(', ')}]`);
             }
 
             const el = frame.elements[hints.elementIndex];
@@ -537,11 +601,29 @@ export class Converter {
                 Logger.trace(`    [LIVE_DBG] Selection count=${dom.selection.length} after select for '${this.getElementDebugName(el)}' @${frameIndex}`);
             }
 
+            // Additional fallback: if selection is empty, try selecting by layer+frame range.
+            if (dom.selection.length === 0) {
+                try {
+                    // Attempt to force-refresh selection by selecting the exact frame range.
+                    timeline.setSelectedLayers(hints.layerIndex);
+                    timeline.setSelectedFrames(frameIndex, frameIndex + 1);
+                    dom.selectNone();
+                    el.selected = true;
+                    if (dom.selection.length === 0) dom.selection = [el];
+                    if (isDbg) {
+                        Logger.trace(`    [LIVE_DBG] After layer/frame select fallback: selection=${dom.selection.length} @${frameIndex}`);
+                    }
+                } catch (eSel) {
+                    if (isDbg) Logger.trace(`    [LIVE_DBG] Layer/frame select fallback failed: ${eSel}`);
+                }
+            }
+
             if (dom.selection.length > 0) {
                 const selected = dom.selection[0];
                 if (isDbg) {
                     const sm:any = selected.matrix as any;
                     Logger.trace(`    [LIVE_DBG] Selected '${this.getElementDebugName(selected)}' @${frameIndex}: tx=${sm.tx.toFixed(2)} ty=${sm.ty.toFixed(2)} a=${sm.a.toFixed(4)} d=${sm.d.toFixed(4)} alpha=${(selected as any).colorAlphaPercent}`);
+                    Logger.trace(`    [LIVE_DBG] Selected props: x=${(selected as any).x?.toFixed ? (selected as any).x.toFixed(2) : 'NA'} y=${(selected as any).y?.toFixed ? (selected as any).y.toFixed(2) : 'NA'} transform=(${(selected as any).transformX?.toFixed ? (selected as any).transformX.toFixed(2) : 'NA'}, ${(selected as any).transformY?.toFixed ? (selected as any).transformY.toFixed(2) : 'NA'}) pivot=(${(selected as any).transformationPoint?.x?.toFixed ? (selected as any).transformationPoint.x.toFixed(2) : 'NA'}, ${(selected as any).transformationPoint?.y?.toFixed ? (selected as any).transformationPoint.y.toFixed(2) : 'NA'}) colorMode=${(selected as any).colorMode}`);
                 }
                 const res = {
                     matrix: selected.matrix,
@@ -770,6 +852,14 @@ export class Converter {
                     } else {
                         Logger.trace(`${indent}    [LIVE] Sampling failed for '${elName}' at frame ${start}. Using context matrix.`);
                     }
+
+                    if (this.isDebugName(elName)) {
+                        const m:any = el.matrix;
+                        const mo:any = matrixOverride as any;
+                        const px = positionOverride ? positionOverride.x.toFixed(2) : 'NA';
+                        const py = positionOverride ? positionOverride.y.toFixed(2) : 'NA';
+                        Logger.trace(`${indent}    [FLATTEN_DBG] '${elName}' frame=${start} ctxTime=${context.time.toFixed(3)} timeOffset=${context.timeOffset.toFixed(3)} el.matrix(tx=${m.tx.toFixed(2)} ty=${m.ty.toFixed(2)} a=${m.a.toFixed(4)} d=${m.d.toFixed(4)}) override=${mo ? `tx=${mo.tx.toFixed(2)} ty=${mo.ty.toFixed(2)} a=${mo.a.toFixed(4)} d=${mo.d.toFixed(4)}` : 'none'} posOverride=(${px}, ${py})`);
+                    }
                 }
 
                 // FIX: When flattening, we pass 0 as time because context.time is already absolute for Spine.
@@ -834,6 +924,10 @@ export class Converter {
                     const isClassic = frame.tweenType === 'classic';
                     const isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
                     let isSupportedEase = !frame.hasCustomEase;
+
+                    if (this.isDebugName(elName)) {
+                        Logger.trace(`[FRAME_DBG] '${elName}' i=${i} frame.start=${frame.startFrame} dur=${frame.duration} tween='${frame.tweenType}' hasCustomEase=${frame.hasCustomEase} tweenEasing=${(frame as any).tweenEasing} labelType=${frame.labelType || ''} label='${frame.name || ''}'`);
+                    }
 
                     // DEBUG: Detailed Logging for Yellow/Glow/Dash elements
                     if (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1 || elName.toLowerCase().indexOf('dash') !== -1) {
