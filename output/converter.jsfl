@@ -36,6 +36,34 @@ var Converter = /** @class */ (function () {
             indent += "  ";
         return indent;
     };
+    // Debug helpers (kept lightweight; logs can get very large in JSFL).
+    Converter.prototype.isDebugName = function (name) {
+        if (!name)
+            return false;
+        var n = String(name).toLowerCase();
+        // Focus on the current reported issue: yellow glow animation + attachment variants.
+        // Keep this conservative to avoid flooding output for unrelated exports.
+        return (n.indexOf('yellow') !== -1 && n.indexOf('glow') !== -1) || (n.indexOf('yellow_glow') !== -1);
+    };
+    Converter.prototype.getElementDebugName = function (el) {
+        if (!el)
+            return '<null>';
+        var n = el.name;
+        var lib = el.libraryItem ? el.libraryItem.name : '';
+        return (n && n.length) ? n : (lib && lib.length ? lib : '<anon>');
+    };
+    Converter.prototype.shouldDebugElement = function (context, el, baseImageName) {
+        var _a;
+        if (this.isDebugName(baseImageName))
+            return true;
+        if (this.isDebugName(this.getElementDebugName(el)))
+            return true;
+        if (this.isDebugName((_a = el.libraryItem) === null || _a === void 0 ? void 0 : _a.name))
+            return true;
+        if (context && this.isDebugName(context.symbolPath))
+            return true;
+        return false;
+    };
     Converter.prototype.safelyExportImage = function (context, exportAction) {
         var containerItem = null;
         var curr = context.parent;
@@ -70,6 +98,7 @@ var Converter = /** @class */ (function () {
         }
     };
     Converter.prototype.convertElementSlot = function (context, exportTarget, imageExportFactory) {
+        var _a, _b, _c, _d, _e, _f, _g, _h;
         var baseImageName = context.global.shapesCache.get(exportTarget);
         if (baseImageName == null) {
             baseImageName = ConvertUtil_1.ConvertUtil.createAttachmentName(context.element, context);
@@ -106,6 +135,17 @@ var Converter = /** @class */ (function () {
             transX = context.positionOverride.x;
             transY = context.positionOverride.y;
         }
+        var debug = this.shouldDebugElement(context, element, baseImageName);
+        var elDebugName = this.getElementDebugName(element);
+        if (debug) {
+            var cm = calcMatrix;
+            var e = element;
+            Logger_1.Logger.trace("[ATTACH_DBG] '".concat(elDebugName, "' Base='").concat(baseImageName, "' Stage=").concat(context.global.stageType, " Depth=").concat(context.recursionDepth, " T=").concat(context.time.toFixed(3), " Path='").concat(context.symbolPath, "'"));
+            Logger_1.Logger.trace("[ATTACH_DBG]   Overrides: matrix=".concat(context.matrixOverride ? 'Y' : 'N', " pos=").concat(context.positionOverride ? 'Y' : 'N', " color=").concat(context.colorOverride ? 'Y' : 'N'));
+            Logger_1.Logger.trace("[ATTACH_DBG]   RegUsed=(".concat(regX.toFixed(2), ", ").concat(regY.toFixed(2), ") TransUsed=(").concat(transX.toFixed(2), ", ").concat(transY.toFixed(2), ") TP_Local=(").concat(((_b = (_a = e.transformationPoint) === null || _a === void 0 ? void 0 : _a.x) === null || _b === void 0 ? void 0 : _b.toFixed) ? e.transformationPoint.x.toFixed(2) : 'NA', ", ").concat(((_d = (_c = e.transformationPoint) === null || _c === void 0 ? void 0 : _c.y) === null || _d === void 0 ? void 0 : _d.toFixed) ? e.transformationPoint.y.toFixed(2) : 'NA', ")"));
+            Logger_1.Logger.trace("[ATTACH_DBG]   ElementReg=(".concat(((_e = e.x) === null || _e === void 0 ? void 0 : _e.toFixed) ? e.x.toFixed(2) : 'NA', ", ").concat(((_f = e.y) === null || _f === void 0 ? void 0 : _f.toFixed) ? e.y.toFixed(2) : 'NA', ") ElementTrans=(").concat(((_g = e.transformX) === null || _g === void 0 ? void 0 : _g.toFixed) ? e.transformX.toFixed(2) : 'NA', ", ").concat(((_h = e.transformY) === null || _h === void 0 ? void 0 : _h.toFixed) ? e.transformY.toFixed(2) : 'NA', ")"));
+            Logger_1.Logger.trace("[ATTACH_DBG]   MatUsed: a=".concat(cm.a.toFixed(4), " b=").concat(cm.b.toFixed(4), " c=").concat(cm.c.toFixed(4), " d=").concat(cm.d.toFixed(4), " tx=").concat(cm.tx.toFixed(2), " ty=").concat(cm.ty.toFixed(2)));
+        }
         var requiredOffset = ImageUtil_1.ImageUtil.calculateAttachmentOffset(calcMatrix, regX, regY, transX, transY, spineImage.imageCenterOffsetX, spineImage.imageCenterOffsetY, baseImageName);
         var spineOffsetX = requiredOffset.x;
         var spineOffsetY = requiredOffset.y;
@@ -119,12 +159,23 @@ var Converter = /** @class */ (function () {
             // We want the first encounter of this asset to define the "canonical" offset.
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: baseImageName });
             context.global.attachmentVariants.set(baseImageName, variants);
+            if (debug) {
+                Logger_1.Logger.trace("[VARIANT_DBG] Init '".concat(baseImageName, "': canonicalOffset=(").concat(spineOffsetX.toFixed(2), ", ").concat(spineOffsetY.toFixed(2), ") tol=").concat(TOLERANCE));
+            }
         }
         var found = false;
+        var bestDx = Number.POSITIVE_INFINITY;
+        var bestDy = Number.POSITIVE_INFINITY;
+        var bestName = '';
         for (var _i = 0, variants_1 = variants; _i < variants_1.length; _i++) {
             var v = variants_1[_i];
             var dx = Math.abs(v.x - spineOffsetX);
             var dy = Math.abs(v.y - spineOffsetY);
+            if (dx + dy < bestDx + bestDy) {
+                bestDx = dx;
+                bestDy = dy;
+                bestName = v.name;
+            }
             if (dx < TOLERANCE && dy < TOLERANCE) {
                 finalAttachmentName = v.name;
                 found = true;
@@ -134,11 +185,17 @@ var Converter = /** @class */ (function () {
         if (!found) {
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
-            // DEBUG: Log why variance failed
-            // Logger.trace(`[VARIANT] New variant created: ${finalAttachmentName} for ${baseImageName}. Diff > ${TOLERANCE}`);
+            if (debug) {
+                Logger_1.Logger.trace("[VARIANT_DBG] New '".concat(finalAttachmentName, "' for '").concat(baseImageName, "': offset=(").concat(spineOffsetX.toFixed(2), ", ").concat(spineOffsetY.toFixed(2), ") nearest='").concat(bestName, "' dx=").concat(bestDx.toFixed(2), " dy=").concat(bestDy.toFixed(2), " tol=").concat(TOLERANCE, " totalVariants=").concat(variants.length));
+            }
         }
         else {
-            // Logger.trace(`[VARIANT] Matched variant: ${finalAttachmentName} for ${baseImageName}`);
+            if (debug) {
+                Logger_1.Logger.trace("[VARIANT_DBG] Match '".concat(finalAttachmentName, "' for '").concat(baseImageName, "': offset=(").concat(spineOffsetX.toFixed(2), ", ").concat(spineOffsetY.toFixed(2), ") nearest='").concat(bestName, "' dx=").concat(bestDx.toFixed(2), " dy=").concat(bestDy.toFixed(2), " tol=").concat(TOLERANCE, " totalVariants=").concat(variants.length));
+            }
+        }
+        if (debug) {
+            Logger_1.Logger.trace("[ATTACH_DBG]   SpineOffset=(".concat(spineOffsetX.toFixed(2), ", ").concat(spineOffsetY.toFixed(2), ") FinalAttachment='").concat(finalAttachmentName, "' Variants=").concat(variants.length));
         }
         var subcontext = context.createSlot(context.element);
         var slot = subcontext.slot;
@@ -338,7 +395,15 @@ var Converter = /** @class */ (function () {
             timeline.currentFrame = frameIndex;
             var hints = this.createSelectionHints(context);
             if (!hints) {
+                var dn = this.getElementDebugName(context.element);
+                if (this.isDebugName(dn) || this.isDebugName(context.symbolPath)) {
+                    Logger_1.Logger.trace("    [LIVE_DBG] No selection hints for '".concat(dn, "' at frame ").concat(frameIndex, ". Path='").concat(context.symbolPath, "'"));
+                }
                 return null;
+            }
+            var isDbg = this.shouldDebugElement(context, context.element, undefined);
+            if (isDbg) {
+                Logger_1.Logger.trace("    [LIVE_DBG] Hints for '".concat(this.getElementDebugName(context.element), "' @").concat(frameIndex, ": layerIdx=").concat(hints.layerIndex, " frameIdx=").concat(hints.frameIndex, " elIdx=").concat(hints.elementIndex, " tl='").concat(timeline.name, "'"));
             }
             // Aggressively ensure the layer is visible and unlocked for selection
             var layer = timeline.layers[hints.layerIndex];
@@ -360,13 +425,24 @@ var Converter = /** @class */ (function () {
                 layer.visible = wasVisible;
                 return null;
             }
+            if (isDbg) {
+                var elName = this.getElementDebugName(el);
+                Logger_1.Logger.trace("    [LIVE_DBG] FrameEl '".concat(elName, "' type=").concat(el.elementType, "/").concat(el.instanceType || '', " layer='").concat(layer.name, "' frame.start=").concat(frame.startFrame, " tween='").concat(frame.tweenType, "'"));
+            }
             el.selected = true;
             // Selection sometimes fails in JSFL if not forced
             if (dom.selection.length === 0) {
                 dom.selection = [el];
             }
+            if (isDbg) {
+                Logger_1.Logger.trace("    [LIVE_DBG] Selection count=".concat(dom.selection.length, " after select for '").concat(this.getElementDebugName(el), "' @").concat(frameIndex));
+            }
             if (dom.selection.length > 0) {
                 var selected = dom.selection[0];
+                if (isDbg) {
+                    var sm = selected.matrix;
+                    Logger_1.Logger.trace("    [LIVE_DBG] Selected '".concat(this.getElementDebugName(selected), "' @").concat(frameIndex, ": tx=").concat(sm.tx.toFixed(2), " ty=").concat(sm.ty.toFixed(2), " a=").concat(sm.a.toFixed(4), " d=").concat(sm.d.toFixed(4), " alpha=").concat(selected.colorAlphaPercent));
+                }
                 var res = {
                     matrix: selected.matrix,
                     transformX: selected.transformX,

@@ -39,6 +39,30 @@ export class Converter {
         return indent;
     }
 
+    // Debug helpers (kept lightweight; logs can get very large in JSFL).
+    private isDebugName(name: string | null | undefined): boolean {
+        if (!name) return false;
+        const n = String(name).toLowerCase();
+        // Focus on the current reported issue: yellow glow animation + attachment variants.
+        // Keep this conservative to avoid flooding output for unrelated exports.
+        return (n.indexOf('yellow') !== -1 && n.indexOf('glow') !== -1) || (n.indexOf('yellow_glow') !== -1);
+    }
+
+    private getElementDebugName(el: FlashElement | null | undefined): string {
+        if (!el) return '<null>';
+        const n = (el as any).name;
+        const lib = (el as any).libraryItem ? (el as any).libraryItem.name : '';
+        return (n && n.length) ? n : (lib && lib.length ? lib : '<anon>');
+    }
+
+    private shouldDebugElement(context: ConverterContext, el: FlashElement, baseImageName?: string): boolean {
+        if (this.isDebugName(baseImageName)) return true;
+        if (this.isDebugName(this.getElementDebugName(el))) return true;
+        if (this.isDebugName((el as any).libraryItem?.name)) return true;
+        if (context && this.isDebugName(context.symbolPath)) return true;
+        return false;
+    }
+
     private safelyExportImage(context: ConverterContext, exportAction: () => SpineImage): SpineImage {
         let containerItem: FlashItem | null = null;
         let curr = context.parent;
@@ -115,6 +139,18 @@ export class Converter {
             transY = context.positionOverride.y;
         }
 
+        const debug = this.shouldDebugElement(context, element, baseImageName);
+        const elDebugName = this.getElementDebugName(element);
+        if (debug) {
+            const cm:any = calcMatrix as any;
+            const e:any = element as any;
+            Logger.trace(`[ATTACH_DBG] '${elDebugName}' Base='${baseImageName}' Stage=${context.global.stageType} Depth=${context.recursionDepth} T=${context.time.toFixed(3)} Path='${context.symbolPath}'`);
+            Logger.trace(`[ATTACH_DBG]   Overrides: matrix=${context.matrixOverride ? 'Y' : 'N'} pos=${context.positionOverride ? 'Y' : 'N'} color=${context.colorOverride ? 'Y' : 'N'}`);
+            Logger.trace(`[ATTACH_DBG]   RegUsed=(${regX.toFixed(2)}, ${regY.toFixed(2)}) TransUsed=(${transX.toFixed(2)}, ${transY.toFixed(2)}) TP_Local=(${e.transformationPoint?.x?.toFixed ? e.transformationPoint.x.toFixed(2) : 'NA'}, ${e.transformationPoint?.y?.toFixed ? e.transformationPoint.y.toFixed(2) : 'NA'})`);
+            Logger.trace(`[ATTACH_DBG]   ElementReg=(${e.x?.toFixed ? e.x.toFixed(2) : 'NA'}, ${e.y?.toFixed ? e.y.toFixed(2) : 'NA'}) ElementTrans=(${e.transformX?.toFixed ? e.transformX.toFixed(2) : 'NA'}, ${e.transformY?.toFixed ? e.transformY.toFixed(2) : 'NA'})`);
+            Logger.trace(`[ATTACH_DBG]   MatUsed: a=${cm.a.toFixed(4)} b=${cm.b.toFixed(4)} c=${cm.c.toFixed(4)} d=${cm.d.toFixed(4)} tx=${cm.tx.toFixed(2)} ty=${cm.ty.toFixed(2)}`);
+        }
+
         const requiredOffset = ImageUtil.calculateAttachmentOffset(
             calcMatrix,
             regX, regY,
@@ -137,12 +173,24 @@ export class Converter {
             // We want the first encounter of this asset to define the "canonical" offset.
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: baseImageName });
             context.global.attachmentVariants.set(baseImageName, variants);
+
+            if (debug) {
+                Logger.trace(`[VARIANT_DBG] Init '${baseImageName}': canonicalOffset=(${spineOffsetX.toFixed(2)}, ${spineOffsetY.toFixed(2)}) tol=${TOLERANCE}`);
+            }
         }
         
         let found = false;
+        let bestDx = Number.POSITIVE_INFINITY;
+        let bestDy = Number.POSITIVE_INFINITY;
+        let bestName = '';
         for (const v of variants) {
             const dx = Math.abs(v.x - spineOffsetX);
             const dy = Math.abs(v.y - spineOffsetY);
+            if (dx + dy < bestDx + bestDy) {
+                bestDx = dx;
+                bestDy = dy;
+                bestName = v.name;
+            }
 
             if (dx < TOLERANCE && dy < TOLERANCE) {
                 finalAttachmentName = v.name;
@@ -154,11 +202,18 @@ export class Converter {
         if (!found) {
             finalAttachmentName = baseImageName + '_' + (variants.length + 1);
             variants.push({ x: spineOffsetX, y: spineOffsetY, name: finalAttachmentName });
-            
-            // DEBUG: Log why variance failed
-            // Logger.trace(`[VARIANT] New variant created: ${finalAttachmentName} for ${baseImageName}. Diff > ${TOLERANCE}`);
+
+            if (debug) {
+                Logger.trace(`[VARIANT_DBG] New '${finalAttachmentName}' for '${baseImageName}': offset=(${spineOffsetX.toFixed(2)}, ${spineOffsetY.toFixed(2)}) nearest='${bestName}' dx=${bestDx.toFixed(2)} dy=${bestDy.toFixed(2)} tol=${TOLERANCE} totalVariants=${variants.length}`);
+            }
         } else {
-            // Logger.trace(`[VARIANT] Matched variant: ${finalAttachmentName} for ${baseImageName}`);
+            if (debug) {
+                Logger.trace(`[VARIANT_DBG] Match '${finalAttachmentName}' for '${baseImageName}': offset=(${spineOffsetX.toFixed(2)}, ${spineOffsetY.toFixed(2)}) nearest='${bestName}' dx=${bestDx.toFixed(2)} dy=${bestDy.toFixed(2)} tol=${TOLERANCE} totalVariants=${variants.length}`);
+            }
+        }
+
+        if (debug) {
+            Logger.trace(`[ATTACH_DBG]   SpineOffset=(${spineOffsetX.toFixed(2)}, ${spineOffsetY.toFixed(2)}) FinalAttachment='${finalAttachmentName}' Variants=${variants.length}`);
         }
 
         const subcontext = context.createSlot(context.element);
@@ -389,7 +444,16 @@ export class Converter {
             timeline.currentFrame = frameIndex;
             const hints = this.createSelectionHints(context);
             if (!hints) {
+                const dn = this.getElementDebugName(context.element);
+                if (this.isDebugName(dn) || this.isDebugName(context.symbolPath)) {
+                    Logger.trace(`    [LIVE_DBG] No selection hints for '${dn}' at frame ${frameIndex}. Path='${context.symbolPath}'`);
+                }
                 return null;
+            }
+
+            const isDbg = this.shouldDebugElement(context, context.element, undefined);
+            if (isDbg) {
+                Logger.trace(`    [LIVE_DBG] Hints for '${this.getElementDebugName(context.element)}' @${frameIndex}: layerIdx=${hints.layerIndex} frameIdx=${hints.frameIndex} elIdx=${hints.elementIndex} tl='${timeline.name}'`);
             }
 
             // Aggressively ensure the layer is visible and unlocked for selection
@@ -414,6 +478,11 @@ export class Converter {
                 layer.visible = wasVisible;
                 return null;
             }
+
+            if (isDbg) {
+                const elName = this.getElementDebugName(el);
+                Logger.trace(`    [LIVE_DBG] FrameEl '${elName}' type=${(el as any).elementType}/${(el as any).instanceType || ''} layer='${layer.name}' frame.start=${frame.startFrame} tween='${frame.tweenType}'`);
+            }
             
             el.selected = true;
             
@@ -422,8 +491,16 @@ export class Converter {
                 dom.selection = [el];
             }
 
+            if (isDbg) {
+                Logger.trace(`    [LIVE_DBG] Selection count=${dom.selection.length} after select for '${this.getElementDebugName(el)}' @${frameIndex}`);
+            }
+
             if (dom.selection.length > 0) {
                 const selected = dom.selection[0];
+                if (isDbg) {
+                    const sm:any = selected.matrix as any;
+                    Logger.trace(`    [LIVE_DBG] Selected '${this.getElementDebugName(selected)}' @${frameIndex}: tx=${sm.tx.toFixed(2)} ty=${sm.ty.toFixed(2)} a=${sm.a.toFixed(4)} d=${sm.d.toFixed(4)} alpha=${(selected as any).colorAlphaPercent}`);
+                }
                 const res = {
                     matrix: selected.matrix,
                     transformX: selected.transformX,
