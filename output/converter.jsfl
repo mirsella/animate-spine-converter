@@ -516,9 +516,11 @@ var Converter = /** @class */ (function () {
                         var cand = frame.elements[i];
                         if (this.getElementDebugName(cand) === expectedName) {
                             // Override the target element for selection.
+                            var prevIdx = hints.elementIndex;
                             hints.elementIndex = i;
+                            el = cand;
                             if (isDbg)
-                                Logger_1.Logger.trace("    [LIVE_DBG] elementIndex remap: ".concat(hints.elementIndex, " -> ").concat(i, " (name match '").concat(expectedName, "')"));
+                                Logger_1.Logger.trace("    [LIVE_DBG] elementIndex remap: ".concat(prevIdx, " -> ").concat(i, " (name match '").concat(expectedName, "')"));
                             break;
                         }
                     }
@@ -577,6 +579,75 @@ var Converter = /** @class */ (function () {
             }
             else {
                 Logger_1.Logger.trace("    [LIVE] Selection failed for '".concat(el.name || '<anon>', "' at frame ").concat(frameIndex, " even after forcing."));
+            }
+            // Motion tweens (and some other tween types) do not reliably expose interpolated
+            // matrices via DOM selection in JSFL. When selection fails on a motion span,
+            // bake THIS frame into a keyframe (F6-equivalent) and read the baked element.
+            if (frame && frame.tweenType === 'motion') {
+                try {
+                    if (isDbg) {
+                        Logger_1.Logger.trace("    [LIVE_DBG] Motion tween selection failed. Baking keyframe at ".concat(frameIndex, " (spanStart=").concat(frame.startFrame, " dur=").concat(frame.duration, ")."));
+                    }
+                    if (dom.livePreview !== undefined) {
+                        try {
+                            dom.livePreview = true;
+                        }
+                        catch (e) { }
+                    }
+                    try {
+                        timeline.setSelectedLayers(hints.layerIndex);
+                    }
+                    catch (e) { }
+                    try {
+                        timeline.setSelectedFrames(frameIndex, frameIndex + 1);
+                    }
+                    catch (e) { }
+                    // Convert the selected frame to a keyframe (bake interpolation)
+                    try {
+                        timeline.convertToKeyframes();
+                    }
+                    catch (e) {
+                        if (isDbg)
+                            Logger_1.Logger.trace("    [LIVE_DBG] convertToKeyframes failed at ".concat(frameIndex, ": ").concat(e));
+                    }
+                    var bakedLayer = timeline.layers[hints.layerIndex];
+                    var bakedFrame = bakedLayer ? bakedLayer.frames[frameIndex] : null;
+                    if (bakedFrame && bakedFrame.elements && bakedFrame.elements.length > 0) {
+                        var bakedEl = bakedFrame.elements[hints.elementIndex] || bakedFrame.elements[0];
+                        if (bakedFrame.elements.length > 1) {
+                            var expected = this.getElementDebugName(context.element);
+                            for (var i = 0; i < bakedFrame.elements.length; i++) {
+                                var cand = bakedFrame.elements[i];
+                                if (this.getElementDebugName(cand) === expected) {
+                                    bakedEl = cand;
+                                    break;
+                                }
+                            }
+                        }
+                        if (isDbg) {
+                            var bm = bakedEl.matrix;
+                            Logger_1.Logger.trace("    [LIVE_DBG] BakedEl '".concat(this.getElementDebugName(bakedEl), "' @").concat(frameIndex, ": tx=").concat(bm.tx.toFixed(2), " ty=").concat(bm.ty.toFixed(2), " a=").concat(bm.a.toFixed(4), " d=").concat(bm.d.toFixed(4), " alpha=").concat(bakedEl.colorAlphaPercent, " mode=").concat(bakedEl.colorMode));
+                        }
+                        var res = {
+                            matrix: bakedEl.matrix,
+                            transformX: bakedEl.transformX,
+                            transformY: bakedEl.transformY,
+                            colorAlpha: bakedEl.colorAlphaPercent,
+                            colorRed: bakedEl.colorRedPercent,
+                            colorMode: bakedEl.colorMode
+                        };
+                        layer.locked = wasLocked;
+                        layer.visible = wasVisible;
+                        return res;
+                    }
+                    else if (isDbg) {
+                        Logger_1.Logger.trace("    [LIVE_DBG] Bake produced no elements at ".concat(frameIndex, " (layer='").concat(layer.name, "')."));
+                    }
+                }
+                catch (eBake) {
+                    if (isDbg)
+                        Logger_1.Logger.trace("    [LIVE_DBG] Motion bake fallback failed at ".concat(frameIndex, ": ").concat(eBake));
+                }
             }
             layer.locked = wasLocked;
             layer.visible = wasVisible;
@@ -755,6 +826,7 @@ var Converter = /** @class */ (function () {
                 var el = frame.elements[eIdx];
                 var matrixOverride = null;
                 var positionOverride = null;
+                var colorOverride = null;
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     var elName = el.name || ((_a = el.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
                     // SAVE CONTEXT STATE: getLiveTransform uses switchContext... which mutates the context
@@ -768,6 +840,21 @@ var Converter = /** @class */ (function () {
                         Logger_1.Logger.trace("".concat(indent, "    [LIVE] Sampled '").concat(elName, "' at frame ").concat(start, ": tx=").concat(live.matrix.tx.toFixed(2), " ty=").concat(live.matrix.ty.toFixed(2)));
                         matrixOverride = live.matrix;
                         positionOverride = { x: live.transformX, y: live.transformY };
+                        // Capture live color (alpha/tint) for nested symbols too.
+                        // Without this, nested motion tweens often snap opacity at the end.
+                        if (live.colorMode) {
+                            colorOverride = {
+                                visible: el.visible !== undefined ? el.visible : true,
+                                alphaPercent: live.colorAlpha !== undefined ? live.colorAlpha : 100,
+                                alphaAmount: 0,
+                                redPercent: live.colorRed !== undefined ? live.colorRed : 100,
+                                redAmount: 0,
+                                greenPercent: 100,
+                                greenAmount: 0,
+                                bluePercent: 100,
+                                blueAmount: 0
+                            };
+                        }
                     }
                     else {
                         Logger_1.Logger.trace("".concat(indent, "    [LIVE] Sampling failed for '").concat(elName, "' at frame ").concat(start, ". Using context matrix."));
@@ -781,7 +868,7 @@ var Converter = /** @class */ (function () {
                     }
                 }
                 // FIX: When flattening, we pass 0 as time because context.time is already absolute for Spine.
-                var sub = context.switchContextFrame(frame).createBone(el, 0, matrixOverride, positionOverride);
+                var sub = context.switchContextFrame(frame).createBone(el, 0, matrixOverride, positionOverride, colorOverride);
                 sub.internalFrame = start; // Store the calculated internal frame for child symbols
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     var instance = el;

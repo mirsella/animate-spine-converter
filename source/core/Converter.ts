@@ -559,7 +559,7 @@ export class Converter {
                 Logger.trace(`    [LIVE_DBG] Frame snapshot: layer='${layer.name}' frame.start=${frame.startFrame} tween='${frame.tweenType}' elems=${elems.length} [${list.join(', ')}]`);
             }
 
-            const el = frame.elements[hints.elementIndex];
+            let el = frame.elements[hints.elementIndex];
             if (!el) {
                 Logger.trace(`    [LIVE] No element at index ${hints.elementIndex} on layer ${hints.layerIndex} frame ${frameIndex}`);
                 layer.locked = wasLocked;
@@ -577,8 +577,10 @@ export class Converter {
                         const cand = frame.elements[i];
                         if (this.getElementDebugName(cand) === expectedName) {
                             // Override the target element for selection.
+                            const prevIdx = hints.elementIndex;
                             (hints as any).elementIndex = i;
-                            if (isDbg) Logger.trace(`    [LIVE_DBG] elementIndex remap: ${hints.elementIndex} -> ${i} (name match '${expectedName}')`);
+                            el = cand;
+                            if (isDbg) Logger.trace(`    [LIVE_DBG] elementIndex remap: ${prevIdx} -> ${i} (name match '${expectedName}')`);
                             break;
                         }
                     }
@@ -639,6 +641,67 @@ export class Converter {
                 return res;
             } else {
                 Logger.trace(`    [LIVE] Selection failed for '${el.name || '<anon>'}' at frame ${frameIndex} even after forcing.`);
+            }
+
+            // Motion tweens (and some other tween types) do not reliably expose interpolated
+            // matrices via DOM selection in JSFL. When selection fails on a motion span,
+            // bake THIS frame into a keyframe (F6-equivalent) and read the baked element.
+            if (frame && frame.tweenType === 'motion') {
+                try {
+                    if (isDbg) {
+                        Logger.trace(`    [LIVE_DBG] Motion tween selection failed. Baking keyframe at ${frameIndex} (spanStart=${frame.startFrame} dur=${frame.duration}).`);
+                    }
+
+                    if ((dom as any).livePreview !== undefined) {
+                        try { (dom as any).livePreview = true; } catch (e) {}
+                    }
+
+                    try { (timeline as any).setSelectedLayers(hints.layerIndex); } catch (e) {}
+                    try { (timeline as any).setSelectedFrames(frameIndex, frameIndex + 1); } catch (e) {}
+
+                    // Convert the selected frame to a keyframe (bake interpolation)
+                    try { (timeline as any).convertToKeyframes(); } catch (e) {
+                        if (isDbg) Logger.trace(`    [LIVE_DBG] convertToKeyframes failed at ${frameIndex}: ${e}`);
+                    }
+
+                    const bakedLayer = timeline.layers[hints.layerIndex];
+                    const bakedFrame = bakedLayer ? bakedLayer.frames[frameIndex] : null;
+                    if (bakedFrame && bakedFrame.elements && bakedFrame.elements.length > 0) {
+                        let bakedEl = bakedFrame.elements[hints.elementIndex] || bakedFrame.elements[0];
+                        if (bakedFrame.elements.length > 1) {
+                            const expected = this.getElementDebugName(context.element);
+                            for (let i = 0; i < bakedFrame.elements.length; i++) {
+                                const cand = bakedFrame.elements[i];
+                                if (this.getElementDebugName(cand) === expected) {
+                                    bakedEl = cand;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (isDbg) {
+                            const bm:any = bakedEl.matrix as any;
+                            Logger.trace(`    [LIVE_DBG] BakedEl '${this.getElementDebugName(bakedEl)}' @${frameIndex}: tx=${bm.tx.toFixed(2)} ty=${bm.ty.toFixed(2)} a=${bm.a.toFixed(4)} d=${bm.d.toFixed(4)} alpha=${(bakedEl as any).colorAlphaPercent} mode=${(bakedEl as any).colorMode}`);
+                        }
+
+                        const res = {
+                            matrix: bakedEl.matrix,
+                            transformX: bakedEl.transformX,
+                            transformY: bakedEl.transformY,
+                            colorAlpha: (bakedEl as any).colorAlphaPercent,
+                            colorRed: (bakedEl as any).colorRedPercent,
+                            colorMode: (bakedEl as any).colorMode
+                        };
+
+                        layer.locked = wasLocked;
+                        layer.visible = wasVisible;
+                        return res;
+                    } else if (isDbg) {
+                        Logger.trace(`    [LIVE_DBG] Bake produced no elements at ${frameIndex} (layer='${layer.name}').`);
+                    }
+                } catch (eBake) {
+                    if (isDbg) Logger.trace(`    [LIVE_DBG] Motion bake fallback failed at ${frameIndex}: ${eBake}`);
+                }
             }
 
             layer.locked = wasLocked;
@@ -831,6 +894,7 @@ export class Converter {
                 
                 let matrixOverride: FlashMatrix = null;
                 let positionOverride: {x:number, y:number} = null;
+                let colorOverride: IColorData = null;
                 
                 if (stageType === ConverterStageType.ANIMATION) {
                     const elName = el.name || el.libraryItem?.name || '<anon>';
@@ -849,6 +913,22 @@ export class Converter {
                         Logger.trace(`${indent}    [LIVE] Sampled '${elName}' at frame ${start}: tx=${live.matrix.tx.toFixed(2)} ty=${live.matrix.ty.toFixed(2)}`);
                         matrixOverride = live.matrix;
                         positionOverride = { x: live.transformX, y: live.transformY };
+
+                        // Capture live color (alpha/tint) for nested symbols too.
+                        // Without this, nested motion tweens often snap opacity at the end.
+                        if (live.colorMode) {
+                            colorOverride = {
+                                visible: (el as any).visible !== undefined ? (el as any).visible : true,
+                                alphaPercent: live.colorAlpha !== undefined ? live.colorAlpha : 100,
+                                alphaAmount: 0,
+                                redPercent: live.colorRed !== undefined ? live.colorRed : 100,
+                                redAmount: 0,
+                                greenPercent: 100,
+                                greenAmount: 0,
+                                bluePercent: 100,
+                                blueAmount: 0
+                            };
+                        }
                     } else {
                         Logger.trace(`${indent}    [LIVE] Sampling failed for '${elName}' at frame ${start}. Using context matrix.`);
                     }
@@ -863,7 +943,7 @@ export class Converter {
                 }
 
                 // FIX: When flattening, we pass 0 as time because context.time is already absolute for Spine.
-                const sub = context.switchContextFrame(frame).createBone(el, 0, matrixOverride, positionOverride);
+                const sub = context.switchContextFrame(frame).createBone(el, 0, matrixOverride, positionOverride, colorOverride);
                 sub.internalFrame = start; // Store the calculated internal frame for child symbols
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === ConverterStageType.ANIMATION) {
                     const instance = el as any;
