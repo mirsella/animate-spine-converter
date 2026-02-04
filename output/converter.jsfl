@@ -26,10 +26,55 @@ var StringUtil_1 = __webpack_require__(/*! ../utils/StringUtil */ "./source/util
 var ConverterContextGlobal_1 = __webpack_require__(/*! ./ConverterContextGlobal */ "./source/core/ConverterContextGlobal.ts");
 var Converter = /** @class */ (function () {
     function Converter(document, config) {
+        // Cache of spans already baked with convertToKeyframes().
+        // Keyed by timeline.name|layerIndex|spanStart -> spanEndExclusive.
+        this._bakedSpanEndByKey = {};
         this._document = document;
         this._workingPath = PathUtil_1.PathUtil.parentPath(document.pathURI);
         this._config = config;
     }
+    Converter.prototype.getBakeSpanKey = function (timeline, layerIndex, spanStart) {
+        var tlName = (timeline === null || timeline === void 0 ? void 0 : timeline.name) || '<unknown>';
+        return tlName + '|' + layerIndex + '|' + spanStart;
+    };
+    Converter.prototype.isSpanBaked = function (timeline, layerIndex, spanStart, frameIndex) {
+        var key = this.getBakeSpanKey(timeline, layerIndex, spanStart);
+        var end = this._bakedSpanEndByKey[key];
+        return (typeof end === 'number') && frameIndex >= spanStart && frameIndex < end;
+    };
+    Converter.prototype.bakeSpanToKeyframes = function (timeline, layerIndex, spanStart, spanEndExclusive, isDbg, dbgPrefix) {
+        if (!(spanEndExclusive > spanStart))
+            return;
+        var key = this.getBakeSpanKey(timeline, layerIndex, spanStart);
+        var cachedEnd = this._bakedSpanEndByKey[key];
+        if (typeof cachedEnd === 'number' && cachedEnd >= spanEndExclusive) {
+            return;
+        }
+        try {
+            try {
+                timeline.setSelectedLayers(layerIndex);
+            }
+            catch (e) { }
+            try {
+                timeline.setSelectedFrames(spanStart, spanEndExclusive);
+            }
+            catch (e) { }
+            try {
+                timeline.convertToKeyframes();
+                this._bakedSpanEndByKey[key] = spanEndExclusive;
+                if (isDbg)
+                    Logger_1.Logger.trace("".concat(dbgPrefix, " convertToKeyframes baked span ").concat(spanStart, "-").concat(spanEndExclusive - 1, " (layerIdx=").concat(layerIndex, ")"));
+            }
+            catch (e) {
+                if (isDbg)
+                    Logger_1.Logger.trace("".concat(dbgPrefix, " convertToKeyframes failed for span ").concat(spanStart, "-").concat(spanEndExclusive - 1, " (layerIdx=").concat(layerIndex, "): ").concat(e));
+            }
+        }
+        catch (eOuter) {
+            if (isDbg)
+                Logger_1.Logger.trace("".concat(dbgPrefix, " bakeSpanToKeyframes failed: ").concat(eOuter));
+        }
+    };
     Converter.prototype.getIndent = function (depth) {
         var indent = "";
         for (var i = 0; i < depth; i++)
@@ -488,6 +533,22 @@ var Converter = /** @class */ (function () {
                 layer.visible = wasVisible;
                 return null;
             }
+            // Fast path: keyframes already contain stable values; avoid selection/bake.
+            // This also helps after a span was baked once: every frame becomes a keyframe.
+            if (frame.startFrame === frameIndex && frame.elements && frame.elements.length > 0) {
+                var directEl = frame.elements[hints.elementIndex] || frame.elements[0];
+                var res = {
+                    matrix: directEl.matrix,
+                    transformX: directEl.transformX,
+                    transformY: directEl.transformY,
+                    colorAlpha: directEl.colorAlphaPercent,
+                    colorRed: directEl.colorRedPercent,
+                    colorMode: directEl.colorMode
+                };
+                layer.locked = wasLocked;
+                layer.visible = wasVisible;
+                return res;
+            }
             if (isDbg) {
                 var elems = frame.elements || [];
                 var list = [];
@@ -582,33 +643,44 @@ var Converter = /** @class */ (function () {
             }
             // Motion tweens (and some other tween types) do not reliably expose interpolated
             // matrices via DOM selection in JSFL. When selection fails on a motion span,
-            // bake THIS frame into a keyframe (F6-equivalent) and read the baked element.
+            // bake the WHOLE span into keyframes (once) and read the baked element.
             if (frame && frame.tweenType === 'motion') {
                 try {
                     if (isDbg) {
-                        Logger_1.Logger.trace("    [LIVE_DBG] Motion tween selection failed. Baking keyframe at ".concat(frameIndex, " (spanStart=").concat(frame.startFrame, " dur=").concat(frame.duration, ")."));
+                        Logger_1.Logger.trace("    [LIVE_DBG] Motion tween selection failed. Baking span at ".concat(frameIndex, " (spanStart=").concat(frame.startFrame, " dur=").concat(frame.duration, ")."));
                     }
+                    // Keep UI updates disabled as much as possible. Some Animate versions
+                    // require livePreview=true for correct sampling, so we toggle it only
+                    // for the duration of the bake and then restore.
+                    var hadLivePreview = false;
+                    var prevLivePreview = null;
                     if (dom.livePreview !== undefined) {
+                        hadLivePreview = true;
+                        try {
+                            prevLivePreview = dom.livePreview;
+                        }
+                        catch (e) {
+                            prevLivePreview = null;
+                        }
                         try {
                             dom.livePreview = true;
                         }
                         catch (e) { }
                     }
                     try {
-                        timeline.setSelectedLayers(hints.layerIndex);
+                        var spanStart = frame.startFrame;
+                        var spanEndExclusive = frame.startFrame + frame.duration;
+                        if (!this.isSpanBaked(timeline, hints.layerIndex, spanStart, frameIndex)) {
+                            this.bakeSpanToKeyframes(timeline, hints.layerIndex, spanStart, spanEndExclusive, isDbg, '    [LIVE_DBG]');
+                        }
                     }
-                    catch (e) { }
-                    try {
-                        timeline.setSelectedFrames(frameIndex, frameIndex + 1);
-                    }
-                    catch (e) { }
-                    // Convert the selected frame to a keyframe (bake interpolation)
-                    try {
-                        timeline.convertToKeyframes();
-                    }
-                    catch (e) {
-                        if (isDbg)
-                            Logger_1.Logger.trace("    [LIVE_DBG] convertToKeyframes failed at ".concat(frameIndex, ": ").concat(e));
+                    finally {
+                        if (hadLivePreview) {
+                            try {
+                                dom.livePreview = prevLivePreview;
+                            }
+                            catch (e) { }
+                        }
                     }
                     var bakedLayer = timeline.layers[hints.layerIndex];
                     var bakedFrame = bakedLayer ? bakedLayer.frames[frameIndex] : null;
@@ -920,6 +992,7 @@ var Converter = /** @class */ (function () {
                 var bakedData = null;
                 if (i !== frame.startFrame) {
                     var isClassic = frame.tweenType === 'classic';
+                    var isNoneTween = frame.tweenType === 'none';
                     var isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
                     var isSupportedEase = !frame.hasCustomEase;
                     if (this_1.isDebugName(elName)) {
@@ -931,7 +1004,7 @@ var Converter = /** @class */ (function () {
                         Logger_1.Logger.trace("[DEBUG_ANIM] Element '".concat(elName, "' Frame ").concat(i, " (Start: ").concat(frame.startFrame, "): TweenType='").concat(frame.tweenType, "' Classic=").concat(isClassic, " Guided=").concat(isGuided, " SupportedEase=").concat(isSupportedEase, " -> BAKING=").concat(shouldBake));
                         Logger_1.Logger.trace("[DEBUG_ANIM]   Frame Values: Alpha=".concat(el.colorAlphaPercent, " Matrix=[a:").concat(el.matrix.a.toFixed(2), ", tx:").concat(el.matrix.tx.toFixed(2), "]"));
                     }
-                    if (!allowBaking || (isClassic && !isGuided && isSupportedEase)) {
+                    if (!allowBaking || isNoneTween || (isClassic && !isGuided && isSupportedEase)) {
                         // Skip baking, let Spine interpolate
                         // But we MUST still mark the slot as active!
                         // Recursively discover the slot name
@@ -975,9 +1048,24 @@ var Converter = /** @class */ (function () {
                             layer.locked = false;
                             layer.visible = true;
                             var timeline = this_1._document.getTimeline();
-                            // Force update "Live" view before baking
-                            if (this_1._document.livePreview !== undefined)
-                                this_1._document.livePreview = true;
+                            // Keep UI updates disabled as much as possible. Some Animate versions
+                            // require livePreview=true for correct sampling, so we toggle it only
+                            // for the duration of the bake and then restore.
+                            var hadLivePreview = false;
+                            var prevLivePreview = null;
+                            if (this_1._document.livePreview !== undefined) {
+                                hadLivePreview = true;
+                                try {
+                                    prevLivePreview = this_1._document.livePreview;
+                                }
+                                catch (e) {
+                                    prevLivePreview = null;
+                                }
+                                try {
+                                    this_1._document.livePreview = true;
+                                }
+                                catch (e) { }
+                            }
                             var layerIdx = -1;
                             for (var k = 0; k < timeline.layers.length; k++) {
                                 if (timeline.layers[k] === layer) {
@@ -998,7 +1086,10 @@ var Converter = /** @class */ (function () {
                             }
                             timeline.setSelectedFrames(i, i + 1);
                             try {
-                                timeline.convertToKeyframes();
+                                // Bake the entire span once to avoid per-frame convertToKeyframes() calls.
+                                var spanStart = frame.startFrame;
+                                var spanEndExclusive = frame.startFrame + frame.duration;
+                                this_1.bakeSpanToKeyframes(timeline, layerIdx, spanStart, spanEndExclusive, false, '');
                                 var freshLayer = timeline.layers[layerIdx];
                                 var freshFrame = freshLayer.frames[i];
                                 if (freshFrame.elements.length > 0) {
@@ -1034,6 +1125,14 @@ var Converter = /** @class */ (function () {
                             }
                             catch (e) {
                                 Logger_1.Logger.warning("[Converter] Bake failed for frame ".concat(i, " (").concat(layer.name, "): ").concat(e));
+                            }
+                            finally {
+                                if (hadLivePreview) {
+                                    try {
+                                        this_1._document.livePreview = prevLivePreview;
+                                    }
+                                    catch (e) { }
+                                }
                             }
                             if (!bakedData) {
                                 this_1._document.selectNone();

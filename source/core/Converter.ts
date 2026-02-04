@@ -27,10 +27,50 @@ export class Converter {
     private readonly _workingPath:string;
     private readonly _config:ConverterConfig;
 
+    // Cache of spans already baked with convertToKeyframes().
+    // Keyed by timeline.name|layerIndex|spanStart -> spanEndExclusive.
+    private readonly _bakedSpanEndByKey:Record<string, number> = {};
+
     public constructor(document:FlashDocument, config:ConverterConfig) {
         this._document = document;
         this._workingPath = PathUtil.parentPath(document.pathURI);
         this._config = config;
+    }
+
+    private getBakeSpanKey(timeline: FlashTimeline, layerIndex: number, spanStart: number): string {
+        const tlName = (timeline as any)?.name || '<unknown>';
+        return tlName + '|' + layerIndex + '|' + spanStart;
+    }
+
+    private isSpanBaked(timeline: FlashTimeline, layerIndex: number, spanStart: number, frameIndex: number): boolean {
+        const key = this.getBakeSpanKey(timeline, layerIndex, spanStart);
+        const end = this._bakedSpanEndByKey[key];
+        return (typeof end === 'number') && frameIndex >= spanStart && frameIndex < end;
+    }
+
+    private bakeSpanToKeyframes(timeline: FlashTimeline, layerIndex: number, spanStart: number, spanEndExclusive: number, isDbg: boolean, dbgPrefix: string): void {
+        if (!(spanEndExclusive > spanStart)) return;
+
+        const key = this.getBakeSpanKey(timeline, layerIndex, spanStart);
+        const cachedEnd = this._bakedSpanEndByKey[key];
+        if (typeof cachedEnd === 'number' && cachedEnd >= spanEndExclusive) {
+            return;
+        }
+
+        try {
+            try { (timeline as any).setSelectedLayers(layerIndex); } catch (e) {}
+            try { (timeline as any).setSelectedFrames(spanStart, spanEndExclusive); } catch (e) {}
+
+            try {
+                (timeline as any).convertToKeyframes();
+                this._bakedSpanEndByKey[key] = spanEndExclusive;
+                if (isDbg) Logger.trace(`${dbgPrefix} convertToKeyframes baked span ${spanStart}-${spanEndExclusive - 1} (layerIdx=${layerIndex})`);
+            } catch (e) {
+                if (isDbg) Logger.trace(`${dbgPrefix} convertToKeyframes failed for span ${spanStart}-${spanEndExclusive - 1} (layerIdx=${layerIndex}): ${e}`);
+            }
+        } catch (eOuter) {
+            if (isDbg) Logger.trace(`${dbgPrefix} bakeSpanToKeyframes failed: ${eOuter}`);
+        }
     }
 
     private getIndent(depth: number): string {
@@ -547,6 +587,23 @@ export class Converter {
                 return null;
             }
 
+            // Fast path: keyframes already contain stable values; avoid selection/bake.
+            // This also helps after a span was baked once: every frame becomes a keyframe.
+            if (frame.startFrame === frameIndex && frame.elements && frame.elements.length > 0) {
+                const directEl = frame.elements[hints.elementIndex] || frame.elements[0];
+                const res = {
+                    matrix: directEl.matrix,
+                    transformX: (directEl as any).transformX,
+                    transformY: (directEl as any).transformY,
+                    colorAlpha: (directEl as any).colorAlphaPercent,
+                    colorRed: (directEl as any).colorRedPercent,
+                    colorMode: (directEl as any).colorMode
+                };
+                layer.locked = wasLocked;
+                layer.visible = wasVisible;
+                return res;
+            }
+
             if (isDbg) {
                 const elems = frame.elements || [];
                 const list: string[] = [];
@@ -645,23 +702,35 @@ export class Converter {
 
             // Motion tweens (and some other tween types) do not reliably expose interpolated
             // matrices via DOM selection in JSFL. When selection fails on a motion span,
-            // bake THIS frame into a keyframe (F6-equivalent) and read the baked element.
+            // bake the WHOLE span into keyframes (once) and read the baked element.
             if (frame && frame.tweenType === 'motion') {
                 try {
                     if (isDbg) {
-                        Logger.trace(`    [LIVE_DBG] Motion tween selection failed. Baking keyframe at ${frameIndex} (spanStart=${frame.startFrame} dur=${frame.duration}).`);
+                        Logger.trace(`    [LIVE_DBG] Motion tween selection failed. Baking span at ${frameIndex} (spanStart=${frame.startFrame} dur=${frame.duration}).`);
                     }
 
+                    // Keep UI updates disabled as much as possible. Some Animate versions
+                    // require livePreview=true for correct sampling, so we toggle it only
+                    // for the duration of the bake and then restore.
+                    let hadLivePreview = false;
+                    let prevLivePreview: any = null;
                     if ((dom as any).livePreview !== undefined) {
+                        hadLivePreview = true;
+                        try { prevLivePreview = (dom as any).livePreview; } catch (e) { prevLivePreview = null; }
                         try { (dom as any).livePreview = true; } catch (e) {}
                     }
 
-                    try { (timeline as any).setSelectedLayers(hints.layerIndex); } catch (e) {}
-                    try { (timeline as any).setSelectedFrames(frameIndex, frameIndex + 1); } catch (e) {}
+                    try {
+                        const spanStart = frame.startFrame;
+                        const spanEndExclusive = frame.startFrame + frame.duration;
 
-                    // Convert the selected frame to a keyframe (bake interpolation)
-                    try { (timeline as any).convertToKeyframes(); } catch (e) {
-                        if (isDbg) Logger.trace(`    [LIVE_DBG] convertToKeyframes failed at ${frameIndex}: ${e}`);
+                        if (!this.isSpanBaked(timeline, hints.layerIndex, spanStart, frameIndex)) {
+                            this.bakeSpanToKeyframes(timeline, hints.layerIndex, spanStart, spanEndExclusive, isDbg, '    [LIVE_DBG]');
+                        }
+                    } finally {
+                        if (hadLivePreview) {
+                            try { (dom as any).livePreview = prevLivePreview; } catch (e) {}
+                        }
                     }
 
                     const bakedLayer = timeline.layers[hints.layerIndex];
@@ -1002,6 +1071,7 @@ export class Converter {
 
                 if (i !== frame.startFrame) {
                     const isClassic = frame.tweenType === 'classic';
+                    const isNoneTween = frame.tweenType === 'none';
                     const isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
                     let isSupportedEase = !frame.hasCustomEase;
 
@@ -1016,7 +1086,7 @@ export class Converter {
                          Logger.trace(`[DEBUG_ANIM]   Frame Values: Alpha=${el.colorAlphaPercent} Matrix=[a:${el.matrix.a.toFixed(2)}, tx:${el.matrix.tx.toFixed(2)}]`);
                     }
 
-                    if (!allowBaking || (isClassic && !isGuided && isSupportedEase)) {
+                    if (!allowBaking || isNoneTween || (isClassic && !isGuided && isSupportedEase)) {
                         // Skip baking, let Spine interpolate
                         // But we MUST still mark the slot as active!
                         // Recursively discover the slot name
@@ -1065,8 +1135,16 @@ export class Converter {
                             layer.visible = true;
                             
                             const timeline = this._document.getTimeline();
-                            // Force update "Live" view before baking
-                            if (this._document.livePreview !== undefined) this._document.livePreview = true;
+                            // Keep UI updates disabled as much as possible. Some Animate versions
+                            // require livePreview=true for correct sampling, so we toggle it only
+                            // for the duration of the bake and then restore.
+                            let hadLivePreview = false;
+                            let prevLivePreview: any = null;
+                            if ((this._document as any).livePreview !== undefined) {
+                                hadLivePreview = true;
+                                try { prevLivePreview = (this._document as any).livePreview; } catch (e) { prevLivePreview = null; }
+                                try { (this._document as any).livePreview = true; } catch (e) {}
+                            }
 
                             let layerIdx = -1;
                             for (let k = 0; k < timeline.layers.length; k++) {
@@ -1084,7 +1162,11 @@ export class Converter {
                             timeline.setSelectedFrames(i, i + 1);
 
                             try {
-                                timeline.convertToKeyframes();
+                                // Bake the entire span once to avoid per-frame convertToKeyframes() calls.
+                                const spanStart = frame.startFrame;
+                                const spanEndExclusive = frame.startFrame + frame.duration;
+                                this.bakeSpanToKeyframes(timeline, layerIdx, spanStart, spanEndExclusive, false, '');
+
                                 const freshLayer = timeline.layers[layerIdx];
                                 const freshFrame = freshLayer.frames[i];
                                 if (freshFrame.elements.length > 0) {
@@ -1124,6 +1206,10 @@ export class Converter {
                                 }
                             } catch (e) {
                                 Logger.warning(`[Converter] Bake failed for frame ${i} (${layer.name}): ${e}`);
+                            } finally {
+                                if (hadLivePreview) {
+                                    try { (this._document as any).livePreview = prevLivePreview; } catch (e) {}
+                                }
                             }
                             
                             if (!bakedData) {
