@@ -28,7 +28,9 @@ export class StringUtil {
                 cleaned += char;
             } else {
                 // Log the character code to understand what we are replacing
-                Logger.trace(`[Naming] Sanitize: Character '${char}' (code: 0x${code.toString(16)}) in '${original}' replaced with '_'`);
+                if (Logger.isTraceEnabled()) {
+                    Logger.trace(`[Naming] Sanitize: Character '${char}' (code: 0x${code.toString(16)}) in '${original}' replaced with '_'`);
+                }
                 cleaned += "_";
             }
         }

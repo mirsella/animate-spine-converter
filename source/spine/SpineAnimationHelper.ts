@@ -38,11 +38,11 @@ export class SpineAnimationHelper {
                     while (angle - prevAngle < -180) angle += 360;
                     
                     if (Math.abs(angle - originalAngle) > 0.1) {
-                        Logger.trace(`[UNWRAP] Bone '${bone.name}' T=${time.toFixed(3)}: ${originalAngle.toFixed(2)} -> ${angle.toFixed(2)} (diff ${Math.abs(angle - originalAngle).toFixed(2)})`);
+                        Logger.debug(`[UNWRAP] Bone '${bone.name}' T=${time.toFixed(3)}: ${originalAngle.toFixed(2)} -> ${angle.toFixed(2)} (diff ${Math.abs(angle - originalAngle).toFixed(2)})`);
                     }
 
                     if (Math.abs(angle - prevAngle) > 170) {
-                        Logger.trace(`[DEBUG] RotJump: ${prevAngle.toFixed(1)} -> ${angle.toFixed(1)} (Bone: ${bone.name}, T=${time.toFixed(3)})`);
+                        Logger.debug(`[DEBUG] RotJump: ${prevAngle.toFixed(1)} -> ${angle.toFixed(1)} (Bone: ${bone.name}, T=${time.toFixed(3)})`);
                     }
                 }
             }
@@ -67,10 +67,10 @@ export class SpineAnimationHelper {
         shearFrame.y = transform.shearY - bone.shearY;
 
         const curveStr = (typeof curve === 'string') ? curve : (curve ? 'bezier' : 'linear');
-        Logger.trace(`[KEY] Bone '${bone.name}' at T=${time.toFixed(3)} [${curveStr}]: rot=${angle.toFixed(2)} pos=(${translateFrame.x.toFixed(2)}, ${translateFrame.y.toFixed(2)}) scale=(${scaleFrame.x.toFixed(2)}, ${scaleFrame.y.toFixed(2)}) shearY=${shearFrame.y.toFixed(2)}`);
+        Logger.debug(`[KEY] Bone '${bone.name}' at T=${time.toFixed(3)} [${curveStr}]: rot=${angle.toFixed(2)} pos=(${translateFrame.x.toFixed(2)}, ${translateFrame.y.toFixed(2)}) scale=(${scaleFrame.x.toFixed(2)}, ${scaleFrame.y.toFixed(2)}) shearY=${shearFrame.y.toFixed(2)}`);
 
         if (SpineAnimationHelper.isDebugName(bone.name)) {
-            Logger.trace(`[KEY_DBG] Bone '${bone.name}' raw: rot=${transform.rotation.toFixed(2)} x=${transform.x.toFixed(2)} y=${transform.y.toFixed(2)} sx=${transform.scaleX.toFixed(4)} sy=${transform.scaleY.toFixed(4)} shY=${transform.shearY.toFixed(2)} base: rot=${bone.rotation.toFixed(2)} x=${bone.x.toFixed(2)} y=${bone.y.toFixed(2)} sx=${bone.scaleX.toFixed(4)} sy=${bone.scaleY.toFixed(4)} curve=${curveStr}`);
+            Logger.debug(`[KEY_DBG] Bone '${bone.name}' raw: rot=${transform.rotation.toFixed(2)} x=${transform.x.toFixed(2)} y=${transform.y.toFixed(2)} sx=${transform.scaleX.toFixed(4)} sy=${transform.scaleY.toFixed(4)} shY=${transform.shearY.toFixed(2)} base: rot=${bone.rotation.toFixed(2)} x=${bone.x.toFixed(2)} y=${bone.y.toFixed(2)} sx=${bone.scaleX.toFixed(4)} sy=${bone.scaleY.toFixed(4)} curve=${curveStr}`);
         }
     }
 
@@ -92,7 +92,7 @@ export class SpineAnimationHelper {
         
         // VISIBILITY FIX: Start of Animation
         if (attachmentTimeline.frames.length === 0 && time > 0) {
-            Logger.trace(`[VISIBILITY] Auto-hiding slot '${slot.name}' at frame 0 (First key is at ${time.toFixed(3)})`);
+            Logger.debug(`[VISIBILITY] Auto-hiding slot '${slot.name}' at frame 0 (First key is at ${time.toFixed(3)})`);
             const hiddenFrame = attachmentTimeline.createFrame(0, 'stepped');
             hiddenFrame.name = null;
         }
@@ -100,11 +100,11 @@ export class SpineAnimationHelper {
         const attachmentFrame = attachmentTimeline.createFrame(time, curve);
         attachmentFrame.name = (attachment != null) ? attachment.name : null;
         
-        Logger.trace(`[VISIBILITY] Slot '${slot.name}' -> ${attachmentFrame.name ? attachmentFrame.name : 'HIDDEN'} at Time ${time.toFixed(3)} (Frame: ${context.frame?.startFrame})`);
+        Logger.debug(`[VISIBILITY] Slot '${slot.name}' -> ${attachmentFrame.name ? attachmentFrame.name : 'HIDDEN'} at Time ${time.toFixed(3)} (Frame: ${context.frame?.startFrame})`);
 
         if (SpineAnimationHelper.isDebugName(slot.name) || SpineAnimationHelper.isDebugName(attachmentFrame.name || '')) {
             const color = context && context.color ? context.color.merge() : '<no-color>';
-            Logger.trace(`[VIS_DBG] Slot '${slot.name}' T=${time.toFixed(3)} frame.start=${context.frame?.startFrame} attachment='${attachmentFrame.name ? attachmentFrame.name : 'HIDDEN'}' color=${color} blend=${context.blendMode}`);
+            Logger.debug(`[VIS_DBG] Slot '${slot.name}' T=${time.toFixed(3)} frame.start=${context.frame?.startFrame} attachment='${attachmentFrame.name ? attachmentFrame.name : 'HIDDEN'}' color=${color} blend=${context.blendMode}`);
         }
 
         if (context.frame != null && context.frame.startFrame === 0) {
@@ -122,7 +122,7 @@ export class SpineAnimationHelper {
 
         if (SpineAnimationHelper.isDebugName(slot.name)) {
             const curveStr = (typeof curve === 'string') ? curve : (curve ? 'bezier' : 'linear');
-            Logger.trace(`[COLOR_DBG] Slot '${slot.name}' T=${time.toFixed(3)} [${curveStr}] color=${color}`);
+            Logger.debug(`[COLOR_DBG] Slot '${slot.name}' T=${time.toFixed(3)} [${curveStr}] color=${color}`);
         }
     }
 
@@ -132,7 +132,7 @@ export class SpineAnimationHelper {
         if (frame != null) {
             if (frame.tweenType === 'none') {
                 if (frame.elements && frame.elements.length > 0 && (frame.elements[0].name?.indexOf('yellow')!==-1 || frame.elements[0].name?.indexOf('glow')!==-1)) {
-                    Logger.trace(`[Curve] Frame ${frame.startFrame}: TweenType is NONE -> Forced Stepped. (Element: ${frame.elements[0].name})`);
+                    Logger.debug(`[Curve] Frame ${frame.startFrame}: TweenType is NONE -> Forced Stepped. (Element: ${frame.elements[0].name})`);
                 }
                 return 'stepped';
             }
@@ -140,7 +140,7 @@ export class SpineAnimationHelper {
             // If it's not a Classic Tween, we assume baking is required (Linear)
             if (frame.tweenType !== 'classic') {
                 if (frame.elements && frame.elements.length > 0 && (frame.elements[0].name?.indexOf('yellow')!==-1 || frame.elements[0].name?.indexOf('glow')!==-1)) {
-                     Logger.trace(`[Curve] Frame ${frame.startFrame}: TweenType '${frame.tweenType}' != 'classic' -> Linear (Baking expected).`);
+                     Logger.debug(`[Curve] Frame ${frame.startFrame}: TweenType '${frame.tweenType}' != 'classic' -> Linear (Baking expected).`);
                 }
                 return null;
             }
@@ -155,7 +155,7 @@ export class SpineAnimationHelper {
             // Spine only supports 1 cubic bezier segment (4 points: P0, C1, C2, P3)
             // If points > 4, it's a complex curve -> requires baking -> Linear
             if (points && points.length === 4) {
-                Logger.trace(`[Curve] Frame ${frame.startFrame}: Custom Ease applied. P0=(${points[0].x}, ${points[0].y}) P1=(${points[1].x.toFixed(3)}, ${points[1].y.toFixed(3)}) P2=(${points[2].x.toFixed(3)}, ${points[2].y.toFixed(3)}) P3=(${points[3].x}, ${points[3].y})`);
+                Logger.debug(`[Curve] Frame ${frame.startFrame}: Custom Ease applied. P0=(${points[0].x}, ${points[0].y}) P1=(${points[1].x.toFixed(3)}, ${points[1].y.toFixed(3)}) P2=(${points[2].x.toFixed(3)}, ${points[2].y.toFixed(3)}) P3=(${points[3].x}, ${points[3].y})`);
                 return {
                     cx1: points[1].x,
                     cy1: points[1].y,
@@ -164,7 +164,7 @@ export class SpineAnimationHelper {
                 };
             }
             if (points) {
-                Logger.trace(`[Curve] Frame ${frame.startFrame}: Custom Ease Rejected (Points: ${points.length}). Logic: Spine 4.2 only supports single-segment beziers via JSON. Multi-segment requires sampling.`);
+                Logger.debug(`[Curve] Frame ${frame.startFrame}: Custom Ease Rejected (Points: ${points.length}). Logic: Spine 4.2 only supports single-segment beziers via JSON. Multi-segment requires sampling.`);
             }
             return null; // Force bake for complex custom ease
         }
@@ -192,7 +192,9 @@ export class SpineAnimationHelper {
                 const c2x = 1 - (1/3); // 0.666...
                 const c2y = 1 + (2/3) * (q1y - 1);
                 
-                Logger.trace(`[Curve] Frame ${frame.startFrame}: Standard Ease ${intensity} -> Q1y=${q1y.toFixed(3)} -> C1=(${c1x.toFixed(3)}, ${c1y.toFixed(3)}) C2=(${c2x.toFixed(3)}, ${c2y.toFixed(3)})`);
+                if (Logger.isTraceEnabled()) {
+                    Logger.trace(`[Curve] Frame ${frame.startFrame}: Standard Ease ${intensity} -> Q1y=${q1y.toFixed(3)} -> C1=(${c1x.toFixed(3)}, ${c1y.toFixed(3)}) C2=(${c2x.toFixed(3)}, ${c2y.toFixed(3)})`);
+                }
 
                 return {
                     cx1: c1x,
@@ -203,7 +205,7 @@ export class SpineAnimationHelper {
             }
 
             // Default Linear
-            Logger.trace(`[Curve] Frame ${frame.startFrame}: No Easing (Linear).`);
+            Logger.debug(`[Curve] Frame ${frame.startFrame}: No Easing (Linear).`);
             return null; 
         }
 

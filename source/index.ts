@@ -9,6 +9,18 @@ import { PathUtil } from './utils/PathUtil';
 
 fl.showIdleMessage(false);
 
+// Logging:
+// - Write a persistent log file next to the .fla so we can inspect the last step before a crash.
+// - Keep the Output panel quiet (trace logs are file-only).
+const LOG_TO_FILE = true;
+const LOG_FILE_SUFFIX = '_export.log.txt';
+const STATUS_FILE_SUFFIX = '_export.status.txt';
+// If false: trace logs won't write to the log file (safer for large exports).
+const TRACE_TO_LOG_FILE = false;
+const TRACE_TO_OUTPUT_PANEL = false;
+const DEBUG_VERBOSE_LOGS = false;
+const OUTPUT_PANEL_MAX_LINES = 200;
+
 const config:ConverterConfig = {
     outputFormat: new SpineFormatV4_2_00(),
     imagesExportPath: './images/',
@@ -127,6 +139,27 @@ const run = () => {
     const originalPath = originalDoc.pathURI;
     const workingDir = PathUtil.parentPath(originalPath);
     const baseName = PathUtil.fileBaseName(originalPath);
+
+    // Configure logging as early as possible.
+    try {
+        Logger.setPanelTraceEnabled(TRACE_TO_OUTPUT_PANEL);
+        Logger.setDebugEnabled(DEBUG_VERBOSE_LOGS);
+        Logger.setMaxBufferLines(OUTPUT_PANEL_MAX_LINES);
+        Logger.setFileTraceEnabled(TRACE_TO_LOG_FILE);
+
+        if (LOG_TO_FILE) {
+            const logPath = PathUtil.joinPath(workingDir, baseName + LOG_FILE_SUFFIX);
+            Logger.setLogFile(logPath, true);
+            Logger.warning(`Export log: ${logPath}`);
+        }
+
+        const statusPath = PathUtil.joinPath(workingDir, baseName + STATUS_FILE_SUFFIX);
+        Logger.setStatusFile(statusPath, true);
+        Logger.warning(`Export status: ${statusPath}`);
+        Logger.status(`Original: ${originalPath}`);
+    } catch (e) {
+        // ignore logger init errors
+    }
     const tempPath = PathUtil.joinPath(workingDir, baseName + "_export_tmp.fla");
 
     // Check if we are already in the temp file (prevent infinite recursion if user runs script on temp)
@@ -147,11 +180,15 @@ const run = () => {
         return;
     }
 
+    Logger.status(`Temp copy ok: ${tempPath}`);
+
     const tempDoc = fl.openDocument(tempPath);
     if (!tempDoc) {
         Logger.error("Failed to open temporary export file.");
         return;
     }
+
+    Logger.status(`Temp opened: ${tempPath}`);
 
     // Disable UI updates during heavy export process to prevent crashes and race conditions
     const wasLivePreview = tempDoc.livePreview;
@@ -160,33 +197,56 @@ const run = () => {
     try {
         // --- RESTORE STATE IN TEMP DOC ---
         applySelectionPaths(tempDoc, selectionData);
+
+        Logger.status('Starting conversion in temp doc');
         
         processDocument(tempDoc);
+
+        Logger.status('Conversion finished');
     } catch (e) {
         Logger.error(`An error occurred during conversion: ${e}`);
     } finally {
         // Restore UI updates
         tempDoc.livePreview = wasLivePreview;
+
+        // Safety: closing a document while still in symbol edit mode can crash Animate.
+        // Ensure we return to the main timeline before closing the temp doc.
+        try {
+            for (let i = 0; i < 16; i++) {
+                try {
+                    (tempDoc as any).exitEditMode();
+                    Logger.status('exitEditMode');
+                } catch (eExit) {
+                    break;
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
         
         // Close temp doc without saving changes
+        Logger.status('Closing temp doc');
         tempDoc.close(false);
         
         // Remove temp file
+        Logger.status('Removing temp file');
         if (FLfile.exists(tempPath)) {
             FLfile.remove(tempPath);
         }
 
         // Restore focus to original document
+        Logger.status('Reopening original doc');
         fl.openDocument(originalPath);
     }
 };
 
 const processDocument = (document: FlashDocument) => {
     const converter = new Converter(document, config);
+    Logger.status('Converter created');
     const result = converter.convertSelection();
 
     for (const skeleton of result) {
-        Logger.trace('Exporting skeleton: ' + skeleton.name + '...');
+        Logger.status('Exporting skeleton: ' + skeleton.name);
 
         if (config.simplifyBonesAndSlots) {
             SpineSkeletonHelper.simplifySkeletonNames(skeleton);
@@ -194,8 +254,9 @@ const processDocument = (document: FlashDocument) => {
 
         if (skeleton.bones.length > 0) {
             const skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
+            Logger.status('Writing skeleton: ' + skeletonPath);
             FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
-            Logger.trace('Skeleton export completed.');
+            Logger.status('Skeleton export completed');
         } else {
             Logger.error('Nothing to export.');
         }

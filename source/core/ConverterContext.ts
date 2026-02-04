@@ -106,7 +106,7 @@ export class ConverterContext {
         
         const elName = element.name || element.libraryItem?.name || '';
         if (elName.indexOf('yellow') !== -1 || elName.indexOf('glow') !== -1) {
-             Logger.trace(`[DEBUG_CTX] Created Bone Context for '${elName}': Color=${context.color.merge()} Time=${context.time.toFixed(3)} ParentTime=${this.time.toFixed(3)}`);
+             Logger.debug(`[DEBUG_CTX] Created Bone Context for '${elName}': Color=${context.color.merge()} Time=${context.time.toFixed(3)} ParentTime=${this.time.toFixed(3)}`);
         }
 
         context.layer = this.layer;

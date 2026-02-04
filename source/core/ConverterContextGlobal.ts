@@ -77,7 +77,9 @@ export class ConverterContextGlobal extends ConverterContext {
             y: -element.transformationPoint.y
         };
 
-        Logger.trace(`[Global] Root: ${context.skeleton.name} anchor=(${element.transformationPoint.x.toFixed(2)}, ${element.transformationPoint.y.toFixed(2)})`);
+        if (Logger.isTraceEnabled()) {
+            Logger.trace(`[Global] Root: ${context.skeleton.name} anchor=(${element.transformationPoint.x.toFixed(2)}, ${element.transformationPoint.y.toFixed(2)})`);
+        }
 
         if (config.transformRootBone) {
             SpineAnimationHelper.applyBoneTransform(context.bone, transform);

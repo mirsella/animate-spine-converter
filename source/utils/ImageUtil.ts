@@ -6,6 +6,9 @@ import { PathUtil } from './PathUtil'; // Assuming PathUtil is available or can 
 export class ImageUtil {
     public static exportBitmap(imagePath:string, element:FlashElement, exportImages:boolean):SpineImage {
         Logger.assert(element.libraryItem != null, `exportBitmap: element has no libraryItem (element: ${element.name || element.layer?.name || 'unknown'})`);
+
+        const elName = element.name || element.libraryItem?.name || '<anon>';
+        Logger.status(`[ImageUtil] exportBitmap start '${elName}' -> ${imagePath}`);
         
         // Capture geometric properties immediately
         const regPointX = element.x;
@@ -19,7 +22,9 @@ export class ImageUtil {
         const h = item.vPixels || item.height || 0;
 
         if (exportImages) {
+            Logger.status(`[ImageUtil] exportBitmap exportToFile '${elName}'`);
             item.exportToFile(imagePath);
+            Logger.status(`[ImageUtil] exportBitmap exportToFile ok '${elName}'`);
         }
 
         // Calculate Smart Pivot Offset
@@ -102,6 +107,9 @@ export class ImageUtil {
     }
 
     private static exportInstanceFromStage(imagePath:string, element:FlashElement, document:FlashDocument, scale:number, exportImages:boolean):SpineImage {
+        const elName = element.name || element.libraryItem?.name || '<anon>';
+        Logger.status(`[ImageUtil] exportInstanceFromStage start '${elName}' -> ${imagePath}`);
+
         const matrix = element.matrix;
         const transPointX = element.transformX;
         const transPointY = element.transformY;
@@ -128,6 +136,8 @@ export class ImageUtil {
 
         dom.selectNone();
         element.selected = true;
+
+        Logger.status(`[ImageUtil] exportInstanceFromStage selection len=${dom.selection.length} '${elName}'`);
         
         let copySuccess = false;
         
@@ -166,8 +176,10 @@ export class ImageUtil {
                 }
                 
                         if (dom.selection.length > 0) {
+                            if (attempt === 0) Logger.status(`[ImageUtil] exportInstanceFromStage clipCopy '${elName}'`);
                             dom.clipCopy();
                             copySuccess = true;
+                            Logger.status(`[ImageUtil] exportInstanceFromStage clipCopy ok '${elName}'`);
                             // Logger.trace(`[ImageUtil] exportInstanceFromStage: Success on attempt ${attempt+1}`);
                             break;
                         } else {
@@ -184,6 +196,7 @@ export class ImageUtil {
                         }
             } catch (e) {
                 Logger.warning(`[ImageUtil] exportInstanceFromStage: clipCopy failed (attempt ${attempt+1}/4): ${e}.`);
+                if (attempt === 0) Logger.status(`[ImageUtil] exportInstanceFromStage clipCopy fail '${elName}' err=${e}`);
                 ImageUtil.clearClipboard();
             }
         }
@@ -194,13 +207,17 @@ export class ImageUtil {
 
         if (!copySuccess) {
             Logger.error(`[ImageUtil] exportInstanceFromStage: Failed to copy element after retries. Element: ${element.name}`);
+            Logger.status(`[ImageUtil] exportInstanceFromStage giveup '${elName}'`);
             return new SpineImage(imagePath, 1, 1, scale, 0, 0);
         }
 
         try {
+            Logger.status(`[ImageUtil] exportInstanceFromStage createDocument '${elName}'`);
             const tempDoc = fl.createDocument();
             try {
+                Logger.status(`[ImageUtil] exportInstanceFromStage clipPaste '${elName}'`);
                 tempDoc.clipPaste(true);
+                Logger.status(`[ImageUtil] exportInstanceFromStage clipPaste ok '${elName}'`);
                 
                 let w = 1;
                 let h = 1;
@@ -215,6 +232,7 @@ export class ImageUtil {
                     // (remove hidden layers) to prevent "Full Asset" glitches where hidden reference layers appear.
                     if (pasted.elementType === 'instance' && pasted.instanceType === 'symbol' && pasted.libraryItem) {
                         try {
+                            Logger.status(`[ImageUtil] sanitize start '${pasted.libraryItem.name}'`);
                             // Ensure the temp document is active for editing
                             if ((tempDoc as any).makeActive) {
                                 try { (tempDoc as any).makeActive(); } catch (e) {}
@@ -228,6 +246,7 @@ export class ImageUtil {
                             const libItem = pasted.libraryItem;
                             const itemName = libItem.name;
                             // Note: We use the library item name to edit.
+                            Logger.status(`[ImageUtil] sanitize editItem '${itemName}'`);
                             tempDoc.library.editItem(itemName);
                             
                             const subTimeline = tempDoc.getTimeline();
@@ -244,7 +263,9 @@ export class ImageUtil {
                             }
                             
                             // Exit editing mode to return to Main Timeline of temp doc
+                            Logger.status(`[ImageUtil] sanitize exitEditMode '${itemName}'`);
                             tempDoc.exitEditMode();
+                            Logger.status(`[ImageUtil] sanitize done '${itemName}'`);
                             
                             // Re-select the pasted instance if edit mode cleared selection
                             if (modified) {
@@ -257,6 +278,7 @@ export class ImageUtil {
                             }
                         } catch (eSanitize) {
                             Logger.warning(`[ImageUtil] Failed to sanitize temp symbol: ${eSanitize}`);
+                            Logger.status(`[ImageUtil] sanitize fail err=${eSanitize}`);
                             try { tempDoc.exitEditMode(); } catch(e) {}
                         }
                     }
@@ -302,7 +324,9 @@ export class ImageUtil {
                                 y: (h / 2) - fy
                             });
                             
+                            Logger.status(`[ImageUtil] exportInstanceFromStage exportPNG '${elName}'`);
                             tempDoc.exportPNG(imagePath, true, true);
+                            Logger.status(`[ImageUtil] exportInstanceFromStage exportPNG ok '${elName}'`);
                         }
                     }
                 }
@@ -319,13 +343,17 @@ export class ImageUtil {
 
             } finally {
                 try {
+                    Logger.status(`[ImageUtil] exportInstanceFromStage close tempDoc '${elName}'`);
                     tempDoc.close(false);
+                    Logger.status(`[ImageUtil] exportInstanceFromStage close tempDoc ok '${elName}'`);
                 } catch (eClose) {
                     Logger.warning(`[ImageUtil] Failed to close temp document (exportInstanceFromStage): ${eClose}`);
+                    Logger.status(`[ImageUtil] exportInstanceFromStage close tempDoc fail '${elName}' err=${eClose}`);
                 }
             }
         } catch (eDoc) {
             Logger.error(`[ImageUtil] Error during temp document processing: ${eDoc}`);
+            Logger.status(`[ImageUtil] exportInstanceFromStage error '${elName}' err=${eDoc}`);
             return new SpineImage(imagePath, 1, 1, scale, 0, 0);
         }
     }
@@ -339,6 +367,8 @@ export class ImageUtil {
         // Optional selection hints to resolve "Live" element from Data element
         selectionHint?: { layerIndex: number, frameIndex: number, elementIndex: number }
     ):SpineImage {
+        const elName = element.name || element.libraryItem?.name || '<anon>';
+        Logger.status(`[ImageUtil] exportShape start '${elName}' -> ${imagePath}`);
         const matrix = element.matrix;
         const transPointX = element.transformX;
         const transPointY = element.transformY;
@@ -418,8 +448,10 @@ export class ImageUtil {
                 }
 
                 if (dom.selection.length > 0) {
+                    if (attempt === 0) Logger.status(`[ImageUtil] exportShape clipCopy '${elName}'`);
                     dom.clipCopy();
                     copySuccess = true;
+                    Logger.status(`[ImageUtil] exportShape clipCopy ok '${elName}'`);
                     // Logger.trace(`[ImageUtil] exportShape: Success on attempt ${attempt+1}`);
                     break;
                 } else {
@@ -436,6 +468,7 @@ export class ImageUtil {
                 }
             } catch (e) {
                 Logger.warning(`[ImageUtil] exportShape: clipCopy failed (attempt ${attempt+1}/4): ${e}.`);
+                if (attempt === 0) Logger.status(`[ImageUtil] exportShape clipCopy fail '${elName}' err=${e}`);
                 ImageUtil.clearClipboard();
             }
         }
@@ -452,9 +485,12 @@ export class ImageUtil {
         }
 
         // Paste into a temp document
+        Logger.status(`[ImageUtil] exportShape createDocument '${elName}'`);
         const tempDoc = fl.createDocument();
         try {
+            Logger.status(`[ImageUtil] exportShape clipPaste '${elName}'`);
             tempDoc.clipPaste(true);
+            Logger.status(`[ImageUtil] exportShape clipPaste ok '${elName}'`);
             
             let w = 1;
             let h = 1;
@@ -498,7 +534,9 @@ export class ImageUtil {
                         y: (h / 2) - fy
                     });
                     
+                    Logger.status(`[ImageUtil] exportShape exportPNG '${elName}'`);
                     tempDoc.exportPNG(imagePath, true, true);
+                    Logger.status(`[ImageUtil] exportShape exportPNG ok '${elName}'`);
                 }
             }
             
@@ -512,7 +550,9 @@ export class ImageUtil {
             return new SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
         } finally {
             try {
+                Logger.status(`[ImageUtil] exportShape close tempDoc '${elName}'`);
                 tempDoc.close(false);
+                Logger.status(`[ImageUtil] exportShape close tempDoc ok '${elName}'`);
             } catch (e) { /* ignore */ }
         }
     }
@@ -521,6 +561,9 @@ export class ImageUtil {
 
     private static exportSymbol(imagePath:string, element:FlashElement, document:FlashDocument, scale:number, exportImages:boolean):SpineImage {
         const item = element.libraryItem;
+
+        const elName = element.name || item?.name || '<anon>';
+        Logger.status(`[ImageUtil] exportSymbol start '${elName}' -> ${imagePath}`);
 
         // Capture geometric properties BEFORE switching context
         const regPointX = element.x;
@@ -536,18 +579,24 @@ export class ImageUtil {
         const originalName = item.name;
         
         // 1. Select and Duplicate
+        Logger.status(`[ImageUtil] exportSymbol duplicate '${originalName}'`);
         lib.selectItem(originalName);
         if (!lib.duplicateItem(originalName)) {
             Logger.error(`[ImageUtil] Failed to duplicate symbol '${originalName}' for export.`);
+            Logger.status(`[ImageUtil] exportSymbol duplicate fail '${originalName}'`);
             return new SpineImage(imagePath, 1, 1, scale, 0, 0);
         }
         
         // The duplicate is now selected and named "Copy of ..." or similar.
         const duplicateItem = lib.getSelectedItems()[0];
         const tempSymbolName = duplicateItem.name;
+
+        Logger.status(`[ImageUtil] exportSymbol duplicate ok '${tempSymbolName}'`);
         
         // 2. Edit the Duplicate
+        Logger.status(`[ImageUtil] exportSymbol editItem '${tempSymbolName}'`);
         lib.editItem(tempSymbolName);
+        Logger.status(`[ImageUtil] exportSymbol editItem ok '${tempSymbolName}'`);
         const dom = fl.getDocumentDOM();
         const timeline = dom.getTimeline();
         
@@ -562,9 +611,13 @@ export class ImageUtil {
                 layer.locked = false;
             }
         }
+
+        Logger.status(`[ImageUtil] exportSymbol layers cleaned '${tempSymbolName}'`);
         
         // 4. Select All (Now safe because only visible renderable content remains)
         dom.selectAll();
+
+        Logger.status(`[ImageUtil] exportSymbol selectAll len=${dom.selection.length} '${tempSymbolName}'`);
         
         // Calculate offsets
         let rect: FlashRect;
@@ -596,11 +649,14 @@ export class ImageUtil {
             for (let attempt = 0; attempt < 3; attempt++) {
                 try {
                     if (attempt > 0) ImageUtil.sleep(50);
+                    if (attempt === 0) Logger.status(`[ImageUtil] exportSymbol clipCopy '${tempSymbolName}'`);
                     dom.clipCopy();
                     copySuccess = true;
+                    Logger.status(`[ImageUtil] exportSymbol clipCopy ok '${tempSymbolName}'`);
                     break;
                 } catch (e) {
                     Logger.warning(`[ImageUtil] exportSymbol: clipCopy failed (attempt ${attempt+1}/3): ${e}`);
+                    if (attempt === 0) Logger.status(`[ImageUtil] exportSymbol clipCopy fail '${tempSymbolName}' err=${e}`);
                     ImageUtil.clearClipboard();
                     // Select again just in case
                     dom.selectAll();
@@ -608,6 +664,7 @@ export class ImageUtil {
             }
 
             if (copySuccess) {
+                Logger.status(`[ImageUtil] exportSymbol createDocument '${tempSymbolName}'`);
                 const tempDoc = fl.createDocument();
                 try {
                     tempDoc.width = w;
@@ -629,7 +686,9 @@ export class ImageUtil {
                             y: (tempDoc.height / 2) - pCy
                         });
                     }
+                    Logger.status(`[ImageUtil] exportSymbol exportPNG '${tempSymbolName}'`);
                     tempDoc.exportPNG(imagePath, true, true);
+                    Logger.status(`[ImageUtil] exportSymbol exportPNG ok '${tempSymbolName}'`);
                 } finally {
                     try { tempDoc.close(false); } catch(e) {}
                 }
@@ -637,8 +696,12 @@ export class ImageUtil {
         }
 
         // 5. Cleanup
+        Logger.status(`[ImageUtil] exportSymbol exitEditMode '${tempSymbolName}'`);
         dom.exitEditMode();
+        Logger.status(`[ImageUtil] exportSymbol deleteItem '${tempSymbolName}'`);
         lib.deleteItem(tempSymbolName);
+
+        Logger.status(`[ImageUtil] exportSymbol done '${elName}'`);
         
         return new SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
     }
@@ -667,11 +730,11 @@ export class ImageUtil {
         const dx = regPointX - transPointX;
         const dy = regPointY - transPointY;
 
-        Logger.trace(`[OFFSET] '${debugName || 'anon'}' BoneToReg Vector: (${dx.toFixed(2)}, ${dy.toFixed(2)})`);
+        Logger.debug(`[OFFSET] '${debugName || 'anon'}' BoneToReg Vector: (${dx.toFixed(2)}, ${dy.toFixed(2)})`);
 
         if (dbg) {
-            Logger.trace(`[OFFSET_DBG] '${debugName}' Inputs: reg=(${regPointX.toFixed(2)}, ${regPointY.toFixed(2)}) trans=(${transPointX.toFixed(2)}, ${transPointY.toFixed(2)}) center=(${localCenterX}, ${localCenterY})`);
-            Logger.trace(`[OFFSET_DBG] '${debugName}' Matrix: a=${matrix.a.toFixed(4)} b=${matrix.b.toFixed(4)} c=${matrix.c.toFixed(4)} d=${matrix.d.toFixed(4)} tx=${matrix.tx.toFixed(2)} ty=${matrix.ty.toFixed(2)}`);
+            Logger.debug(`[OFFSET_DBG] '${debugName}' Inputs: reg=(${regPointX.toFixed(2)}, ${regPointY.toFixed(2)}) trans=(${transPointX.toFixed(2)}, ${transPointY.toFixed(2)}) center=(${localCenterX}, ${localCenterY})`);
+            Logger.debug(`[OFFSET_DBG] '${debugName}' Matrix: a=${matrix.a.toFixed(4)} b=${matrix.b.toFixed(4)} c=${matrix.c.toFixed(4)} d=${matrix.d.toFixed(4)} tx=${matrix.tx.toFixed(2)} ty=${matrix.ty.toFixed(2)}`);
         }
 
         // 2. Inverse Matrix Calculation
@@ -694,7 +757,7 @@ export class ImageUtil {
         const localRx = (d * dx - c * dy) * invDet;
         const localRy = (-b * dx + a * dy) * invDet;
 
-        Logger.trace(`[OFFSET] '${debugName || 'anon'}' Local Offset: (${localRx.toFixed(2)}, ${localRy.toFixed(2)}) (invDet=${invDet.toFixed(6)})`);
+        Logger.debug(`[OFFSET] '${debugName || 'anon'}' Local Offset: (${localRx.toFixed(2)}, ${localRy.toFixed(2)}) (invDet=${invDet.toFixed(6)})`);
 
         // 3. Add Image Center Offset
         // Attachment (0,0) is at image center. 
@@ -702,14 +765,14 @@ export class ImageUtil {
         const finalX = localRx + localCenterX;
         const finalY = localRy + localCenterY;
 
-        Logger.trace(`[OFFSET] '${debugName || 'anon'}' Final Spine Offset: (${finalX.toFixed(2)}, ${finalY.toFixed(2)}) (localCenter: ${localCenterX}, ${localCenterY})`);
+        Logger.debug(`[OFFSET] '${debugName || 'anon'}' Final Spine Offset: (${finalX.toFixed(2)}, ${finalY.toFixed(2)}) (localCenter: ${localCenterX}, ${localCenterY})`);
 
         if (dbg) {
             // Sanity check: if regPoint differs from matrix.tx/ty significantly, we are mixing coordinate spaces.
             const dTx = Math.abs(regPointX - matrix.tx);
             const dTy = Math.abs(regPointY - matrix.ty);
             if (dTx > 0.5 || dTy > 0.5) {
-                Logger.trace(`[OFFSET_DBG] '${debugName}' WARNING: regPoint != matrix.t. |dx|=(${dTx.toFixed(2)}, ${dTy.toFixed(2)})`);
+                Logger.debug(`[OFFSET_DBG] '${debugName}' WARNING: regPoint != matrix.t. |dx|=(${dTx.toFixed(2)}, ${dTy.toFixed(2)})`);
             }
         }
 

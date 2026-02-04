@@ -50,6 +50,8 @@ var Converter = /** @class */ (function () {
         if (typeof cachedEnd === 'number' && cachedEnd >= spanEndExclusive) {
             return;
         }
+        var tlName = (timeline === null || timeline === void 0 ? void 0 : timeline.name) || '<unknown>';
+        Logger_1.Logger.status("[Bake] start tl='".concat(tlName, "' layerIdx=").concat(layerIndex, " span=").concat(spanStart, "-").concat(spanEndExclusive - 1));
         try {
             try {
                 timeline.setSelectedLayers(layerIndex);
@@ -64,15 +66,18 @@ var Converter = /** @class */ (function () {
                 this._bakedSpanEndByKey[key] = spanEndExclusive;
                 if (isDbg)
                     Logger_1.Logger.trace("".concat(dbgPrefix, " convertToKeyframes baked span ").concat(spanStart, "-").concat(spanEndExclusive - 1, " (layerIdx=").concat(layerIndex, ")"));
+                Logger_1.Logger.status("[Bake] ok tl='".concat(tlName, "' layerIdx=").concat(layerIndex, " span=").concat(spanStart, "-").concat(spanEndExclusive - 1));
             }
             catch (e) {
                 if (isDbg)
                     Logger_1.Logger.trace("".concat(dbgPrefix, " convertToKeyframes failed for span ").concat(spanStart, "-").concat(spanEndExclusive - 1, " (layerIdx=").concat(layerIndex, "): ").concat(e));
+                Logger_1.Logger.status("[Bake] fail tl='".concat(tlName, "' layerIdx=").concat(layerIndex, " span=").concat(spanStart, "-").concat(spanEndExclusive - 1, " err=").concat(e));
             }
         }
         catch (eOuter) {
             if (isDbg)
                 Logger_1.Logger.trace("".concat(dbgPrefix, " bakeSpanToKeyframes failed: ").concat(eOuter));
+            Logger_1.Logger.status("[Bake] error tl='".concat(tlName, "' layerIdx=").concat(layerIndex, " span=").concat(spanStart, "-").concat(spanEndExclusive - 1, " err=").concat(eOuter));
         }
     };
     Converter.prototype.getIndent = function (depth) {
@@ -130,15 +135,20 @@ var Converter = /** @class */ (function () {
             }
         }
         if (mustEdit) {
+            Logger_1.Logger.status("[Image] editItem '".concat(containerItem.name, "' (from tl='").concat(currentTl.name, "')"));
             dom.library.editItem(containerItem.name);
             try {
+                Logger_1.Logger.status("[Image] exportAction in '".concat(containerItem.name, "'"));
                 return exportAction();
             }
             finally {
+                Logger_1.Logger.status("[Image] exitEditMode '".concat(containerItem.name, "'"));
                 dom.exitEditMode();
+                Logger_1.Logger.status("[Image] exitEditMode done '".concat(containerItem.name, "'"));
             }
         }
         else {
+            Logger_1.Logger.status('[Image] exportAction (no edit mode switch)');
             return exportAction();
         }
     };
@@ -154,14 +164,17 @@ var Converter = /** @class */ (function () {
         if (spineImage == null) {
             try {
                 var hints = this.createSelectionHints(context);
-                Logger_1.Logger.trace("[IMAGE] Exporting new image: ".concat(baseImageName, " (Path: ").concat(baseImagePath, ")"));
+                Logger_1.Logger.status("[IMAGE] Exporting '".concat(baseImageName, "'"));
                 spineImage = this.safelyExportImage(context, function () {
+                    Logger_1.Logger.status("[IMAGE] imageExportFactory '".concat(baseImageName, "'"));
                     return imageExportFactory(context, baseImagePath);
                 });
+                Logger_1.Logger.status("[IMAGE] Exported '".concat(baseImageName, "'"));
             }
             catch (e) {
                 Logger_1.Logger.error("[Converter] Image export error for '".concat(baseImageName, "': ").concat(e, ". Using placeholder."));
                 spineImage = new SpineImage_1.SpineImage(baseImagePath, 1, 1, 1, 0, 0, 0, 0);
+                Logger_1.Logger.status("[IMAGE] Placeholder for '".concat(baseImageName, "'"));
             }
             context.global.imagesCache.set(baseImagePath, spineImage);
         }
@@ -245,7 +258,7 @@ var Converter = /** @class */ (function () {
         }
         var subcontext = context.createSlot(context.element);
         var slot = subcontext.slot;
-        Logger_1.Logger.trace("[SLOT] Created/Retrieved slot '".concat(slot.name, "' for '").concat(baseImageName, "' (Stage: ").concat(context.global.stageType, ")"));
+        Logger_1.Logger.debug("[SLOT] Slot '".concat(slot.name, "' for '").concat(baseImageName, "' (Stage: ").concat(context.global.stageType, ")"));
         if (context.global.stageType === "structure" /* ConverterStageType.STRUCTURE */) {
             if (context.clipping != null) {
                 context.clipping.end = slot;
@@ -734,7 +747,8 @@ var Converter = /** @class */ (function () {
         if (!item)
             return;
         var indent = this.getIndent(context.recursionDepth);
-        Logger_1.Logger.trace("".concat(indent, "[STRUCT] Symbol: ").concat(item.name, " (Depth: ").concat(context.recursionDepth, ")"));
+        if (Logger_1.Logger.isTraceEnabled())
+            Logger_1.Logger.trace("".concat(indent, "[STRUCT] Symbol: ").concat(item.name, " (Depth: ").concat(context.recursionDepth, ")"));
         if (context.recursionDepth > 32) {
             Logger_1.Logger.warning("".concat(indent, "[WARN] Max recursion depth reached for ").concat(item.name, ". Skipping."));
             return;
@@ -764,10 +778,12 @@ var Converter = /** @class */ (function () {
                 // RESTORE CONTEXT FRAME: Ensure each layer starts with the correct parent frame context
                 context.frame = savedFrame;
                 if (!layer.visible) {
-                    Logger_1.Logger.trace("".concat(indent, "  [LAYER] Skipping Hidden Layer: ").concat(layer.name));
+                    if (Logger_1.Logger.isTraceEnabled())
+                        Logger_1.Logger.trace("".concat(indent, "  [LAYER] Skipping Hidden Layer: ").concat(layer.name));
                     continue;
                 }
-                Logger_1.Logger.trace("".concat(indent, "  [LAYER] Processing: ").concat(layer.name, " (Type: ").concat(layer.layerType, ")"));
+                if (Logger_1.Logger.isTraceEnabled())
+                    Logger_1.Logger.trace("".concat(indent, "  [LAYER] Processing: ").concat(layer.name, " (Type: ").concat(layer.layerType, ")"));
                 if (layer.layerType === 'normal' || layer.layerType === 'guided') {
                     this.convertCompositeElementLayer(context, layer, canEdit);
                 }
@@ -794,7 +810,8 @@ var Converter = /** @class */ (function () {
         if (slots && slots.length > 0) {
             for (var _i = 0, slots_1 = slots; _i < slots_1.length; _i++) {
                 var s = slots_1[_i];
-                Logger_1.Logger.trace("".concat(indent, "    [Visibility] Hiding slot '").concat(s.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
+                if (Logger_1.Logger.isTraceEnabled())
+                    Logger_1.Logger.trace("".concat(indent, "    [Visibility] Hiding slot '").concat(s.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
                 SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
                 // Also hide all children slots recursively
                 this.hideChildSlots(context, s.bone, time);
@@ -805,7 +822,8 @@ var Converter = /** @class */ (function () {
         if (bones && bones.length > 0) {
             for (var _a = 0, bones_1 = bones; _a < bones_1.length; _a++) {
                 var b = bones_1[_a];
-                Logger_1.Logger.trace("".concat(indent, "    [Visibility] Hiding children of bone '").concat(b.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
+                if (Logger_1.Logger.isTraceEnabled())
+                    Logger_1.Logger.trace("".concat(indent, "    [Visibility] Hiding children of bone '").concat(b.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
                 this.hideChildSlots(context, b, time);
             }
         }
@@ -952,7 +970,8 @@ var Converter = /** @class */ (function () {
             }
             return;
         }
-        Logger_1.Logger.trace("".concat(indent, "  [LOOP] ").concat(layer.name, ": Start=").concat(start, " End=").concat(end));
+        if (Logger_1.Logger.isTraceEnabled())
+            Logger_1.Logger.trace("".concat(indent, "  [LOOP] ").concat(layer.name, ": Start=").concat(start, " End=").concat(end));
         for (var i = start; i <= end; i++) {
             var time = (i - start) / frameRate;
             time += context.timeOffset;
@@ -965,7 +984,8 @@ var Converter = /** @class */ (function () {
             var frame = layer.frames[i];
             if (!frame)
                 continue;
-            Logger_1.Logger.trace("".concat(indent, "  [STEP] Frame: ").concat(i, " (Time: ").concat(time.toFixed(3), ")"));
+            if (Logger_1.Logger.isTraceEnabled())
+                Logger_1.Logger.trace("".concat(indent, "  [STEP] Frame: ").concat(i, " (Time: ").concat(time.toFixed(3), ")"));
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */)
@@ -982,7 +1002,8 @@ var Converter = /** @class */ (function () {
                 var el = frame.elements[eIdx];
                 var elName = el.name || ((_b = el.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '<anon>';
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
-                    Logger_1.Logger.trace("".concat(indent, "    [ELEM] Processing element '").concat(elName, "' at Frame ").concat(i, " (Start: ").concat(frame.startFrame, ")"));
+                    if (Logger_1.Logger.isTraceEnabled())
+                        Logger_1.Logger.trace("".concat(indent, "    [ELEM] Processing element '").concat(elName, "' at Frame ").concat(i, " (Start: ").concat(frame.startFrame, ")"));
                 }
                 var parentMat = null;
                 if (layer.parentLayer) {
@@ -1206,7 +1227,8 @@ var Converter = /** @class */ (function () {
                     }
                 }
                 sub.internalFrame = i; // Fix: Pass current loop index as internal frame for nested time resolution
-                Logger_1.Logger.trace("".concat(indent, "    [INTERNAL] Passed internal frame ").concat(i, " to child '").concat(el.name || ((_c = el.libraryItem) === null || _c === void 0 ? void 0 : _c.name) || '<anon>', "'"));
+                if (Logger_1.Logger.isTraceEnabled())
+                    Logger_1.Logger.trace("".concat(indent, "    [INTERNAL] Passed internal frame ").concat(i, " to child '").concat(el.name || ((_c = el.libraryItem) === null || _c === void 0 ? void 0 : _c.name) || '<anon>', "'"));
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     var instance = el;
                     var firstFrameOffset = (instance.firstFrame || 0) / frameRate;
@@ -1254,7 +1276,8 @@ var Converter = /** @class */ (function () {
                             }
                         }
                         if (!isActive) {
-                            Logger_1.Logger.trace("".concat(indent, "    [Visibility] Auto-hiding inactive slot '").concat(s.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
+                            if (Logger_1.Logger.isTraceEnabled())
+                                Logger_1.Logger.trace("".concat(indent, "    [Visibility] Auto-hiding inactive slot '").concat(s.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
                             SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
                             this.hideChildSlots(context, s.bone, time);
                         }
@@ -1265,7 +1288,8 @@ var Converter = /** @class */ (function () {
     };
     Converter.prototype.convertElement = function (context) {
         var indent = this.getIndent(context.recursionDepth);
-        Logger_1.Logger.trace("".concat(indent, "[CONVERT] Path: ").concat(context.symbolPath, " (Depth: ").concat(context.recursionDepth, ")"));
+        if (Logger_1.Logger.isTraceEnabled())
+            Logger_1.Logger.trace("".concat(indent, "[CONVERT] Path: ").concat(context.symbolPath, " (Depth: ").concat(context.recursionDepth, ")"));
         if (LibraryUtil_1.LibraryUtil.isPrimitiveLibraryItem(context.element.libraryItem, this._config)) {
             this.convertPrimitiveElement(context);
         }
@@ -1288,29 +1312,36 @@ var Converter = /** @class */ (function () {
     Converter.prototype.convertSymbolInstance = function (element, context) {
         if (element.elementType === 'instance' && element.instanceType === 'symbol') {
             try {
+                Logger_1.Logger.status("[Symbol] Start '".concat(element.name || element.libraryItem.name, "'"));
                 context.global.stageType = "structure" /* ConverterStageType.STRUCTURE */;
                 this.convertElement(context);
                 Logger_1.Logger.trace("[Converter] Converting animations for symbol instance: ".concat(element.name || element.libraryItem.name, ". Found ").concat(context.global.labels.length, " labels."));
+                Logger_1.Logger.status("[Symbol] Structure done. Labels=".concat(context.global.labels.length));
                 if (context.global.labels.length > 0) {
                     var isDefaultOnly = context.global.labels.length === 1 && context.global.labels[0].name === 'default';
                     if (!isDefaultOnly) {
                         for (var _i = 0, _a = context.global.labels; _i < _a.length; _i++) {
                             var l = _a[_i];
                             Logger_1.Logger.trace("  - Processing label: ".concat(l.name, " (frames ").concat(l.startFrameIdx, "-").concat(l.endFrameIdx, ")"));
+                            Logger_1.Logger.status("[Anim] Label '".concat(l.name, "' frames=").concat(l.startFrameIdx, "-").concat(l.endFrameIdx));
                             context.global.processedSymbols.clear();
                             var sub = context.switchContextAnimation(l);
                             sub.global.stageType = "animation" /* ConverterStageType.ANIMATION */;
                             this.convertElement(sub);
+                            Logger_1.Logger.status("[Anim] Label '".concat(l.name, "' done"));
                         }
                     }
                     else {
                         Logger_1.Logger.trace("  - Processing default timeline animation (frames 0-".concat(context.global.labels[0].endFrameIdx, ")"));
+                        Logger_1.Logger.status("[Anim] Label 'default' frames=0-".concat(context.global.labels[0].endFrameIdx));
                         context.global.processedSymbols.clear();
                         var sub = context.switchContextAnimation(context.global.labels[0]);
                         sub.global.stageType = "animation" /* ConverterStageType.ANIMATION */;
                         this.convertElement(sub);
+                        Logger_1.Logger.status("[Anim] Label 'default' done");
                     }
                 }
+                Logger_1.Logger.status("[Symbol] Done '".concat(element.name || element.libraryItem.name, "'"));
                 return true;
             }
             catch (e) {
@@ -1547,7 +1578,7 @@ var ConverterContext = /** @class */ (function () {
         context.color = this.color.blend(element, colorOverride);
         var elName = element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '';
         if (elName.indexOf('yellow') !== -1 || elName.indexOf('glow') !== -1) {
-            Logger_1.Logger.trace("[DEBUG_CTX] Created Bone Context for '".concat(elName, "': Color=").concat(context.color.merge(), " Time=").concat(context.time.toFixed(3), " ParentTime=").concat(this.time.toFixed(3)));
+            Logger_1.Logger.debug("[DEBUG_CTX] Created Bone Context for '".concat(elName, "': Color=").concat(context.color.merge(), " Time=").concat(context.time.toFixed(3), " ParentTime=").concat(this.time.toFixed(3)));
         }
         context.layer = this.layer;
         context.element = element;
@@ -1703,7 +1734,9 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
             x: -element.transformationPoint.x,
             y: -element.transformationPoint.y
         };
-        Logger_1.Logger.trace("[Global] Root: ".concat(context.skeleton.name, " anchor=(").concat(element.transformationPoint.x.toFixed(2), ", ").concat(element.transformationPoint.y.toFixed(2), ")"));
+        if (Logger_1.Logger.isTraceEnabled()) {
+            Logger_1.Logger.trace("[Global] Root: ".concat(context.skeleton.name, " anchor=(").concat(element.transformationPoint.x.toFixed(2), ", ").concat(element.transformationPoint.y.toFixed(2), ")"));
+        }
         if (config.transformRootBone) {
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, transform);
         }
@@ -1788,33 +1821,111 @@ exports.Logger = void 0;
 var Logger = /** @class */ (function () {
     function Logger() {
         this._output = [];
+        this._fileURI = null;
+        this._fileTraceEnabled = true;
+        this._statusFileURI = null;
+        this._statusSeq = 0;
+        this._panelEnabled = true;
+        this._panelTraceEnabled = true;
+        this._debugEnabled = false;
+        this._maxBufferLines = 2000;
+        this._droppedLines = 0;
     }
+    //-----------------------------------
+    Logger.setLogFile = function (fileURI, overwrite) {
+        if (overwrite === void 0) { overwrite = false; }
+        Logger._instance._fileURI = fileURI;
+        if (fileURI && overwrite) {
+            try {
+                FLfile.write(fileURI, '');
+            }
+            catch (e) { /* ignore */ }
+        }
+    };
+    Logger.setFileTraceEnabled = function (enabled) {
+        Logger._instance._fileTraceEnabled = enabled;
+    };
+    Logger.setStatusFile = function (fileURI, overwrite) {
+        if (overwrite === void 0) { overwrite = false; }
+        Logger._instance._statusFileURI = fileURI;
+        Logger._instance._statusSeq = 0;
+        if (fileURI && overwrite) {
+            try {
+                FLfile.write(fileURI, '');
+            }
+            catch (e) { /* ignore */ }
+        }
+    };
+    Logger.setPanelEnabled = function (enabled) {
+        Logger._instance._panelEnabled = enabled;
+    };
+    Logger.setPanelTraceEnabled = function (enabled) {
+        Logger._instance._panelTraceEnabled = enabled;
+    };
+    Logger.setDebugEnabled = function (enabled) {
+        Logger._instance._debugEnabled = enabled;
+    };
+    Logger.setMaxBufferLines = function (maxLines) {
+        Logger._instance._maxBufferLines = maxLines;
+    };
+    Logger.isTraceEnabled = function () {
+        var inst = Logger._instance;
+        var canWritePanel = inst._panelEnabled && inst._panelTraceEnabled;
+        var canWriteFile = !!inst._fileURI && inst._fileTraceEnabled;
+        return !!(canWritePanel || canWriteFile);
+    };
+    Logger.isDebugEnabled = function () {
+        var inst = Logger._instance;
+        return !!(inst._debugEnabled && Logger.isTraceEnabled());
+    };
     //-----------------------------------
     Logger.trace = function () {
         var params = [];
         for (var _i = 0; _i < arguments.length; _i++) {
             params[_i] = arguments[_i];
         }
-        Logger._instance.trace('[TRACE] ' + params.join(' '));
+        var inst = Logger._instance;
+        // Fast-path: if trace output is disabled everywhere, avoid string building.
+        var canWritePanel = inst._panelEnabled && inst._panelTraceEnabled;
+        var canWriteFile = !!inst._fileURI && inst._fileTraceEnabled;
+        if (!canWritePanel && !canWriteFile)
+            return;
+        inst.log('[TRACE] ' + params.join(' '), 'trace');
+    };
+    Logger.debug = function () {
+        var params = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+            params[_i] = arguments[_i];
+        }
+        if (!Logger._instance._debugEnabled)
+            return;
+        Logger._instance.log('[DEBUG] ' + params.join(' '), 'trace');
+    };
+    Logger.status = function () {
+        var params = [];
+        for (var _i = 0; _i < arguments.length; _i++) {
+            params[_i] = arguments[_i];
+        }
+        Logger._instance.status(params.join(' '));
     };
     Logger.warning = function () {
         var params = [];
         for (var _i = 0; _i < arguments.length; _i++) {
             params[_i] = arguments[_i];
         }
-        Logger._instance.trace('[WARNING] ' + params.join(' '));
+        Logger._instance.log('[WARNING] ' + params.join(' '), 'warning');
     };
     Logger.error = function () {
         var params = [];
         for (var _i = 0; _i < arguments.length; _i++) {
             params[_i] = arguments[_i];
         }
-        Logger._instance.trace('[ERROR] ' + params.join(' '));
+        Logger._instance.log('[ERROR] ' + params.join(' '), 'error');
     };
     Logger.assert = function (condition, message) {
         if (!condition) {
             var errorMsg = '[ASSERT FAILED] ' + message;
-            Logger._instance.trace(errorMsg);
+            Logger._instance.log(errorMsg, 'error');
             Logger._instance.flush();
             throw new Error(errorMsg);
         }
@@ -1823,13 +1934,51 @@ var Logger = /** @class */ (function () {
         Logger._instance.flush();
     };
     //-----------------------------------
-    Logger.prototype.trace = function (message) {
+    Logger.prototype.log = function (message, level) {
+        // Always write to file if configured.
+        if (this._fileURI) {
+            if (level !== 'trace' || this._fileTraceEnabled) {
+                try {
+                    FLfile.write(this._fileURI, message + '\n', 'append');
+                }
+                catch (e) { /* ignore */ }
+            }
+        }
+        // Panel output is optional and can be filtered.
+        if (!this._panelEnabled)
+            return;
+        if (level === 'trace' && !this._panelTraceEnabled)
+            return;
+        if (this._maxBufferLines > 0 && this._output.length >= this._maxBufferLines) {
+            this._droppedLines++;
+            return;
+        }
         this._output.push(message);
     };
+    Logger.prototype.status = function (message) {
+        if (!this._statusFileURI)
+            return;
+        this._statusSeq++;
+        var line = "[STATUS ".concat(this._statusSeq, "] ").concat(message);
+        try {
+            FLfile.write(this._statusFileURI, line + '\n');
+        }
+        catch (e) { /* ignore */ }
+    };
     Logger.prototype.flush = function () {
+        if (!this._panelEnabled) {
+            this._output.length = 0;
+            this._droppedLines = 0;
+            return;
+        }
+        var output = this._output.slice(0);
+        if (this._droppedLines > 0) {
+            output.unshift("[WARNING] Logger dropped ".concat(this._droppedLines, " lines (buffer limit ").concat(this._maxBufferLines, ")."));
+        }
         fl.outputPanel.clear();
-        fl.outputPanel.trace(this._output.join('\n'));
+        fl.outputPanel.trace(output.join('\n'));
         this._output.length = 0;
+        this._droppedLines = 0;
     };
     Logger._instance = new Logger();
     return Logger;
@@ -1946,10 +2095,10 @@ var SpineAnimationHelper = /** @class */ (function () {
                     while (angle - prevAngle < -180)
                         angle += 360;
                     if (Math.abs(angle - originalAngle) > 0.1) {
-                        Logger_1.Logger.trace("[UNWRAP] Bone '".concat(bone.name, "' T=").concat(time.toFixed(3), ": ").concat(originalAngle.toFixed(2), " -> ").concat(angle.toFixed(2), " (diff ").concat(Math.abs(angle - originalAngle).toFixed(2), ")"));
+                        Logger_1.Logger.debug("[UNWRAP] Bone '".concat(bone.name, "' T=").concat(time.toFixed(3), ": ").concat(originalAngle.toFixed(2), " -> ").concat(angle.toFixed(2), " (diff ").concat(Math.abs(angle - originalAngle).toFixed(2), ")"));
                     }
                     if (Math.abs(angle - prevAngle) > 170) {
-                        Logger_1.Logger.trace("[DEBUG] RotJump: ".concat(prevAngle.toFixed(1), " -> ").concat(angle.toFixed(1), " (Bone: ").concat(bone.name, ", T=").concat(time.toFixed(3), ")"));
+                        Logger_1.Logger.debug("[DEBUG] RotJump: ".concat(prevAngle.toFixed(1), " -> ").concat(angle.toFixed(1), " (Bone: ").concat(bone.name, ", T=").concat(time.toFixed(3), ")"));
                     }
                 }
             }
@@ -1969,9 +2118,9 @@ var SpineAnimationHelper = /** @class */ (function () {
         shearFrame.x = transform.shearX - bone.shearX;
         shearFrame.y = transform.shearY - bone.shearY;
         var curveStr = (typeof curve === 'string') ? curve : (curve ? 'bezier' : 'linear');
-        Logger_1.Logger.trace("[KEY] Bone '".concat(bone.name, "' at T=").concat(time.toFixed(3), " [").concat(curveStr, "]: rot=").concat(angle.toFixed(2), " pos=(").concat(translateFrame.x.toFixed(2), ", ").concat(translateFrame.y.toFixed(2), ") scale=(").concat(scaleFrame.x.toFixed(2), ", ").concat(scaleFrame.y.toFixed(2), ") shearY=").concat(shearFrame.y.toFixed(2)));
+        Logger_1.Logger.debug("[KEY] Bone '".concat(bone.name, "' at T=").concat(time.toFixed(3), " [").concat(curveStr, "]: rot=").concat(angle.toFixed(2), " pos=(").concat(translateFrame.x.toFixed(2), ", ").concat(translateFrame.y.toFixed(2), ") scale=(").concat(scaleFrame.x.toFixed(2), ", ").concat(scaleFrame.y.toFixed(2), ") shearY=").concat(shearFrame.y.toFixed(2)));
         if (SpineAnimationHelper.isDebugName(bone.name)) {
-            Logger_1.Logger.trace("[KEY_DBG] Bone '".concat(bone.name, "' raw: rot=").concat(transform.rotation.toFixed(2), " x=").concat(transform.x.toFixed(2), " y=").concat(transform.y.toFixed(2), " sx=").concat(transform.scaleX.toFixed(4), " sy=").concat(transform.scaleY.toFixed(4), " shY=").concat(transform.shearY.toFixed(2), " base: rot=").concat(bone.rotation.toFixed(2), " x=").concat(bone.x.toFixed(2), " y=").concat(bone.y.toFixed(2), " sx=").concat(bone.scaleX.toFixed(4), " sy=").concat(bone.scaleY.toFixed(4), " curve=").concat(curveStr));
+            Logger_1.Logger.debug("[KEY_DBG] Bone '".concat(bone.name, "' raw: rot=").concat(transform.rotation.toFixed(2), " x=").concat(transform.x.toFixed(2), " y=").concat(transform.y.toFixed(2), " sx=").concat(transform.scaleX.toFixed(4), " sy=").concat(transform.scaleY.toFixed(4), " shY=").concat(transform.shearY.toFixed(2), " base: rot=").concat(bone.rotation.toFixed(2), " x=").concat(bone.x.toFixed(2), " y=").concat(bone.y.toFixed(2), " sx=").concat(bone.scaleX.toFixed(4), " sy=").concat(bone.scaleY.toFixed(4), " curve=").concat(curveStr));
         }
     };
     SpineAnimationHelper.applyBoneTransform = function (bone, transform) {
@@ -1990,16 +2139,16 @@ var SpineAnimationHelper = /** @class */ (function () {
         var attachmentTimeline = timeline.createTimeline("attachment" /* SpineTimelineType.ATTACHMENT */);
         // VISIBILITY FIX: Start of Animation
         if (attachmentTimeline.frames.length === 0 && time > 0) {
-            Logger_1.Logger.trace("[VISIBILITY] Auto-hiding slot '".concat(slot.name, "' at frame 0 (First key is at ").concat(time.toFixed(3), ")"));
+            Logger_1.Logger.debug("[VISIBILITY] Auto-hiding slot '".concat(slot.name, "' at frame 0 (First key is at ").concat(time.toFixed(3), ")"));
             var hiddenFrame = attachmentTimeline.createFrame(0, 'stepped');
             hiddenFrame.name = null;
         }
         var attachmentFrame = attachmentTimeline.createFrame(time, curve);
         attachmentFrame.name = (attachment != null) ? attachment.name : null;
-        Logger_1.Logger.trace("[VISIBILITY] Slot '".concat(slot.name, "' -> ").concat(attachmentFrame.name ? attachmentFrame.name : 'HIDDEN', " at Time ").concat(time.toFixed(3), " (Frame: ").concat((_a = context.frame) === null || _a === void 0 ? void 0 : _a.startFrame, ")"));
+        Logger_1.Logger.debug("[VISIBILITY] Slot '".concat(slot.name, "' -> ").concat(attachmentFrame.name ? attachmentFrame.name : 'HIDDEN', " at Time ").concat(time.toFixed(3), " (Frame: ").concat((_a = context.frame) === null || _a === void 0 ? void 0 : _a.startFrame, ")"));
         if (SpineAnimationHelper.isDebugName(slot.name) || SpineAnimationHelper.isDebugName(attachmentFrame.name || '')) {
             var color = context && context.color ? context.color.merge() : '<no-color>';
-            Logger_1.Logger.trace("[VIS_DBG] Slot '".concat(slot.name, "' T=").concat(time.toFixed(3), " frame.start=").concat((_b = context.frame) === null || _b === void 0 ? void 0 : _b.startFrame, " attachment='").concat(attachmentFrame.name ? attachmentFrame.name : 'HIDDEN', "' color=").concat(color, " blend=").concat(context.blendMode));
+            Logger_1.Logger.debug("[VIS_DBG] Slot '".concat(slot.name, "' T=").concat(time.toFixed(3), " frame.start=").concat((_b = context.frame) === null || _b === void 0 ? void 0 : _b.startFrame, " attachment='").concat(attachmentFrame.name ? attachmentFrame.name : 'HIDDEN', "' color=").concat(color, " blend=").concat(context.blendMode));
         }
         if (context.frame != null && context.frame.startFrame === 0) {
             slot.attachment = attachment;
@@ -2013,7 +2162,7 @@ var SpineAnimationHelper = /** @class */ (function () {
         colorFrame.color = color;
         if (SpineAnimationHelper.isDebugName(slot.name)) {
             var curveStr = (typeof curve === 'string') ? curve : (curve ? 'bezier' : 'linear');
-            Logger_1.Logger.trace("[COLOR_DBG] Slot '".concat(slot.name, "' T=").concat(time.toFixed(3), " [").concat(curveStr, "] color=").concat(color));
+            Logger_1.Logger.debug("[COLOR_DBG] Slot '".concat(slot.name, "' T=").concat(time.toFixed(3), " [").concat(curveStr, "] color=").concat(color));
         }
     };
     SpineAnimationHelper.obtainFrameCurve = function (context) {
@@ -2022,14 +2171,14 @@ var SpineAnimationHelper = /** @class */ (function () {
         if (frame != null) {
             if (frame.tweenType === 'none') {
                 if (frame.elements && frame.elements.length > 0 && (((_a = frame.elements[0].name) === null || _a === void 0 ? void 0 : _a.indexOf('yellow')) !== -1 || ((_b = frame.elements[0].name) === null || _b === void 0 ? void 0 : _b.indexOf('glow')) !== -1)) {
-                    Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": TweenType is NONE -> Forced Stepped. (Element: ").concat(frame.elements[0].name, ")"));
+                    Logger_1.Logger.debug("[Curve] Frame ".concat(frame.startFrame, ": TweenType is NONE -> Forced Stepped. (Element: ").concat(frame.elements[0].name, ")"));
                 }
                 return 'stepped';
             }
             // If it's not a Classic Tween, we assume baking is required (Linear)
             if (frame.tweenType !== 'classic') {
                 if (frame.elements && frame.elements.length > 0 && (((_c = frame.elements[0].name) === null || _c === void 0 ? void 0 : _c.indexOf('yellow')) !== -1 || ((_d = frame.elements[0].name) === null || _d === void 0 ? void 0 : _d.indexOf('glow')) !== -1)) {
-                    Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": TweenType '").concat(frame.tweenType, "' != 'classic' -> Linear (Baking expected)."));
+                    Logger_1.Logger.debug("[Curve] Frame ".concat(frame.startFrame, ": TweenType '").concat(frame.tweenType, "' != 'classic' -> Linear (Baking expected)."));
                 }
                 return null;
             }
@@ -2045,7 +2194,7 @@ var SpineAnimationHelper = /** @class */ (function () {
                 // Spine only supports 1 cubic bezier segment (4 points: P0, C1, C2, P3)
                 // If points > 4, it's a complex curve -> requires baking -> Linear
                 if (points && points.length === 4) {
-                    Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": Custom Ease applied. P0=(").concat(points[0].x, ", ").concat(points[0].y, ") P1=(").concat(points[1].x.toFixed(3), ", ").concat(points[1].y.toFixed(3), ") P2=(").concat(points[2].x.toFixed(3), ", ").concat(points[2].y.toFixed(3), ") P3=(").concat(points[3].x, ", ").concat(points[3].y, ")"));
+                    Logger_1.Logger.debug("[Curve] Frame ".concat(frame.startFrame, ": Custom Ease applied. P0=(").concat(points[0].x, ", ").concat(points[0].y, ") P1=(").concat(points[1].x.toFixed(3), ", ").concat(points[1].y.toFixed(3), ") P2=(").concat(points[2].x.toFixed(3), ", ").concat(points[2].y.toFixed(3), ") P3=(").concat(points[3].x, ", ").concat(points[3].y, ")"));
                     return {
                         cx1: points[1].x,
                         cy1: points[1].y,
@@ -2054,7 +2203,7 @@ var SpineAnimationHelper = /** @class */ (function () {
                     };
                 }
                 if (points) {
-                    Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": Custom Ease Rejected (Points: ").concat(points.length, "). Logic: Spine 4.2 only supports single-segment beziers via JSON. Multi-segment requires sampling."));
+                    Logger_1.Logger.debug("[Curve] Frame ".concat(frame.startFrame, ": Custom Ease Rejected (Points: ").concat(points.length, "). Logic: Spine 4.2 only supports single-segment beziers via JSON. Multi-segment requires sampling."));
                 }
                 return null; // Force bake for complex custom ease
             }
@@ -2076,7 +2225,9 @@ var SpineAnimationHelper = /** @class */ (function () {
                 var c1y = (2 / 3) * q1y;
                 var c2x = 1 - (1 / 3); // 0.666...
                 var c2y = 1 + (2 / 3) * (q1y - 1);
-                Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": Standard Ease ").concat(intensity, " -> Q1y=").concat(q1y.toFixed(3), " -> C1=(").concat(c1x.toFixed(3), ", ").concat(c1y.toFixed(3), ") C2=(").concat(c2x.toFixed(3), ", ").concat(c2y.toFixed(3), ")"));
+                if (Logger_1.Logger.isTraceEnabled()) {
+                    Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": Standard Ease ").concat(intensity, " -> Q1y=").concat(q1y.toFixed(3), " -> C1=(").concat(c1x.toFixed(3), ", ").concat(c1y.toFixed(3), ") C2=(").concat(c2x.toFixed(3), ", ").concat(c2y.toFixed(3), ")"));
+                }
                 return {
                     cx1: c1x,
                     cy1: c1y,
@@ -2085,7 +2236,7 @@ var SpineAnimationHelper = /** @class */ (function () {
                 };
             }
             // Default Linear
-            Logger_1.Logger.trace("[Curve] Frame ".concat(frame.startFrame, ": No Easing (Linear)."));
+            Logger_1.Logger.debug("[Curve] Frame ".concat(frame.startFrame, ": No Easing (Linear)."));
             return null;
         }
         //-----------------------------------
@@ -3274,13 +3425,13 @@ var SpineTransformMatrix = /** @class */ (function () {
             this.y = element.transformY;
         }
         var name = element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
-        // Log transform points
-        Logger_1.Logger.trace("[MATRIX] '".concat(name, "' Transform: pos=(").concat(this.x.toFixed(2), ", ").concat(this.y.toFixed(2), ") registration=(").concat(element.x.toFixed(2), ", ").concat(element.y.toFixed(2), ") pivot=(").concat(element.transformationPoint.x.toFixed(2), ", ").concat(element.transformationPoint.y.toFixed(2), ")"));
+        // Verbose diagnostics (disabled by default)
+        Logger_1.Logger.debug("[MATRIX] '".concat(name, "' Transform: pos=(").concat(this.x.toFixed(2), ", ").concat(this.y.toFixed(2), ") registration=(").concat(element.x.toFixed(2), ", ").concat(element.y.toFixed(2), ") pivot=(").concat(element.transformationPoint.x.toFixed(2), ", ").concat(element.transformationPoint.y.toFixed(2), ")"));
         // Decompose the matrix
         // Use override if provided (e.g. for Layer Parenting resolution)
         var mat = matrixOverride || element.matrix;
         if (matrixOverride && (name.indexOf('yellow') !== -1 || name.indexOf('glow') !== -1)) {
-            Logger_1.Logger.trace("[MATRIX] '".concat(name, "' Using Matrix Override."));
+            Logger_1.Logger.debug("[MATRIX] '".concat(name, "' Using Matrix Override."));
         }
         var decomposed = SpineTransformMatrix.decomposeMatrix(mat, reference, name, isTween);
         this.rotation = decomposed.rotation;
@@ -3297,8 +3448,8 @@ var SpineTransformMatrix = /** @class */ (function () {
         if (reference === void 0) { reference = null; }
         if (debugName === void 0) { debugName = ''; }
         if (isTween === void 0) { isTween = false; }
-        // Log raw matrix for debugging
-        Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Raw Flash Matrix: a=").concat(mat.a.toFixed(4), " b=").concat(mat.b.toFixed(4), " c=").concat(mat.c.toFixed(4), " d=").concat(mat.d.toFixed(4), " tx=").concat(mat.tx.toFixed(2), " ty=").concat(mat.ty.toFixed(2)));
+        // Verbose diagnostics (disabled by default)
+        Logger_1.Logger.debug("[DECOMPOSE] '".concat(debugName, "' Raw Flash Matrix: a=").concat(mat.a.toFixed(4), " b=").concat(mat.b.toFixed(4), " c=").concat(mat.c.toFixed(4), " d=").concat(mat.d.toFixed(4), " tx=").concat(mat.tx.toFixed(2), " ty=").concat(mat.ty.toFixed(2)));
         // Spine Basis Vectors derived from Animate Matrix (Y-Up conversion)
         // Assumption Check: Animate is Y-down. We flip 'b' and 'c' because they represent 
         // the cross-axis influence in the rotation/skew components.
@@ -3306,11 +3457,11 @@ var SpineTransformMatrix = /** @class */ (function () {
         var b = -mat.b;
         var c = -mat.c;
         var d = mat.d;
-        Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Y-Up Basis: a=").concat(a.toFixed(4), " b=").concat(b.toFixed(4), " c=").concat(c.toFixed(4), " d=").concat(d.toFixed(4)));
+        Logger_1.Logger.debug("[DECOMPOSE] '".concat(debugName, "' Y-Up Basis: a=").concat(a.toFixed(4), " b=").concat(b.toFixed(4), " c=").concat(c.toFixed(4), " d=").concat(d.toFixed(4)));
         var scaleX = Math.sqrt(a * a + b * b);
         var scaleY = Math.sqrt(c * c + d * d);
         var det = a * d - b * c;
-        Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Magnitudes: scaleX_raw=").concat(scaleX.toFixed(4), " scaleY_raw=").concat(scaleY.toFixed(4), " det=").concat(det.toFixed(6)));
+        Logger_1.Logger.debug("[DECOMPOSE] '".concat(debugName, "' Magnitudes: scaleX_raw=").concat(scaleX.toFixed(4), " scaleY_raw=").concat(scaleY.toFixed(4), " det=").concat(det.toFixed(6)));
         // Base angles for X and Y axes
         var angleX = Math.atan2(b, a) * (180 / Math.PI);
         var angleY = Math.atan2(d, c) * (180 / Math.PI);
@@ -3330,7 +3481,7 @@ var SpineTransformMatrix = /** @class */ (function () {
             if (reference) {
                 var diff1 = Math.abs(NumberUtil_1.NumberUtil.deltaAngle(rot1, reference.rotation));
                 var diff2 = Math.abs(NumberUtil_1.NumberUtil.deltaAngle(rot2, reference.rotation));
-                Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Flip Detected. RefRot=").concat(reference.rotation.toFixed(2), ". Opt1(FlipY): ").concat(rot1.toFixed(2), " (diff ").concat(diff1.toFixed(2), "). Opt2(FlipX): ").concat(rot2.toFixed(2), " (diff ").concat(diff2.toFixed(2), ")"));
+                Logger_1.Logger.debug("[DECOMPOSE] '".concat(debugName, "' Flip Detected. RefRot=").concat(reference.rotation.toFixed(2), ". Opt1(FlipY): ").concat(rot1.toFixed(2), " (diff ").concat(diff1.toFixed(2), "). Opt2(FlipX): ").concat(rot2.toFixed(2), " (diff ").concat(diff2.toFixed(2), ")"));
                 // DISCONTINUITY PREVENTION:
                 // If we are tweening, we MUST prioritize staying close to the reference.
                 var threshold = isTween ? 90 : 10;
@@ -3338,13 +3489,13 @@ var SpineTransformMatrix = /** @class */ (function () {
                     rotation = rot2;
                     appliedScaleX = -scaleX;
                     appliedScaleY = scaleY;
-                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Chosen Opt 2 (FlipX) - stability threshold: ").concat(threshold));
+                    Logger_1.Logger.debug("[DECOMPOSE] '".concat(debugName, "' Chosen Opt 2 (FlipX) - stability threshold: ").concat(threshold));
                 }
                 else {
                     rotation = rot1;
                     appliedScaleX = scaleX;
                     appliedScaleY = -scaleY;
-                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Chosen Opt 1 (FlipY) - default."));
+                    Logger_1.Logger.debug("[DECOMPOSE] '".concat(debugName, "' Chosen Opt 1 (FlipY) - default."));
                 }
             }
             else {
@@ -3359,13 +3510,13 @@ var SpineTransformMatrix = /** @class */ (function () {
                     rotation = rot2;
                     appliedScaleX = -scaleX;
                     appliedScaleY = scaleY;
-                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Flip Detected. No reference. Heuristic: Chosen Opt 2 (FlipX) because rot ").concat(rot2.toFixed(2), " is smaller than ").concat(rot1.toFixed(2)));
+                    Logger_1.Logger.debug("[DECOMPOSE] '".concat(debugName, "' Flip Detected. No reference. Heuristic: Chosen Opt 2 (FlipX) because rot ").concat(rot2.toFixed(2), " is smaller than ").concat(rot1.toFixed(2)));
                 }
                 else {
                     rotation = rot1;
                     appliedScaleX = scaleX;
                     appliedScaleY = -scaleY;
-                    Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Flip Detected. No reference. Defaulting to Flip Y."));
+                    Logger_1.Logger.debug("[DECOMPOSE] '".concat(debugName, "' Flip Detected. No reference. Defaulting to Flip Y."));
                 }
             }
         }
@@ -3381,7 +3532,7 @@ var SpineTransformMatrix = /** @class */ (function () {
         while (shearY > 180)
             shearY -= 360;
         // Log intermediate decomposition steps
-        Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Decomposition: det=").concat(det.toFixed(4), " angleX=").concat(angleX.toFixed(2), " angleY=").concat(angleY.toFixed(2), " chosenRot=").concat(rotation.toFixed(2)));
+        Logger_1.Logger.debug("[DECOMPOSE] '".concat(debugName, "' Decomposition: det=").concat(det.toFixed(4), " angleX=").concat(angleX.toFixed(2), " angleY=").concat(angleY.toFixed(2), " chosenRot=").concat(rotation.toFixed(2)));
         // Unwrap Rotation (Shortest path to reference)
         if (reference) {
             var diff = rotation - reference.rotation;
@@ -3407,7 +3558,7 @@ var SpineTransformMatrix = /** @class */ (function () {
             shearX: 0,
             shearY: Math.round(shearY * 10000) / 10000
         };
-        Logger_1.Logger.trace("[DECOMPOSE] '".concat(debugName, "' Result: rot=").concat(result.rotation.toFixed(2), " sx=").concat(result.scaleX.toFixed(2), " sy=").concat(result.scaleY.toFixed(2), " shY=").concat(result.shearY.toFixed(2)));
+        Logger_1.Logger.debug("[DECOMPOSE] '".concat(debugName, "' Result: rot=").concat(result.rotation.toFixed(2), " sx=").concat(result.scaleX.toFixed(2), " sy=").concat(result.scaleY.toFixed(2), " shY=").concat(result.shearY.toFixed(2)));
         return result;
     };
     SpineTransformMatrix.Y_DIRECTION = -1;
@@ -3603,8 +3754,10 @@ var ImageUtil = /** @class */ (function () {
     function ImageUtil() {
     }
     ImageUtil.exportBitmap = function (imagePath, element, exportImages) {
-        var _a, _b;
+        var _a, _b, _c;
         Logger_1.Logger.assert(element.libraryItem != null, "exportBitmap: element has no libraryItem (element: ".concat(element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ")"));
+        var elName = element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '<anon>';
+        Logger_1.Logger.status("[ImageUtil] exportBitmap start '".concat(elName, "' -> ").concat(imagePath));
         // Capture geometric properties immediately
         var regPointX = element.x;
         var regPointY = element.y;
@@ -3615,12 +3768,14 @@ var ImageUtil = /** @class */ (function () {
         var w = item.hPixels || item.width || 0;
         var h = item.vPixels || item.height || 0;
         if (exportImages) {
+            Logger_1.Logger.status("[ImageUtil] exportBitmap exportToFile '".concat(elName, "'"));
             item.exportToFile(imagePath);
+            Logger_1.Logger.status("[ImageUtil] exportBitmap exportToFile ok '".concat(elName, "'"));
         }
         // Calculate Smart Pivot Offset
         var localCenterX = w / 2;
         var localCenterY = h / 2;
-        var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name));
+        var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_c = element.libraryItem) === null || _c === void 0 ? void 0 : _c.name));
         return new SpineImage_1.SpineImage(imagePath, w, h, 1, offset.x, offset.y, localCenterX, localCenterY);
     };
     ImageUtil.exportLibraryItem = function (imagePath, element, scale, exportImages) {
@@ -3683,7 +3838,9 @@ var ImageUtil = /** @class */ (function () {
         }
     };
     ImageUtil.exportInstanceFromStage = function (imagePath, element, document, scale, exportImages) {
-        var _a;
+        var _a, _b;
+        var elName = element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
+        Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage start '".concat(elName, "' -> ").concat(imagePath));
         var matrix = element.matrix;
         var transPointX = element.transformX;
         var transPointY = element.transformY;
@@ -3710,6 +3867,7 @@ var ImageUtil = /** @class */ (function () {
         }
         dom.selectNone();
         element.selected = true;
+        Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage selection len=".concat(dom.selection.length, " '").concat(elName, "'"));
         var copySuccess = false;
         // Retry loop for clipCopy
         for (var attempt = 0; attempt < 4; attempt++) {
@@ -3751,8 +3909,11 @@ var ImageUtil = /** @class */ (function () {
                     ImageUtil.sleep(200 + (attempt * 100)); // Increased backoff
                 }
                 if (dom.selection.length > 0) {
+                    if (attempt === 0)
+                        Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage clipCopy '".concat(elName, "'"));
                     dom.clipCopy();
                     copySuccess = true;
+                    Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage clipCopy ok '".concat(elName, "'"));
                     // Logger.trace(`[ImageUtil] exportInstanceFromStage: Success on attempt ${attempt+1}`);
                     break;
                 }
@@ -3774,6 +3935,8 @@ var ImageUtil = /** @class */ (function () {
             }
             catch (e) {
                 Logger_1.Logger.warning("[ImageUtil] exportInstanceFromStage: clipCopy failed (attempt ".concat(attempt + 1, "/4): ").concat(e, "."));
+                if (attempt === 0)
+                    Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage clipCopy fail '".concat(elName, "' err=").concat(e));
                 ImageUtil.clearClipboard();
             }
         }
@@ -3782,12 +3945,16 @@ var ImageUtil = /** @class */ (function () {
         layer.visible = wasVisible;
         if (!copySuccess) {
             Logger_1.Logger.error("[ImageUtil] exportInstanceFromStage: Failed to copy element after retries. Element: ".concat(element.name));
+            Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage giveup '".concat(elName, "'"));
             return new SpineImage_1.SpineImage(imagePath, 1, 1, scale, 0, 0);
         }
         try {
+            Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage createDocument '".concat(elName, "'"));
             var tempDoc = fl.createDocument();
             try {
+                Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage clipPaste '".concat(elName, "'"));
                 tempDoc.clipPaste(true);
+                Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage clipPaste ok '".concat(elName, "'"));
                 var w = 1;
                 var h = 1;
                 var localCenterX = 0;
@@ -3799,6 +3966,7 @@ var ImageUtil = /** @class */ (function () {
                     // (remove hidden layers) to prevent "Full Asset" glitches where hidden reference layers appear.
                     if (pasted.elementType === 'instance' && pasted.instanceType === 'symbol' && pasted.libraryItem) {
                         try {
+                            Logger_1.Logger.status("[ImageUtil] sanitize start '".concat(pasted.libraryItem.name, "'"));
                             // Ensure the temp document is active for editing
                             if (tempDoc.makeActive) {
                                 try {
@@ -3813,6 +3981,7 @@ var ImageUtil = /** @class */ (function () {
                             var libItem = pasted.libraryItem;
                             var itemName = libItem.name;
                             // Note: We use the library item name to edit.
+                            Logger_1.Logger.status("[ImageUtil] sanitize editItem '".concat(itemName, "'"));
                             tempDoc.library.editItem(itemName);
                             var subTimeline = tempDoc.getTimeline();
                             // Iterate backwards to delete hidden/guide layers
@@ -3827,7 +3996,9 @@ var ImageUtil = /** @class */ (function () {
                                 }
                             }
                             // Exit editing mode to return to Main Timeline of temp doc
+                            Logger_1.Logger.status("[ImageUtil] sanitize exitEditMode '".concat(itemName, "'"));
                             tempDoc.exitEditMode();
+                            Logger_1.Logger.status("[ImageUtil] sanitize done '".concat(itemName, "'"));
                             // Re-select the pasted instance if edit mode cleared selection
                             if (modified) {
                                 tempDoc.selectAll();
@@ -3841,6 +4012,7 @@ var ImageUtil = /** @class */ (function () {
                         }
                         catch (eSanitize) {
                             Logger_1.Logger.warning("[ImageUtil] Failed to sanitize temp symbol: ".concat(eSanitize));
+                            Logger_1.Logger.status("[ImageUtil] sanitize fail err=".concat(eSanitize));
                             try {
                                 tempDoc.exitEditMode();
                             }
@@ -3878,30 +4050,39 @@ var ImageUtil = /** @class */ (function () {
                                 x: (w / 2) - fx,
                                 y: (h / 2) - fy
                             });
+                            Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage exportPNG '".concat(elName, "'"));
                             tempDoc.exportPNG(imagePath, true, true);
+                            Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage exportPNG ok '".concat(elName, "'"));
                         }
                     }
                 }
-                var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name));
+                var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name));
                 return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
             }
             finally {
                 try {
+                    Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage close tempDoc '".concat(elName, "'"));
                     tempDoc.close(false);
+                    Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage close tempDoc ok '".concat(elName, "'"));
                 }
                 catch (eClose) {
                     Logger_1.Logger.warning("[ImageUtil] Failed to close temp document (exportInstanceFromStage): ".concat(eClose));
+                    Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage close tempDoc fail '".concat(elName, "' err=").concat(eClose));
                 }
             }
         }
         catch (eDoc) {
             Logger_1.Logger.error("[ImageUtil] Error during temp document processing: ".concat(eDoc));
+            Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage error '".concat(elName, "' err=").concat(eDoc));
             return new SpineImage_1.SpineImage(imagePath, 1, 1, scale, 0, 0);
         }
     };
     ImageUtil.exportShape = function (imagePath, element, document, scale, exportImages, 
     // Optional selection hints to resolve "Live" element from Data element
     selectionHint) {
+        var _a;
+        var elName = element.name || ((_a = element.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
+        Logger_1.Logger.status("[ImageUtil] exportShape start '".concat(elName, "' -> ").concat(imagePath));
         var matrix = element.matrix;
         var transPointX = element.transformX;
         var transPointY = element.transformY;
@@ -3979,8 +4160,11 @@ var ImageUtil = /** @class */ (function () {
                     ImageUtil.sleep(100 + (attempt * 100));
                 }
                 if (dom.selection.length > 0) {
+                    if (attempt === 0)
+                        Logger_1.Logger.status("[ImageUtil] exportShape clipCopy '".concat(elName, "'"));
                     dom.clipCopy();
                     copySuccess = true;
+                    Logger_1.Logger.status("[ImageUtil] exportShape clipCopy ok '".concat(elName, "'"));
                     // Logger.trace(`[ImageUtil] exportShape: Success on attempt ${attempt+1}`);
                     break;
                 }
@@ -4002,6 +4186,8 @@ var ImageUtil = /** @class */ (function () {
             }
             catch (e) {
                 Logger_1.Logger.warning("[ImageUtil] exportShape: clipCopy failed (attempt ".concat(attempt + 1, "/4): ").concat(e, "."));
+                if (attempt === 0)
+                    Logger_1.Logger.status("[ImageUtil] exportShape clipCopy fail '".concat(elName, "' err=").concat(e));
                 ImageUtil.clearClipboard();
             }
         }
@@ -4014,9 +4200,12 @@ var ImageUtil = /** @class */ (function () {
             return new SpineImage_1.SpineImage(imagePath, 1, 1, scale, 0, 0);
         }
         // Paste into a temp document
+        Logger_1.Logger.status("[ImageUtil] exportShape createDocument '".concat(elName, "'"));
         var tempDoc = fl.createDocument();
         try {
+            Logger_1.Logger.status("[ImageUtil] exportShape clipPaste '".concat(elName, "'"));
             tempDoc.clipPaste(true);
+            Logger_1.Logger.status("[ImageUtil] exportShape clipPaste ok '".concat(elName, "'"));
             var w = 1;
             var h = 1;
             var localCenterX = 0;
@@ -4049,7 +4238,9 @@ var ImageUtil = /** @class */ (function () {
                         x: (w / 2) - fx,
                         y: (h / 2) - fy
                     });
+                    Logger_1.Logger.status("[ImageUtil] exportShape exportPNG '".concat(elName, "'"));
                     tempDoc.exportPNG(imagePath, true, true);
+                    Logger_1.Logger.status("[ImageUtil] exportShape exportPNG ok '".concat(elName, "'"));
                 }
             }
             var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
@@ -4057,13 +4248,17 @@ var ImageUtil = /** @class */ (function () {
         }
         finally {
             try {
+                Logger_1.Logger.status("[ImageUtil] exportShape close tempDoc '".concat(elName, "'"));
                 tempDoc.close(false);
+                Logger_1.Logger.status("[ImageUtil] exportShape close tempDoc ok '".concat(elName, "'"));
             }
             catch (e) { /* ignore */ }
         }
     };
     ImageUtil.exportSymbol = function (imagePath, element, document, scale, exportImages) {
         var item = element.libraryItem;
+        var elName = element.name || (item === null || item === void 0 ? void 0 : item.name) || '<anon>';
+        Logger_1.Logger.status("[ImageUtil] exportSymbol start '".concat(elName, "' -> ").concat(imagePath));
         // Capture geometric properties BEFORE switching context
         var regPointX = element.x;
         var regPointY = element.y;
@@ -4075,16 +4270,21 @@ var ImageUtil = /** @class */ (function () {
         var lib = document.library;
         var originalName = item.name;
         // 1. Select and Duplicate
+        Logger_1.Logger.status("[ImageUtil] exportSymbol duplicate '".concat(originalName, "'"));
         lib.selectItem(originalName);
         if (!lib.duplicateItem(originalName)) {
             Logger_1.Logger.error("[ImageUtil] Failed to duplicate symbol '".concat(originalName, "' for export."));
+            Logger_1.Logger.status("[ImageUtil] exportSymbol duplicate fail '".concat(originalName, "'"));
             return new SpineImage_1.SpineImage(imagePath, 1, 1, scale, 0, 0);
         }
         // The duplicate is now selected and named "Copy of ..." or similar.
         var duplicateItem = lib.getSelectedItems()[0];
         var tempSymbolName = duplicateItem.name;
+        Logger_1.Logger.status("[ImageUtil] exportSymbol duplicate ok '".concat(tempSymbolName, "'"));
         // 2. Edit the Duplicate
+        Logger_1.Logger.status("[ImageUtil] exportSymbol editItem '".concat(tempSymbolName, "'"));
         lib.editItem(tempSymbolName);
+        Logger_1.Logger.status("[ImageUtil] exportSymbol editItem ok '".concat(tempSymbolName, "'"));
         var dom = fl.getDocumentDOM();
         var timeline = dom.getTimeline();
         // 3. Clean up Layers (Delete hidden/guide layers)
@@ -4099,8 +4299,10 @@ var ImageUtil = /** @class */ (function () {
                 layer.locked = false;
             }
         }
+        Logger_1.Logger.status("[ImageUtil] exportSymbol layers cleaned '".concat(tempSymbolName, "'"));
         // 4. Select All (Now safe because only visible renderable content remains)
         dom.selectAll();
+        Logger_1.Logger.status("[ImageUtil] exportSymbol selectAll len=".concat(dom.selection.length, " '").concat(tempSymbolName, "'"));
         // Calculate offsets
         var rect;
         if (dom.selection.length > 0) {
@@ -4123,18 +4325,24 @@ var ImageUtil = /** @class */ (function () {
                 try {
                     if (attempt > 0)
                         ImageUtil.sleep(50);
+                    if (attempt === 0)
+                        Logger_1.Logger.status("[ImageUtil] exportSymbol clipCopy '".concat(tempSymbolName, "'"));
                     dom.clipCopy();
                     copySuccess = true;
+                    Logger_1.Logger.status("[ImageUtil] exportSymbol clipCopy ok '".concat(tempSymbolName, "'"));
                     break;
                 }
                 catch (e) {
                     Logger_1.Logger.warning("[ImageUtil] exportSymbol: clipCopy failed (attempt ".concat(attempt + 1, "/3): ").concat(e));
+                    if (attempt === 0)
+                        Logger_1.Logger.status("[ImageUtil] exportSymbol clipCopy fail '".concat(tempSymbolName, "' err=").concat(e));
                     ImageUtil.clearClipboard();
                     // Select again just in case
                     dom.selectAll();
                 }
             }
             if (copySuccess) {
+                Logger_1.Logger.status("[ImageUtil] exportSymbol createDocument '".concat(tempSymbolName, "'"));
                 var tempDoc = fl.createDocument();
                 try {
                     tempDoc.width = w;
@@ -4154,7 +4362,9 @@ var ImageUtil = /** @class */ (function () {
                             y: (tempDoc.height / 2) - pCy
                         });
                     }
+                    Logger_1.Logger.status("[ImageUtil] exportSymbol exportPNG '".concat(tempSymbolName, "'"));
                     tempDoc.exportPNG(imagePath, true, true);
+                    Logger_1.Logger.status("[ImageUtil] exportSymbol exportPNG ok '".concat(tempSymbolName, "'"));
                 }
                 finally {
                     try {
@@ -4165,8 +4375,11 @@ var ImageUtil = /** @class */ (function () {
             }
         }
         // 5. Cleanup
+        Logger_1.Logger.status("[ImageUtil] exportSymbol exitEditMode '".concat(tempSymbolName, "'"));
         dom.exitEditMode();
+        Logger_1.Logger.status("[ImageUtil] exportSymbol deleteItem '".concat(tempSymbolName, "'"));
         lib.deleteItem(tempSymbolName);
+        Logger_1.Logger.status("[ImageUtil] exportSymbol done '".concat(elName, "'"));
         return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
     };
     /**
@@ -4184,10 +4397,10 @@ var ImageUtil = /** @class */ (function () {
         // 1. Vector from Bone Origin (Trans Point) to Reg Point (in Parent Space)
         var dx = regPointX - transPointX;
         var dy = regPointY - transPointY;
-        Logger_1.Logger.trace("[OFFSET] '".concat(debugName || 'anon', "' BoneToReg Vector: (").concat(dx.toFixed(2), ", ").concat(dy.toFixed(2), ")"));
+        Logger_1.Logger.debug("[OFFSET] '".concat(debugName || 'anon', "' BoneToReg Vector: (").concat(dx.toFixed(2), ", ").concat(dy.toFixed(2), ")"));
         if (dbg) {
-            Logger_1.Logger.trace("[OFFSET_DBG] '".concat(debugName, "' Inputs: reg=(").concat(regPointX.toFixed(2), ", ").concat(regPointY.toFixed(2), ") trans=(").concat(transPointX.toFixed(2), ", ").concat(transPointY.toFixed(2), ") center=(").concat(localCenterX, ", ").concat(localCenterY, ")"));
-            Logger_1.Logger.trace("[OFFSET_DBG] '".concat(debugName, "' Matrix: a=").concat(matrix.a.toFixed(4), " b=").concat(matrix.b.toFixed(4), " c=").concat(matrix.c.toFixed(4), " d=").concat(matrix.d.toFixed(4), " tx=").concat(matrix.tx.toFixed(2), " ty=").concat(matrix.ty.toFixed(2)));
+            Logger_1.Logger.debug("[OFFSET_DBG] '".concat(debugName, "' Inputs: reg=(").concat(regPointX.toFixed(2), ", ").concat(regPointY.toFixed(2), ") trans=(").concat(transPointX.toFixed(2), ", ").concat(transPointY.toFixed(2), ") center=(").concat(localCenterX, ", ").concat(localCenterY, ")"));
+            Logger_1.Logger.debug("[OFFSET_DBG] '".concat(debugName, "' Matrix: a=").concat(matrix.a.toFixed(4), " b=").concat(matrix.b.toFixed(4), " c=").concat(matrix.c.toFixed(4), " d=").concat(matrix.d.toFixed(4), " tx=").concat(matrix.tx.toFixed(2), " ty=").concat(matrix.ty.toFixed(2)));
         }
         // 2. Inverse Matrix Calculation
         var a = matrix.a;
@@ -4204,19 +4417,19 @@ var ImageUtil = /** @class */ (function () {
         // Assumption: localRx, localRy is the distance from the pivot to the (0,0) of the image data in image-local coordinates.
         var localRx = (d * dx - c * dy) * invDet;
         var localRy = (-b * dx + a * dy) * invDet;
-        Logger_1.Logger.trace("[OFFSET] '".concat(debugName || 'anon', "' Local Offset: (").concat(localRx.toFixed(2), ", ").concat(localRy.toFixed(2), ") (invDet=").concat(invDet.toFixed(6), ")"));
+        Logger_1.Logger.debug("[OFFSET] '".concat(debugName || 'anon', "' Local Offset: (").concat(localRx.toFixed(2), ", ").concat(localRy.toFixed(2), ") (invDet=").concat(invDet.toFixed(6), ")"));
         // 3. Add Image Center Offset
         // Attachment (0,0) is at image center. 
         // We add localCenterX/Y because the image data (0,0) is usually top-left or specified by library.
         var finalX = localRx + localCenterX;
         var finalY = localRy + localCenterY;
-        Logger_1.Logger.trace("[OFFSET] '".concat(debugName || 'anon', "' Final Spine Offset: (").concat(finalX.toFixed(2), ", ").concat(finalY.toFixed(2), ") (localCenter: ").concat(localCenterX, ", ").concat(localCenterY, ")"));
+        Logger_1.Logger.debug("[OFFSET] '".concat(debugName || 'anon', "' Final Spine Offset: (").concat(finalX.toFixed(2), ", ").concat(finalY.toFixed(2), ") (localCenter: ").concat(localCenterX, ", ").concat(localCenterY, ")"));
         if (dbg) {
             // Sanity check: if regPoint differs from matrix.tx/ty significantly, we are mixing coordinate spaces.
             var dTx = Math.abs(regPointX - matrix.tx);
             var dTy = Math.abs(regPointY - matrix.ty);
             if (dTx > 0.5 || dTy > 0.5) {
-                Logger_1.Logger.trace("[OFFSET_DBG] '".concat(debugName, "' WARNING: regPoint != matrix.t. |dx|=(").concat(dTx.toFixed(2), ", ").concat(dTy.toFixed(2), ")"));
+                Logger_1.Logger.debug("[OFFSET_DBG] '".concat(debugName, "' WARNING: regPoint != matrix.t. |dx|=(").concat(dTx.toFixed(2), ", ").concat(dTy.toFixed(2), ")"));
             }
         }
         return { x: finalX, y: finalY };
@@ -4955,7 +5168,9 @@ var StringUtil = /** @class */ (function () {
             }
             else {
                 // Log the character code to understand what we are replacing
-                Logger_1.Logger.trace("[Naming] Sanitize: Character '".concat(char, "' (code: 0x").concat(code.toString(16), ") in '").concat(original, "' replaced with '_'"));
+                if (Logger_1.Logger.isTraceEnabled()) {
+                    Logger_1.Logger.trace("[Naming] Sanitize: Character '".concat(char, "' (code: 0x").concat(code.toString(16), ") in '").concat(original, "' replaced with '_'"));
+                }
                 cleaned += "_";
             }
         }
@@ -5030,6 +5245,17 @@ var SpineSkeletonHelper_1 = __webpack_require__(/*! ./spine/SpineSkeletonHelper 
 var PathUtil_1 = __webpack_require__(/*! ./utils/PathUtil */ "./source/utils/PathUtil.ts");
 //-----------------------------------
 fl.showIdleMessage(false);
+// Logging:
+// - Write a persistent log file next to the .fla so we can inspect the last step before a crash.
+// - Keep the Output panel quiet (trace logs are file-only).
+var LOG_TO_FILE = true;
+var LOG_FILE_SUFFIX = '_export.log.txt';
+var STATUS_FILE_SUFFIX = '_export.status.txt';
+// If false: trace logs won't write to the log file (safer for large exports).
+var TRACE_TO_LOG_FILE = false;
+var TRACE_TO_OUTPUT_PANEL = false;
+var DEBUG_VERBOSE_LOGS = false;
+var OUTPUT_PANEL_MAX_LINES = 200;
 var config = {
     outputFormat: new SpineFormatV4_2_00_1.SpineFormatV4_2_00(),
     imagesExportPath: './images/',
@@ -5124,6 +5350,25 @@ var run = function () {
     var originalPath = originalDoc.pathURI;
     var workingDir = PathUtil_1.PathUtil.parentPath(originalPath);
     var baseName = PathUtil_1.PathUtil.fileBaseName(originalPath);
+    // Configure logging as early as possible.
+    try {
+        Logger_1.Logger.setPanelTraceEnabled(TRACE_TO_OUTPUT_PANEL);
+        Logger_1.Logger.setDebugEnabled(DEBUG_VERBOSE_LOGS);
+        Logger_1.Logger.setMaxBufferLines(OUTPUT_PANEL_MAX_LINES);
+        Logger_1.Logger.setFileTraceEnabled(TRACE_TO_LOG_FILE);
+        if (LOG_TO_FILE) {
+            var logPath = PathUtil_1.PathUtil.joinPath(workingDir, baseName + LOG_FILE_SUFFIX);
+            Logger_1.Logger.setLogFile(logPath, true);
+            Logger_1.Logger.warning("Export log: ".concat(logPath));
+        }
+        var statusPath = PathUtil_1.PathUtil.joinPath(workingDir, baseName + STATUS_FILE_SUFFIX);
+        Logger_1.Logger.setStatusFile(statusPath, true);
+        Logger_1.Logger.warning("Export status: ".concat(statusPath));
+        Logger_1.Logger.status("Original: ".concat(originalPath));
+    }
+    catch (e) {
+        // ignore logger init errors
+    }
     var tempPath = PathUtil_1.PathUtil.joinPath(workingDir, baseName + "_export_tmp.fla");
     // Check if we are already in the temp file (prevent infinite recursion if user runs script on temp)
     if (originalPath.indexOf("_export_tmp.fla") !== -1) {
@@ -5140,18 +5385,22 @@ var run = function () {
         Logger_1.Logger.error("Failed to create temporary export file.");
         return;
     }
+    Logger_1.Logger.status("Temp copy ok: ".concat(tempPath));
     var tempDoc = fl.openDocument(tempPath);
     if (!tempDoc) {
         Logger_1.Logger.error("Failed to open temporary export file.");
         return;
     }
+    Logger_1.Logger.status("Temp opened: ".concat(tempPath));
     // Disable UI updates during heavy export process to prevent crashes and race conditions
     var wasLivePreview = tempDoc.livePreview;
     tempDoc.livePreview = false;
     try {
         // --- RESTORE STATE IN TEMP DOC ---
         applySelectionPaths(tempDoc, selectionData);
+        Logger_1.Logger.status('Starting conversion in temp doc');
         processDocument(tempDoc);
+        Logger_1.Logger.status('Conversion finished');
     }
     catch (e) {
         Logger_1.Logger.error("An error occurred during conversion: ".concat(e));
@@ -5159,29 +5408,50 @@ var run = function () {
     finally {
         // Restore UI updates
         tempDoc.livePreview = wasLivePreview;
+        // Safety: closing a document while still in symbol edit mode can crash Animate.
+        // Ensure we return to the main timeline before closing the temp doc.
+        try {
+            for (var i = 0; i < 16; i++) {
+                try {
+                    tempDoc.exitEditMode();
+                    Logger_1.Logger.status('exitEditMode');
+                }
+                catch (eExit) {
+                    break;
+                }
+            }
+        }
+        catch (e) {
+            // ignore
+        }
         // Close temp doc without saving changes
+        Logger_1.Logger.status('Closing temp doc');
         tempDoc.close(false);
         // Remove temp file
+        Logger_1.Logger.status('Removing temp file');
         if (FLfile.exists(tempPath)) {
             FLfile.remove(tempPath);
         }
         // Restore focus to original document
+        Logger_1.Logger.status('Reopening original doc');
         fl.openDocument(originalPath);
     }
 };
 var processDocument = function (document) {
     var converter = new Converter_1.Converter(document, config);
+    Logger_1.Logger.status('Converter created');
     var result = converter.convertSelection();
     for (var _i = 0, result_1 = result; _i < result_1.length; _i++) {
         var skeleton = result_1[_i];
-        Logger_1.Logger.trace('Exporting skeleton: ' + skeleton.name + '...');
+        Logger_1.Logger.status('Exporting skeleton: ' + skeleton.name);
         if (config.simplifyBonesAndSlots) {
             SpineSkeletonHelper_1.SpineSkeletonHelper.simplifySkeletonNames(skeleton);
         }
         if (skeleton.bones.length > 0) {
             var skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
+            Logger_1.Logger.status('Writing skeleton: ' + skeletonPath);
             FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
-            Logger_1.Logger.trace('Skeleton export completed.');
+            Logger_1.Logger.status('Skeleton export completed');
         }
         else {
             Logger_1.Logger.error('Nothing to export.');

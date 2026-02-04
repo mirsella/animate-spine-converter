@@ -57,6 +57,9 @@ export class Converter {
             return;
         }
 
+        const tlName = (timeline as any)?.name || '<unknown>';
+        Logger.status(`[Bake] start tl='${tlName}' layerIdx=${layerIndex} span=${spanStart}-${spanEndExclusive - 1}`);
+
         try {
             try { (timeline as any).setSelectedLayers(layerIndex); } catch (e) {}
             try { (timeline as any).setSelectedFrames(spanStart, spanEndExclusive); } catch (e) {}
@@ -65,11 +68,14 @@ export class Converter {
                 (timeline as any).convertToKeyframes();
                 this._bakedSpanEndByKey[key] = spanEndExclusive;
                 if (isDbg) Logger.trace(`${dbgPrefix} convertToKeyframes baked span ${spanStart}-${spanEndExclusive - 1} (layerIdx=${layerIndex})`);
+                Logger.status(`[Bake] ok tl='${tlName}' layerIdx=${layerIndex} span=${spanStart}-${spanEndExclusive - 1}`);
             } catch (e) {
                 if (isDbg) Logger.trace(`${dbgPrefix} convertToKeyframes failed for span ${spanStart}-${spanEndExclusive - 1} (layerIdx=${layerIndex}): ${e}`);
+                Logger.status(`[Bake] fail tl='${tlName}' layerIdx=${layerIndex} span=${spanStart}-${spanEndExclusive - 1} err=${e}`);
             }
         } catch (eOuter) {
             if (isDbg) Logger.trace(`${dbgPrefix} bakeSpanToKeyframes failed: ${eOuter}`);
+            Logger.status(`[Bake] error tl='${tlName}' layerIdx=${layerIndex} span=${spanStart}-${spanEndExclusive - 1} err=${eOuter}`);
         }
     }
 
@@ -128,13 +134,18 @@ export class Converter {
         }
 
         if (mustEdit) {
+            Logger.status(`[Image] editItem '${containerItem.name}' (from tl='${currentTl.name}')`);
             dom.library.editItem(containerItem.name);
             try {
+                Logger.status(`[Image] exportAction in '${containerItem.name}'`);
                 return exportAction();
             } finally {
+                Logger.status(`[Image] exitEditMode '${containerItem.name}'`);
                 dom.exitEditMode();
+                Logger.status(`[Image] exitEditMode done '${containerItem.name}'`);
             }
         } else {
+            Logger.status('[Image] exportAction (no edit mode switch)');
             return exportAction();
         }
     }
@@ -151,13 +162,16 @@ export class Converter {
         if (spineImage == null) {
             try {
                 const hints = this.createSelectionHints(context);
-                Logger.trace(`[IMAGE] Exporting new image: ${baseImageName} (Path: ${baseImagePath})`);
+                Logger.status(`[IMAGE] Exporting '${baseImageName}'`);
                 spineImage = this.safelyExportImage(context, () => {
+                    Logger.status(`[IMAGE] imageExportFactory '${baseImageName}'`);
                     return imageExportFactory(context, baseImagePath);
                 });
+                Logger.status(`[IMAGE] Exported '${baseImageName}'`);
             } catch (e) {
                 Logger.error(`[Converter] Image export error for '${baseImageName}': ${e}. Using placeholder.`);
                 spineImage = new SpineImage(baseImagePath, 1, 1, 1, 0, 0, 0, 0);
+                Logger.status(`[IMAGE] Placeholder for '${baseImageName}'`);
             }
             context.global.imagesCache.set(baseImagePath, spineImage);
         } else {
@@ -260,7 +274,7 @@ export class Converter {
         const subcontext = context.createSlot(context.element);
         const slot = subcontext.slot;
 
-        Logger.trace(`[SLOT] Created/Retrieved slot '${slot.name}' for '${baseImageName}' (Stage: ${context.global.stageType})`);
+        Logger.debug(`[SLOT] Slot '${slot.name}' for '${baseImageName}' (Stage: ${context.global.stageType})`);
 
         if (context.global.stageType === ConverterStageType.STRUCTURE) {
             if (context.clipping != null) {
@@ -786,7 +800,7 @@ export class Converter {
         if (!item) return;
 
         const indent = this.getIndent(context.recursionDepth);
-        Logger.trace(`${indent}[STRUCT] Symbol: ${item.name} (Depth: ${context.recursionDepth})`);
+        if (Logger.isTraceEnabled()) Logger.trace(`${indent}[STRUCT] Symbol: ${item.name} (Depth: ${context.recursionDepth})`);
 
         if (context.recursionDepth > 32) {
             Logger.warning(`${indent}[WARN] Max recursion depth reached for ${item.name}. Skipping.`);
@@ -823,11 +837,11 @@ export class Converter {
                 context.frame = savedFrame;
 
                 if (!layer.visible) {
-                    Logger.trace(`${indent}  [LAYER] Skipping Hidden Layer: ${layer.name}`);
+                    if (Logger.isTraceEnabled()) Logger.trace(`${indent}  [LAYER] Skipping Hidden Layer: ${layer.name}`);
                     continue;
                 }
 
-                Logger.trace(`${indent}  [LAYER] Processing: ${layer.name} (Type: ${layer.layerType})`);
+                if (Logger.isTraceEnabled()) Logger.trace(`${indent}  [LAYER] Processing: ${layer.name} (Type: ${layer.layerType})`);
 
                 if (layer.layerType === 'normal' || layer.layerType === 'guided') {
                     this.convertCompositeElementLayer(context, layer, canEdit);
@@ -851,7 +865,7 @@ export class Converter {
         const indent = this.getIndent(context.recursionDepth);
         if (slots && slots.length > 0) {
             for (const s of slots) {
-                Logger.trace(`${indent}    [Visibility] Hiding slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
+                if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Hiding slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
                 SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
                 
                 // Also hide all children slots recursively
@@ -863,7 +877,7 @@ export class Converter {
         const bones = context.global.layerBonesCache.get(layer);
         if (bones && bones.length > 0) {
             for (const b of bones) {
-                Logger.trace(`${indent}    [Visibility] Hiding children of bone '${b.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
+                if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Hiding children of bone '${b.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
                 this.hideChildSlots(context, b, time);
             }
         }
@@ -1025,7 +1039,7 @@ export class Converter {
             return;
         }
 
-        Logger.trace(`${indent}  [LOOP] ${layer.name}: Start=${start} End=${end}`);
+        if (Logger.isTraceEnabled()) Logger.trace(`${indent}  [LOOP] ${layer.name}: Start=${start} End=${end}`);
         for (let i = start; i <= end; i++) {
             let time = (i - start) / frameRate;
             time += context.timeOffset;
@@ -1040,7 +1054,7 @@ export class Converter {
             const frame = layer.frames[i];
             if (!frame) continue;
             
-            Logger.trace(`${indent}  [STEP] Frame: ${i} (Time: ${time.toFixed(3)})`);
+            if (Logger.isTraceEnabled()) Logger.trace(`${indent}  [STEP] Frame: ${i} (Time: ${time.toFixed(3)})`);
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
                 context.global.skeleton.createEvent(frame.name);
                 if (stageType === ConverterStageType.ANIMATION) SpineAnimationHelper.applyEventAnimation(context.global.animation, frame.name, time);
@@ -1058,7 +1072,7 @@ export class Converter {
                 let el = frame.elements[eIdx];
                 const elName = el.name || el.libraryItem?.name || '<anon>';
                 if (stageType === ConverterStageType.ANIMATION) {
-                    Logger.trace(`${indent}    [ELEM] Processing element '${elName}' at Frame ${i} (Start: ${frame.startFrame})`);
+                    if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [ELEM] Processing element '${elName}' at Frame ${i} (Start: ${frame.startFrame})`);
                 }
 
                 let parentMat: FlashMatrix = null;
@@ -1290,7 +1304,7 @@ export class Converter {
                 }
 
                 sub.internalFrame = i; // Fix: Pass current loop index as internal frame for nested time resolution
-                Logger.trace(`${indent}    [INTERNAL] Passed internal frame ${i} to child '${el.name || el.libraryItem?.name || '<anon>'}'`);
+                if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [INTERNAL] Passed internal frame ${i} to child '${el.name || el.libraryItem?.name || '<anon>'}'`);
                 
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === ConverterStageType.ANIMATION) {
                     const instance = el as any;
@@ -1337,7 +1351,7 @@ export class Converter {
                         }
                         
                         if (!isActive) {
-                            Logger.trace(`${indent}    [Visibility] Auto-hiding inactive slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
+                            if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Auto-hiding inactive slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
                             SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
                             this.hideChildSlots(context, s.bone, time);
                         }
@@ -1349,7 +1363,7 @@ export class Converter {
 
     private convertElement(context:ConverterContext):void {
         const indent = this.getIndent(context.recursionDepth);
-        Logger.trace(`${indent}[CONVERT] Path: ${context.symbolPath} (Depth: ${context.recursionDepth})`);
+        if (Logger.isTraceEnabled()) Logger.trace(`${indent}[CONVERT] Path: ${context.symbolPath} (Depth: ${context.recursionDepth})`);
 
         if (LibraryUtil.isPrimitiveLibraryItem(context.element.libraryItem, this._config)) {
             this.convertPrimitiveElement(context);
@@ -1375,10 +1389,12 @@ export class Converter {
     public convertSymbolInstance(element:FlashElement, context:ConverterContext):boolean {
         if (element.elementType === 'instance' && element.instanceType === 'symbol') {
             try {
+                Logger.status(`[Symbol] Start '${element.name || element.libraryItem.name}'`);
                 context.global.stageType = ConverterStageType.STRUCTURE;
                 this.convertElement(context);
                 
                 Logger.trace(`[Converter] Converting animations for symbol instance: ${element.name || element.libraryItem.name}. Found ${context.global.labels.length} labels.`);
+                Logger.status(`[Symbol] Structure done. Labels=${context.global.labels.length}`);
                 
                 if (context.global.labels.length > 0) {
                     const isDefaultOnly = context.global.labels.length === 1 && context.global.labels[0].name === 'default';
@@ -1386,20 +1402,25 @@ export class Converter {
                     if (!isDefaultOnly) {
                         for (const l of context.global.labels) {
                             Logger.trace(`  - Processing label: ${l.name} (frames ${l.startFrameIdx}-${l.endFrameIdx})`);
+                            Logger.status(`[Anim] Label '${l.name}' frames=${l.startFrameIdx}-${l.endFrameIdx}`);
                             context.global.processedSymbols.clear(); 
                             const sub = context.switchContextAnimation(l);
                             sub.global.stageType = ConverterStageType.ANIMATION;
                             this.convertElement(sub);
+                            Logger.status(`[Anim] Label '${l.name}' done`);
                         }
                     } else {
                         Logger.trace(`  - Processing default timeline animation (frames 0-${context.global.labels[0].endFrameIdx})`);
+                        Logger.status(`[Anim] Label 'default' frames=0-${context.global.labels[0].endFrameIdx}`);
                         context.global.processedSymbols.clear();
                         const sub = context.switchContextAnimation(context.global.labels[0]);
                         sub.global.stageType = ConverterStageType.ANIMATION;
                         this.convertElement(sub);
+                        Logger.status(`[Anim] Label 'default' done`);
                     }
                 }
                 
+                Logger.status(`[Symbol] Done '${element.name || element.libraryItem.name}'`);
                 return true;
             } catch (e) { Logger.error(JsonEncoder.stringify(e)); }
         }
