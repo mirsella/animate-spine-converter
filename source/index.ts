@@ -248,6 +248,68 @@ const processDocument = (document: FlashDocument) => {
     for (const skeleton of result) {
         Logger.status('Exporting skeleton: ' + skeleton.name);
 
+        // Minimal stats to diagnose "no animation" exports.
+        try {
+            const anims:any[] = (skeleton as any).animations || [];
+            const bones:any[] = (skeleton as any).bones || [];
+            const slots:any[] = (skeleton as any).slots || [];
+            Logger.status(`[Stats] bones=${bones.length} slots=${slots.length} animations=${anims.length}`);
+
+            for (let ai = 0; ai < anims.length; ai++) {
+                const anim:any = anims[ai];
+                const boneGroups:any[] = anim.bones || [];
+                const slotGroups:any[] = anim.slots || [];
+                const eventTimeline:any = anim.events;
+                const eventFrames = (eventTimeline && eventTimeline.frames) ? eventTimeline.frames.length : 0;
+
+                let boneTimelines = 0;
+                let boneFrames = 0;
+                let slotTimelines = 0;
+                let slotFrames = 0;
+
+                let rotateFrames = 0;
+                let translateFrames = 0;
+                let scaleFrames = 0;
+                let shearFrames = 0;
+                let attachmentFrames = 0;
+                let rgbaFrames = 0;
+
+                // Bone timelines
+                for (let bi = 0; bi < boneGroups.length; bi++) {
+                    const g:any = boneGroups[bi];
+                    const tls:any[] = (g && g.timelines) ? g.timelines : [];
+                    boneTimelines += tls.length;
+                    for (let ti = 0; ti < tls.length; ti++) {
+                        const tl:any = tls[ti];
+                        const frames:any[] = tl && tl.frames ? tl.frames : [];
+                        boneFrames += frames.length;
+                        if (tl.type === 'rotate') rotateFrames += frames.length;
+                        else if (tl.type === 'translate') translateFrames += frames.length;
+                        else if (tl.type === 'scale') scaleFrames += frames.length;
+                        else if (tl.type === 'shear') shearFrames += frames.length;
+                    }
+                }
+
+                // Slot timelines
+                for (let si = 0; si < slotGroups.length; si++) {
+                    const g:any = slotGroups[si];
+                    const tls:any[] = (g && g.timelines) ? g.timelines : [];
+                    slotTimelines += tls.length;
+                    for (let ti = 0; ti < tls.length; ti++) {
+                        const tl:any = tls[ti];
+                        const frames:any[] = tl && tl.frames ? tl.frames : [];
+                        slotFrames += frames.length;
+                        if (tl.type === 'attachment') attachmentFrames += frames.length;
+                        else if (tl.type === 'color') rgbaFrames += frames.length;
+                    }
+                }
+
+                Logger.status(`[Stats] anim='${anim.name}' boneGroups=${boneGroups.length} boneTimelines=${boneTimelines} boneFrames=${boneFrames} (rot=${rotateFrames} pos=${translateFrames} scale=${scaleFrames} shear=${shearFrames}) slotGroups=${slotGroups.length} slotTimelines=${slotTimelines} slotFrames=${slotFrames} (attach=${attachmentFrames} rgba=${rgbaFrames}) events=${eventFrames}`);
+            }
+        } catch (e) {
+            Logger.status('[Stats] failed: ' + e);
+        }
+
         if (config.simplifyBonesAndSlots) {
             SpineSkeletonHelper.simplifySkeletonNames(skeleton);
         }

@@ -3272,8 +3272,8 @@ var SpineFormatV4_0_00 = /** @class */ (function (_super) {
             var isAttachment = timeline.type === "attachment" /* SpineTimelineType.ATTACHMENT */;
             var frame = __assign({ time: frameData.time }, curve);
             if (isRotate) {
-                // Spine JSON expects "angle" for rotate timeline keys.
-                frame.angle = frameData.angle;
+                // Spine 4.x JSON uses "value" for single-value timelines (rotate).
+                frame.value = frameData.angle;
             }
             else if (isTranslate) {
                 frame.x = frameData.x;
@@ -5645,6 +5645,68 @@ var processDocument = function (document) {
     for (var _i = 0, result_1 = result; _i < result_1.length; _i++) {
         var skeleton = result_1[_i];
         Logger_1.Logger.status('Exporting skeleton: ' + skeleton.name);
+        // Minimal stats to diagnose "no animation" exports.
+        try {
+            var anims = skeleton.animations || [];
+            var bones = skeleton.bones || [];
+            var slots = skeleton.slots || [];
+            Logger_1.Logger.status("[Stats] bones=".concat(bones.length, " slots=").concat(slots.length, " animations=").concat(anims.length));
+            for (var ai = 0; ai < anims.length; ai++) {
+                var anim = anims[ai];
+                var boneGroups = anim.bones || [];
+                var slotGroups = anim.slots || [];
+                var eventTimeline = anim.events;
+                var eventFrames = (eventTimeline && eventTimeline.frames) ? eventTimeline.frames.length : 0;
+                var boneTimelines = 0;
+                var boneFrames = 0;
+                var slotTimelines = 0;
+                var slotFrames = 0;
+                var rotateFrames = 0;
+                var translateFrames = 0;
+                var scaleFrames = 0;
+                var shearFrames = 0;
+                var attachmentFrames = 0;
+                var rgbaFrames = 0;
+                // Bone timelines
+                for (var bi = 0; bi < boneGroups.length; bi++) {
+                    var g = boneGroups[bi];
+                    var tls = (g && g.timelines) ? g.timelines : [];
+                    boneTimelines += tls.length;
+                    for (var ti = 0; ti < tls.length; ti++) {
+                        var tl = tls[ti];
+                        var frames = tl && tl.frames ? tl.frames : [];
+                        boneFrames += frames.length;
+                        if (tl.type === 'rotate')
+                            rotateFrames += frames.length;
+                        else if (tl.type === 'translate')
+                            translateFrames += frames.length;
+                        else if (tl.type === 'scale')
+                            scaleFrames += frames.length;
+                        else if (tl.type === 'shear')
+                            shearFrames += frames.length;
+                    }
+                }
+                // Slot timelines
+                for (var si = 0; si < slotGroups.length; si++) {
+                    var g = slotGroups[si];
+                    var tls = (g && g.timelines) ? g.timelines : [];
+                    slotTimelines += tls.length;
+                    for (var ti = 0; ti < tls.length; ti++) {
+                        var tl = tls[ti];
+                        var frames = tl && tl.frames ? tl.frames : [];
+                        slotFrames += frames.length;
+                        if (tl.type === 'attachment')
+                            attachmentFrames += frames.length;
+                        else if (tl.type === 'color')
+                            rgbaFrames += frames.length;
+                    }
+                }
+                Logger_1.Logger.status("[Stats] anim='".concat(anim.name, "' boneGroups=").concat(boneGroups.length, " boneTimelines=").concat(boneTimelines, " boneFrames=").concat(boneFrames, " (rot=").concat(rotateFrames, " pos=").concat(translateFrames, " scale=").concat(scaleFrames, " shear=").concat(shearFrames, ") slotGroups=").concat(slotGroups.length, " slotTimelines=").concat(slotTimelines, " slotFrames=").concat(slotFrames, " (attach=").concat(attachmentFrames, " rgba=").concat(rgbaFrames, ") events=").concat(eventFrames));
+            }
+        }
+        catch (e) {
+            Logger_1.Logger.status('[Stats] failed: ' + e);
+        }
         if (config.simplifyBonesAndSlots) {
             SpineSkeletonHelper_1.SpineSkeletonHelper.simplifySkeletonNames(skeleton);
         }
