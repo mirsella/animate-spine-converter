@@ -1206,6 +1206,35 @@ export class Converter {
             const frame = layer.frames[i];
             if (!frame) continue;
 
+            // ANIMATION: For classic tweens with a curve that Spine can represent, we only need
+            // the keyframes (startFrame entries). JSFL does not reliably expose interpolated
+            // element transforms for in-between frames without baking.
+            if (stageType === ConverterStageType.ANIMATION && i !== frame.startFrame) {
+                const isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
+                const isClassic = frame.tweenType === 'classic';
+                const isNoneTween = frame.tweenType === 'none';
+
+                let classicCurveSupported = false;
+                if (isClassic && !isGuided) {
+                    // Linear / standard easing are supported. Custom ease is only supported
+                    // when it is a single cubic bezier segment (4 points).
+                    if (!frame.hasCustomEase) {
+                        classicCurveSupported = true;
+                    } else {
+                        try {
+                            const pts:any = frame.getCustomEase();
+                            classicCurveSupported = !!(pts && pts.length === 4);
+                        } catch (e) {
+                            classicCurveSupported = false;
+                        }
+                    }
+                }
+
+                if (isNoneTween || classicCurveSupported || !allowBaking) {
+                    continue;
+                }
+            }
+
             // STRUCTURE pass should only visit keyframes.
             // Visiting in-between frames can explode work (e.g. long particle spans) and freeze Animate.
             if (stageType !== ConverterStageType.ANIMATION && i !== frame.startFrame) {

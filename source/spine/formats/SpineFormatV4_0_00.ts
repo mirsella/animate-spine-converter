@@ -21,7 +21,9 @@ export class SpineFormatV4_0_00 extends SpineFormatV3_8_99 {
             };
         }
 
-        return null;
+        // IMPORTANT: this return value is spread into an object literal.
+        // Returning null/undefined can crash older JS engines when using the TS __assign helper.
+        return {};
     }
 
     public override convertTimeline(timeline:SpineTimeline):any[] {

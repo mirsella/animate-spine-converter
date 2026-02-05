@@ -1139,6 +1139,34 @@ var Converter = /** @class */ (function () {
             var frame = layer.frames[i];
             if (!frame)
                 continue;
+            // ANIMATION: For classic tweens with a curve that Spine can represent, we only need
+            // the keyframes (startFrame entries). JSFL does not reliably expose interpolated
+            // element transforms for in-between frames without baking.
+            if (stageType === "animation" /* ConverterStageType.ANIMATION */ && i !== frame.startFrame) {
+                var isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
+                var isClassic = frame.tweenType === 'classic';
+                var isNoneTween = frame.tweenType === 'none';
+                var classicCurveSupported = false;
+                if (isClassic && !isGuided) {
+                    // Linear / standard easing are supported. Custom ease is only supported
+                    // when it is a single cubic bezier segment (4 points).
+                    if (!frame.hasCustomEase) {
+                        classicCurveSupported = true;
+                    }
+                    else {
+                        try {
+                            var pts = frame.getCustomEase();
+                            classicCurveSupported = !!(pts && pts.length === 4);
+                        }
+                        catch (e) {
+                            classicCurveSupported = false;
+                        }
+                    }
+                }
+                if (isNoneTween || classicCurveSupported || !allowBaking) {
+                    continue;
+                }
+            }
             // STRUCTURE pass should only visit keyframes.
             // Visiting in-between frames can explode work (e.g. long particle spans) and freeze Animate.
             if (stageType !== "animation" /* ConverterStageType.ANIMATION */ && i !== frame.startFrame) {
@@ -1911,6 +1939,8 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.assetTransforms = new ConverterMap_1.ConverterMap();
         context.attachmentVariants = new ConverterMap_1.ConverterMap();
         context.processedSymbols = new ConverterMap_1.ConverterMap();
+        context.boneNameBySignature = new ConverterMap_1.ConverterMap();
+        context.boneNameSuffixCounter = new ConverterMap_1.ConverterMap();
         return context;
     };
     return ConverterContextGlobal;
@@ -3015,7 +3045,9 @@ var SpineFormatV3_8_99 = /** @class */ (function () {
                 c4: curve.cy2
             });
         }
-        return null;
+        // IMPORTANT: this return value is spread into an object literal.
+        // Returning null/undefined can crash older JS engines when using the TS __assign helper.
+        return {};
     };
     SpineFormatV3_8_99.prototype.convertTimelineFrame = function (frame, flipY) {
         if (flipY === void 0) { flipY = false; }
@@ -3256,7 +3288,9 @@ var SpineFormatV4_0_00 = /** @class */ (function (_super) {
                 curve: [curve.cx1, curve.cy1, curve.cx2, curve.cy2]
             };
         }
-        return null;
+        // IMPORTANT: this return value is spread into an object literal.
+        // Returning null/undefined can crash older JS engines when using the TS __assign helper.
+        return {};
     };
     SpineFormatV4_0_00.prototype.convertTimeline = function (timeline) {
         var length = timeline.frames.length;
@@ -3887,13 +3921,48 @@ var ConvertUtil = /** @class */ (function () {
         }
     };
     ConvertUtil.createBoneName = function (element, context) {
-        var name = ConvertUtil.createElementName(element, context);
-        // Log naming decision if needed
-        // if (name.indexOf('dash') !== -1) Logger.trace(`[NAMING] Created bone name base: ${name} (Element: ${element.name}, Lib: ${element.libraryItem?.name}, Layer: ${element.layer.name})`);
-        if (context != null && context.bone != null && context.bone.name !== 'root') {
-            return context.bone.name + '/' + name;
+        var baseLocalName = ConvertUtil.createElementName(element, context);
+        var parentName = (context != null && context.bone != null && context.bone.name !== 'root') ? context.bone.name : '';
+        var baseFullName = parentName ? (parentName + '/' + baseLocalName) : baseLocalName;
+        // If global cache isn't available, keep the original behavior.
+        if (!context || !context.global || !context.global.skeleton || !context.global.boneNameBySignature) {
+            return baseFullName;
         }
-        return name;
+        // Create a stable signature so the same element gets the same bone name every frame.
+        var layerName = element.layer && element.layer.name ? element.layer.name : '';
+        var libName = element.libraryItem && element.libraryItem.name ? element.libraryItem.name : '';
+        var elName = element && element.name ? element.name : '';
+        var signature = parentName + '|' + elName + '|' + layerName + '|' + libName;
+        var existing = context.global.boneNameBySignature.get(signature);
+        if (existing)
+            return existing;
+        // First try the base name.
+        var sk = context.global.skeleton;
+        if (sk.findBone(baseFullName) == null) {
+            context.global.boneNameBySignature.set(signature, baseFullName);
+            return baseFullName;
+        }
+        // Collision: append a stable-ish suffix derived from the layer name, then fallback to numeric.
+        var layerSuffix = layerName ? ('__' + StringUtil_1.StringUtil.simplify(layerName)) : '';
+        var candidate = baseFullName + layerSuffix;
+        if (layerSuffix && sk.findBone(candidate) == null) {
+            context.global.boneNameBySignature.set(signature, candidate);
+            return candidate;
+        }
+        // Numeric suffix fallback.
+        var counterKey = baseFullName;
+        var next = context.global.boneNameSuffixCounter.get(counterKey);
+        if (next == null)
+            next = 2;
+        while (true) {
+            candidate = baseFullName + '_' + next;
+            if (sk.findBone(candidate) == null) {
+                context.global.boneNameSuffixCounter.set(counterKey, next + 1);
+                context.global.boneNameBySignature.set(signature, candidate);
+                return candidate;
+            }
+            next++;
+        }
     };
     ConvertUtil.createSlotName = function (context) {
         return context.bone.name + '_slot';
@@ -5444,6 +5513,7 @@ var Logger_1 = __webpack_require__(/*! ./logger/Logger */ "./source/logger/Logge
 var SpineFormatV4_2_00_1 = __webpack_require__(/*! ./spine/formats/SpineFormatV4_2_00 */ "./source/spine/formats/SpineFormatV4_2_00.ts");
 var SpineSkeletonHelper_1 = __webpack_require__(/*! ./spine/SpineSkeletonHelper */ "./source/spine/SpineSkeletonHelper.ts");
 var PathUtil_1 = __webpack_require__(/*! ./utils/PathUtil */ "./source/utils/PathUtil.ts");
+var JsonEncoder_1 = __webpack_require__(/*! ./utils/JsonEncoder */ "./source/utils/JsonEncoder.ts");
 //-----------------------------------
 fl.showIdleMessage(false);
 // Logging:
@@ -5713,7 +5783,83 @@ var processDocument = function (document) {
         if (skeleton.bones.length > 0) {
             var skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
             Logger_1.Logger.status('Writing skeleton: ' + skeletonPath);
-            FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
+            // Convert once so we can inspect what survives optimization.
+            var converted = null;
+            try {
+                converted = config.outputFormat.convert(skeleton);
+                var anims = converted && converted.animations ? converted.animations : null;
+                if (anims) {
+                    for (var animName in anims) {
+                        var anim = anims[animName];
+                        var bones = anim && anim.bones ? anim.bones : {};
+                        var slots = anim && anim.slots ? anim.slots : {};
+                        var boneTimelines = 0;
+                        var boneFrames = 0;
+                        for (var boneName in bones) {
+                            var group = bones[boneName];
+                            for (var tlName in group) {
+                                var frames = group[tlName];
+                                boneTimelines++;
+                                if (frames && frames.length)
+                                    boneFrames += frames.length;
+                            }
+                        }
+                        var slotTimelines = 0;
+                        var slotFrames = 0;
+                        for (var slotName in slots) {
+                            var group = slots[slotName];
+                            for (var tlName in group) {
+                                var frames = group[tlName];
+                                slotTimelines++;
+                                if (frames && frames.length)
+                                    slotFrames += frames.length;
+                            }
+                        }
+                        Logger_1.Logger.status("[OutStats] anim='".concat(animName, "' boneTimelines=").concat(boneTimelines, " boneFrames=").concat(boneFrames, " slotTimelines=").concat(slotTimelines, " slotFrames=").concat(slotFrames));
+                        // Print a tiny snippet of the first rotate + attachment timelines.
+                        try {
+                            var printed = false;
+                            for (var bName in bones) {
+                                var g = bones[bName];
+                                var rot = g && g.rotate ? g.rotate : null;
+                                if (rot && rot.length) {
+                                    var first = rot[0];
+                                    var last = rot[rot.length - 1];
+                                    Logger_1.Logger.status("[OutSnip] rotate bone='".concat(bName, "' n=").concat(rot.length, " first(t=").concat(first.time || 0, ", v=").concat(first.value, ") last(t=").concat(last.time || 0, ", v=").concat(last.value, ")"));
+                                    printed = true;
+                                    break;
+                                }
+                            }
+                            for (var sName in slots) {
+                                var g = slots[sName];
+                                var att = g && g.attachment ? g.attachment : null;
+                                if (att && att.length) {
+                                    var first = att[0];
+                                    var last = att[att.length - 1];
+                                    Logger_1.Logger.status("[OutSnip] attach slot='".concat(sName, "' n=").concat(att.length, " first(t=").concat(first.time || 0, ", name=").concat(first.name, ") last(t=").concat(last.time || 0, ", name=").concat(last.name, ")"));
+                                    break;
+                                }
+                            }
+                        }
+                        catch (eSnip) {
+                            Logger_1.Logger.status('[OutSnip] failed: ' + eSnip);
+                        }
+                    }
+                }
+                else {
+                    Logger_1.Logger.status('[OutStats] no animations object in converted JSON');
+                }
+            }
+            catch (e) {
+                Logger_1.Logger.status('[OutStats] failed: ' + e);
+            }
+            if (converted) {
+                FLfile.write(skeletonPath, JsonEncoder_1.JsonEncoder.stringify(converted));
+            }
+            else {
+                // Fallback (should behave the same but keeps exporter working if debug convert fails).
+                FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
+            }
             Logger_1.Logger.status('Skeleton export completed');
         }
         else {

@@ -83,7 +83,9 @@ export class SpineFormatV3_8_99 implements SpineFormat {
             });
         }
 
-        return null;
+        // IMPORTANT: this return value is spread into an object literal.
+        // Returning null/undefined can crash older JS engines when using the TS __assign helper.
+        return {};
     }
 
     public convertTimelineFrame(frame:SpineTimelineFrame, flipY:boolean = false):any {

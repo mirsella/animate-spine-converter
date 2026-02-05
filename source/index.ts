@@ -4,6 +4,7 @@ import { Logger } from './logger/Logger';
 import { SpineFormatV4_2_00 } from './spine/formats/SpineFormatV4_2_00';
 import { SpineSkeletonHelper } from './spine/SpineSkeletonHelper';
 import { PathUtil } from './utils/PathUtil';
+import { JsonEncoder } from './utils/JsonEncoder';
 
 //-----------------------------------
 
@@ -317,7 +318,84 @@ const processDocument = (document: FlashDocument) => {
         if (skeleton.bones.length > 0) {
             const skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
             Logger.status('Writing skeleton: ' + skeletonPath);
-            FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
+
+            // Convert once so we can inspect what survives optimization.
+            let converted:any = null;
+            try {
+                converted = (config.outputFormat as any).convert(skeleton);
+
+                const anims = converted && converted.animations ? converted.animations : null;
+                if (anims) {
+                    for (const animName in anims) {
+                        const anim = anims[animName];
+                        const bones = anim && anim.bones ? anim.bones : {};
+                        const slots = anim && anim.slots ? anim.slots : {};
+
+                        let boneTimelines = 0;
+                        let boneFrames = 0;
+                        for (const boneName in bones) {
+                            const group = bones[boneName];
+                            for (const tlName in group) {
+                                const frames = group[tlName];
+                                boneTimelines++;
+                                if (frames && frames.length) boneFrames += frames.length;
+                            }
+                        }
+
+                        let slotTimelines = 0;
+                        let slotFrames = 0;
+                        for (const slotName in slots) {
+                            const group = slots[slotName];
+                            for (const tlName in group) {
+                                const frames = group[tlName];
+                                slotTimelines++;
+                                if (frames && frames.length) slotFrames += frames.length;
+                            }
+                        }
+
+                        Logger.status(`[OutStats] anim='${animName}' boneTimelines=${boneTimelines} boneFrames=${boneFrames} slotTimelines=${slotTimelines} slotFrames=${slotFrames}`);
+
+                        // Print a tiny snippet of the first rotate + attachment timelines.
+                        try {
+                            let printed = false;
+                            for (const bName in bones) {
+                                const g = bones[bName];
+                                const rot = g && g.rotate ? g.rotate : null;
+                                if (rot && rot.length) {
+                                    const first = rot[0];
+                                    const last = rot[rot.length - 1];
+                                    Logger.status(`[OutSnip] rotate bone='${bName}' n=${rot.length} first(t=${first.time || 0}, v=${first.value}) last(t=${last.time || 0}, v=${last.value})`);
+                                    printed = true;
+                                    break;
+                                }
+                            }
+                            for (const sName in slots) {
+                                const g = slots[sName];
+                                const att = g && g.attachment ? g.attachment : null;
+                                if (att && att.length) {
+                                    const first = att[0];
+                                    const last = att[att.length - 1];
+                                    Logger.status(`[OutSnip] attach slot='${sName}' n=${att.length} first(t=${first.time || 0}, name=${first.name}) last(t=${last.time || 0}, name=${last.name})`);
+                                    break;
+                                }
+                            }
+                        } catch (eSnip) {
+                            Logger.status('[OutSnip] failed: ' + eSnip);
+                        }
+                    }
+                } else {
+                    Logger.status('[OutStats] no animations object in converted JSON');
+                }
+            } catch (e) {
+                Logger.status('[OutStats] failed: ' + e);
+            }
+
+            if (converted) {
+                FLfile.write(skeletonPath, JsonEncoder.stringify(converted));
+            } else {
+                // Fallback (should behave the same but keeps exporter working if debug convert fails).
+                FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
+            }
             Logger.status('Skeleton export completed');
         } else {
             Logger.error('Nothing to export.');

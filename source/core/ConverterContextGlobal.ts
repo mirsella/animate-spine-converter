@@ -25,6 +25,13 @@ export class ConverterContextGlobal extends ConverterContext {
     public attachmentVariants:ConverterMap<string, Array<{x:number, y:number, name:string}>>;
     public processedSymbols:ConverterMap<string, boolean>;
 
+    // Ensure stable, unique bone names when multiple instances share the same name.
+    // Key: element signature (parentBone|elementName|layerName|libraryItemName)
+    // Val: resolved unique bone name
+    public boneNameBySignature:ConverterMap<string, string>;
+    // Key: base bone name (before suffix), Val: next numeric suffix to try
+    public boneNameSuffixCounter:ConverterMap<string, number>;
+
     public labels:ConverterFrameLabel[];
     public stageType:ConverterStageType;
     public animation:SpineAnimation;
@@ -97,6 +104,9 @@ export class ConverterContextGlobal extends ConverterContext {
         context.assetTransforms = new ConverterMap<string, SpineTransformMatrix>();
         context.attachmentVariants = new ConverterMap<string, Array<{x:number, y:number, name:string}>>();
         context.processedSymbols = new ConverterMap<string, boolean>();
+
+        context.boneNameBySignature = new ConverterMap<string, string>();
+        context.boneNameSuffixCounter = new ConverterMap<string, number>();
         return context;
     }
 

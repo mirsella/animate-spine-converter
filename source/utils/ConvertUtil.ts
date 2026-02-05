@@ -137,16 +137,53 @@ export class ConvertUtil {
     }
 
     public static createBoneName(element:FlashElement, context:ConverterContext):string {
-        let name = ConvertUtil.createElementName(element, context);
-        
-        // Log naming decision if needed
-        // if (name.indexOf('dash') !== -1) Logger.trace(`[NAMING] Created bone name base: ${name} (Element: ${element.name}, Lib: ${element.libraryItem?.name}, Layer: ${element.layer.name})`);
+        const baseLocalName = ConvertUtil.createElementName(element, context);
+        const parentName = (context != null && context.bone != null && context.bone.name !== 'root') ? context.bone.name : '';
+        const baseFullName = parentName ? (parentName + '/' + baseLocalName) : baseLocalName;
 
-        if (context != null && context.bone != null && context.bone.name !== 'root') {
-            return context.bone.name + '/' + name;
+        // If global cache isn't available, keep the original behavior.
+        if (!context || !context.global || !context.global.skeleton || !context.global.boneNameBySignature) {
+            return baseFullName;
         }
 
-        return name;
+        // Create a stable signature so the same element gets the same bone name every frame.
+        const layerName = (element as any).layer && (element as any).layer.name ? (element as any).layer.name : '';
+        const libName = (element as any).libraryItem && (element as any).libraryItem.name ? (element as any).libraryItem.name : '';
+        const elName = element && element.name ? element.name : '';
+        const signature = parentName + '|' + elName + '|' + layerName + '|' + libName;
+
+        const existing = context.global.boneNameBySignature.get(signature);
+        if (existing) return existing;
+
+        // First try the base name.
+        const sk = context.global.skeleton;
+        if (sk.findBone(baseFullName) == null) {
+            context.global.boneNameBySignature.set(signature, baseFullName);
+            return baseFullName;
+        }
+
+        // Collision: append a stable-ish suffix derived from the layer name, then fallback to numeric.
+        const layerSuffix = layerName ? ('__' + StringUtil.simplify(layerName)) : '';
+        let candidate = baseFullName + layerSuffix;
+        if (layerSuffix && sk.findBone(candidate) == null) {
+            context.global.boneNameBySignature.set(signature, candidate);
+            return candidate;
+        }
+
+        // Numeric suffix fallback.
+        const counterKey = baseFullName;
+        let next = context.global.boneNameSuffixCounter.get(counterKey);
+        if (next == null) next = 2;
+
+        while (true) {
+            candidate = baseFullName + '_' + next;
+            if (sk.findBone(candidate) == null) {
+                context.global.boneNameSuffixCounter.set(counterKey, next + 1);
+                context.global.boneNameBySignature.set(signature, candidate);
+                return candidate;
+            }
+            next++;
+        }
     }
 
     public static createSlotName(context:ConverterContext):string {
