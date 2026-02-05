@@ -44,7 +44,8 @@ export class SpineFormatV4_0_00 extends SpineFormatV3_8_99 {
             };
 
             if (isRotate) {
-                frame.value = frameData.angle;
+                // Spine JSON expects "angle" for rotate timeline keys.
+                frame.angle = frameData.angle;
             } else if (isTranslate) {
                 frame.x = frameData.x;
                 frame.y = frameData.y != null ? frameData.y * SpineFormatV4_0_00.Y_FLIP : undefined;

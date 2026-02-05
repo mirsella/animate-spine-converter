@@ -3272,7 +3272,8 @@ var SpineFormatV4_0_00 = /** @class */ (function (_super) {
             var isAttachment = timeline.type === "attachment" /* SpineTimelineType.ATTACHMENT */;
             var frame = __assign({ time: frameData.time }, curve);
             if (isRotate) {
-                frame.value = frameData.angle;
+                // Spine JSON expects "angle" for rotate timeline keys.
+                frame.angle = frameData.angle;
             }
             else if (isTranslate) {
                 frame.x = frameData.x;
