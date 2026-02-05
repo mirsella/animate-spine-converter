@@ -1205,6 +1205,12 @@ export class Converter {
 
             const frame = layer.frames[i];
             if (!frame) continue;
+
+            // STRUCTURE pass should only visit keyframes.
+            // Visiting in-between frames can explode work (e.g. long particle spans) and freeze Animate.
+            if (stageType !== ConverterStageType.ANIMATION && i !== frame.startFrame) {
+                continue;
+            }
             
             if (Logger.isTraceEnabled()) Logger.trace(`${indent}  [STEP] Frame: ${i} (Time: ${time.toFixed(3)})`);
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
@@ -1235,7 +1241,7 @@ export class Converter {
 
                 let bakedData: { matrix: FlashMatrix, transformX: number, transformY: number, colorAlpha?: number, colorRed?: number, colorMode?: string } | null = null;
 
-                if (i !== frame.startFrame) {
+                if (stageType === ConverterStageType.ANIMATION && i !== frame.startFrame) {
                     const isClassic = frame.tweenType === 'classic';
                     const isNoneTween = frame.tweenType === 'none';
                     const isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');

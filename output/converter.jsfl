@@ -1139,6 +1139,11 @@ var Converter = /** @class */ (function () {
             var frame = layer.frames[i];
             if (!frame)
                 continue;
+            // STRUCTURE pass should only visit keyframes.
+            // Visiting in-between frames can explode work (e.g. long particle spans) and freeze Animate.
+            if (stageType !== "animation" /* ConverterStageType.ANIMATION */ && i !== frame.startFrame) {
+                continue;
+            }
             if (Logger_1.Logger.isTraceEnabled())
                 Logger_1.Logger.trace("".concat(indent, "  [STEP] Frame: ").concat(i, " (Time: ").concat(time.toFixed(3), ")"));
             if (this._config.exportFrameCommentsAsEvents && frame.labelType === 'comment') {
@@ -1166,7 +1171,7 @@ var Converter = /** @class */ (function () {
                     parentMat = this_1.getLayerParentMatrix(layer, i);
                 }
                 var bakedData = null;
-                if (i !== frame.startFrame) {
+                if (stageType === "animation" /* ConverterStageType.ANIMATION */ && i !== frame.startFrame) {
                     var isClassic = frame.tweenType === 'classic';
                     var isNoneTween = frame.tweenType === 'none';
                     var isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
