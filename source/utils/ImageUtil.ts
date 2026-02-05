@@ -343,6 +343,13 @@ export class ImageUtil {
 
             } finally {
                 try {
+                    // Safety: ensure we exit any edit mode before closing tempDoc.
+                    try {
+                        for (let i = 0; i < 8; i++) {
+                            try { (tempDoc as any).exitEditMode(); } catch (eExit) { break; }
+                        }
+                    } catch (e) { /* ignore */ }
+
                     Logger.status(`[ImageUtil] exportInstanceFromStage close tempDoc '${elName}'`);
                     tempDoc.close(false);
                     Logger.status(`[ImageUtil] exportInstanceFromStage close tempDoc ok '${elName}'`);
@@ -550,6 +557,13 @@ export class ImageUtil {
             return new SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
         } finally {
             try {
+                // Safety: ensure we exit any edit mode before closing tempDoc.
+                try {
+                    for (let i = 0; i < 8; i++) {
+                        try { (tempDoc as any).exitEditMode(); } catch (eExit) { break; }
+                    }
+                } catch (e) { /* ignore */ }
+
                 Logger.status(`[ImageUtil] exportShape close tempDoc '${elName}'`);
                 tempDoc.close(false);
                 Logger.status(`[ImageUtil] exportShape close tempDoc ok '${elName}'`);
@@ -698,8 +712,11 @@ export class ImageUtil {
         // 5. Cleanup
         Logger.status(`[ImageUtil] exportSymbol exitEditMode '${tempSymbolName}'`);
         dom.exitEditMode();
-        Logger.status(`[ImageUtil] exportSymbol deleteItem '${tempSymbolName}'`);
-        lib.deleteItem(tempSymbolName);
+
+        // NOTE: We intentionally do NOT delete the duplicated library item here.
+        // Deleting items while exporting can crash Animate in some projects.
+        // This exporter runs on a temporary .fla anyway, so leaving duplicates is safe.
+        Logger.status(`[ImageUtil] exportSymbol keep duplicate '${tempSymbolName}'`);
 
         Logger.status(`[ImageUtil] exportSymbol done '${elName}'`);
         

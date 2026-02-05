@@ -77,6 +77,20 @@ export class Logger {
 
     //-----------------------------------
 
+    private static appendToFile(fileURI: string, content: string): void {
+        // JSFL's FLfile.write append parameter differs across versions/docs.
+        // Try the string mode first (matches our TS typings), then boolean fallback.
+        try {
+            const ok = (FLfile as any).write(fileURI, content, 'append');
+            if (ok === false) {
+                try { (FLfile as any).write(fileURI, content, true); } catch (e2) { /* ignore */ }
+            }
+            return;
+        } catch (e) {
+            try { (FLfile as any).write(fileURI, content, true); } catch (e2) { /* ignore */ }
+        }
+    }
+
     public static trace(...params:any[]):void {
         const inst = Logger._instance;
         // Fast-path: if trace output is disabled everywhere, avoid string building.
@@ -123,7 +137,7 @@ export class Logger {
         // Always write to file if configured.
         if (this._fileURI) {
             if (level !== 'trace' || this._fileTraceEnabled) {
-                try { FLfile.write(this._fileURI, message + '\n', 'append'); } catch (e) { /* ignore */ }
+                Logger.appendToFile(this._fileURI, message + '\n');
             }
         }
 
@@ -144,7 +158,7 @@ export class Logger {
         this._statusSeq++;
 
         const line = `[STATUS ${this._statusSeq}] ${message}`;
-        try { FLfile.write(this._statusFileURI, line + '\n'); } catch (e) { /* ignore */ }
+        Logger.appendToFile(this._statusFileURI, line + '\n');
     }
 
     public flush():void {

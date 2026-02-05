@@ -37,6 +37,123 @@ var Converter = /** @class */ (function () {
         var tlName = (timeline === null || timeline === void 0 ? void 0 : timeline.name) || '<unknown>';
         return tlName + '|' + layerIndex + '|' + spanStart;
     };
+    Converter.prototype.refreshContextFromHints = function (context, hints) {
+        if (!hints)
+            return false;
+        try {
+            var tl = this._document.getTimeline();
+            try {
+                tl.currentFrame = hints.frameIndex;
+            }
+            catch (e) { }
+            var layer = tl.layers && tl.layers[hints.layerIndex];
+            if (!layer)
+                return false;
+            var frame = layer.frames && layer.frames[hints.frameIndex];
+            if (!frame)
+                return false;
+            var el = frame.elements && frame.elements[hints.elementIndex];
+            if (!el)
+                return false;
+            context.layer = layer;
+            context.frame = frame;
+            context.element = el;
+            return true;
+        }
+        catch (e) {
+            return false;
+        }
+    };
+    Converter.prototype.resolveElementFallback = function (preHints, layerName, elementName, libraryItemName) {
+        try {
+            var tl = this._document.getTimeline();
+            var frameIndex = preHints ? preHints.frameIndex : (tl.currentFrame || 0);
+            var layer = null;
+            if (preHints && tl.layers && tl.layers[preHints.layerIndex]) {
+                layer = tl.layers[preHints.layerIndex];
+            }
+            else if (layerName && tl.layers) {
+                for (var i = 0; i < tl.layers.length; i++) {
+                    if (tl.layers[i] && tl.layers[i].name === layerName) {
+                        layer = tl.layers[i];
+                        break;
+                    }
+                }
+            }
+            if (!layer)
+                return null;
+            var frame = layer.frames && layer.frames[frameIndex];
+            if (!frame || !frame.elements || frame.elements.length === 0)
+                return null;
+            // Try original index first.
+            if (preHints && frame.elements[preHints.elementIndex]) {
+                var el = frame.elements[preHints.elementIndex];
+                var dn = this.getElementDebugName(el);
+                var lib = el.libraryItem ? el.libraryItem.name : '';
+                if ((elementName && dn === elementName) || (libraryItemName && lib === libraryItemName)) {
+                    return { layer: layer, frame: frame, element: el };
+                }
+            }
+            // Search by names.
+            for (var i = 0; i < frame.elements.length; i++) {
+                var el = frame.elements[i];
+                var dn = this.getElementDebugName(el);
+                var lib = el.libraryItem ? el.libraryItem.name : '';
+                if ((libraryItemName && lib === libraryItemName) || (elementName && dn === elementName)) {
+                    return { layer: layer, frame: frame, element: el };
+                }
+            }
+            return null;
+        }
+        catch (e) {
+            return null;
+        }
+    };
+    Converter.prototype.restoreTimelineContext = function (targetTimelineName) {
+        if (!targetTimelineName)
+            return;
+        var dom = this._document;
+        var currentName = '';
+        try {
+            currentName = dom.getTimeline().name;
+        }
+        catch (e) {
+            return;
+        }
+        if (currentName === targetTimelineName)
+            return;
+        Logger_1.Logger.status("[Ctx] restore tl '".concat(currentName, "' -> '").concat(targetTimelineName, "'"));
+        for (var i = 0; i < 8; i++) {
+            try {
+                currentName = dom.getTimeline().name;
+            }
+            catch (e) {
+                break;
+            }
+            if (currentName === targetTimelineName)
+                break;
+            try {
+                if (dom.library && dom.library.itemExists && dom.library.itemExists(targetTimelineName)) {
+                    dom.library.editItem(targetTimelineName);
+                }
+                else {
+                    dom.exitEditMode();
+                }
+            }
+            catch (e2) {
+                try {
+                    dom.exitEditMode();
+                }
+                catch (e3) { /* ignore */ }
+            }
+        }
+        try {
+            Logger_1.Logger.status("[Ctx] now tl='".concat(dom.getTimeline().name, "'"));
+        }
+        catch (e) {
+            // ignore
+        }
+    };
     Converter.prototype.isSpanBaked = function (timeline, layerIndex, spanStart, frameIndex) {
         var key = this.getBakeSpanKey(timeline, layerIndex, spanStart);
         var end = this._bakedSpanEndByKey[key];
@@ -128,6 +245,7 @@ var Converter = /** @class */ (function () {
         }
         var dom = this._document;
         var currentTl = dom.getTimeline();
+        var startTlName = currentTl ? currentTl.name : '';
         var mustEdit = false;
         if (containerItem && currentTl.name !== containerItem.name) {
             if (dom.library.itemExists(containerItem.name)) {
@@ -137,33 +255,48 @@ var Converter = /** @class */ (function () {
         if (mustEdit) {
             Logger_1.Logger.status("[Image] editItem '".concat(containerItem.name, "' (from tl='").concat(currentTl.name, "')"));
             dom.library.editItem(containerItem.name);
+            var result_1;
             try {
                 Logger_1.Logger.status("[Image] exportAction in '".concat(containerItem.name, "'"));
-                return exportAction();
+                result_1 = exportAction();
             }
             finally {
                 Logger_1.Logger.status("[Image] exitEditMode '".concat(containerItem.name, "'"));
-                dom.exitEditMode();
+                try {
+                    dom.exitEditMode();
+                }
+                catch (e) { }
                 Logger_1.Logger.status("[Image] exitEditMode done '".concat(containerItem.name, "'"));
+                this.restoreTimelineContext(startTlName);
             }
+            return result_1;
         }
-        else {
-            Logger_1.Logger.status('[Image] exportAction (no edit mode switch)');
-            return exportAction();
+        Logger_1.Logger.status('[Image] exportAction (no edit mode switch)');
+        var result;
+        try {
+            result = exportAction();
         }
+        finally {
+            this.restoreTimelineContext(startTlName);
+        }
+        return result;
     };
     Converter.prototype.convertElementSlot = function (context, exportTarget, imageExportFactory) {
         var _a, _b, _c, _d, _e, _f, _g, _h;
+        var beforeElementName = this.getElementDebugName(context.element);
+        var beforeLayerName = (context.element && context.element.layer) ? context.element.layer.name : '';
+        var beforeLibraryItemName = context.element.libraryItem ? context.element.libraryItem.name : '';
+        var preHints = this.createSelectionHints(context);
         var baseImageName = context.global.shapesCache.get(exportTarget);
         if (baseImageName == null) {
             baseImageName = ConvertUtil_1.ConvertUtil.createAttachmentName(context.element, context);
             context.global.shapesCache.set(exportTarget, baseImageName);
         }
+        Logger_1.Logger.status("[Slot] start element='".concat(beforeElementName, "' image='").concat(baseImageName, "' stage=").concat(context.global.stageType, " depth=").concat(context.recursionDepth));
         var baseImagePath = this.prepareImagesExportPath(context, baseImageName);
         var spineImage = context.global.imagesCache.get(baseImagePath);
         if (spineImage == null) {
             try {
-                var hints = this.createSelectionHints(context);
                 Logger_1.Logger.status("[IMAGE] Exporting '".concat(baseImageName, "'"));
                 spineImage = this.safelyExportImage(context, function () {
                     Logger_1.Logger.status("[IMAGE] imageExportFactory '".concat(baseImageName, "'"));
@@ -180,6 +313,23 @@ var Converter = /** @class */ (function () {
         }
         else {
             // Logger.trace(`[IMAGE] Cache hit for: ${baseImageName}`);
+        }
+        // Image export may change edit mode / invalidate JSFL object references.
+        // Refresh element/layer/frame handles before continuing.
+        var refreshed = this.refreshContextFromHints(context, preHints);
+        if (!refreshed) {
+            var resolved = this.resolveElementFallback(preHints, beforeLayerName, beforeElementName, beforeLibraryItemName);
+            if (resolved) {
+                context.layer = resolved.layer;
+                context.frame = resolved.frame;
+                context.element = resolved.element;
+                refreshed = true;
+            }
+        }
+        Logger_1.Logger.status("[Slot] refresh ".concat(refreshed ? 'ok' : 'fail', " element='").concat(beforeElementName, "'"));
+        if (!refreshed) {
+            Logger_1.Logger.error("[Converter] Failed to refresh element after image export. Skipping slot for '".concat(beforeElementName, "'."));
+            return;
         }
         var element = context.element;
         var calcMatrix = context.matrixOverride || element.matrix;
@@ -206,6 +356,7 @@ var Converter = /** @class */ (function () {
             Logger_1.Logger.trace("[ATTACH_DBG]   Image: path='".concat(spineImage.path, "' w=").concat(spineImage.width, " h=").concat(spineImage.height, " scale=").concat(spineImage.scale, " center=(").concat(spineImage.imageCenterOffsetX, ", ").concat(spineImage.imageCenterOffsetY, ")"));
         }
         var requiredOffset = ImageUtil_1.ImageUtil.calculateAttachmentOffset(calcMatrix, regX, regY, transX, transY, spineImage.imageCenterOffsetX, spineImage.imageCenterOffsetY, baseImageName);
+        Logger_1.Logger.status("[Slot] offset image='".concat(baseImageName, "' x=").concat(requiredOffset.x.toFixed(2), " y=").concat(requiredOffset.y.toFixed(2)));
         var spineOffsetX = requiredOffset.x;
         var spineOffsetY = requiredOffset.y;
         var finalAttachmentName = baseImageName;
@@ -258,15 +409,18 @@ var Converter = /** @class */ (function () {
         }
         var subcontext = context.createSlot(context.element);
         var slot = subcontext.slot;
+        Logger_1.Logger.status("[Slot] created '".concat(slot.name, "' image='").concat(baseImageName, "'"));
         Logger_1.Logger.debug("[SLOT] Slot '".concat(slot.name, "' for '").concat(baseImageName, "' (Stage: ").concat(context.global.stageType, ")"));
         if (context.global.stageType === "structure" /* ConverterStageType.STRUCTURE */) {
             if (context.clipping != null) {
                 context.clipping.end = slot;
             }
+            Logger_1.Logger.status("[Slot] structure-only '".concat(slot.name, "'"));
             return;
         }
         var attachmentName = this.prepareImagesAttachmentName(context, finalAttachmentName);
         var attachment = slot.createAttachment(attachmentName, "region" /* SpineAttachmentType.REGION */);
+        Logger_1.Logger.status("[Slot] attachment '".concat(slot.name, "' name='").concat(attachmentName, "'"));
         if (finalAttachmentName !== baseImageName) {
             attachment.path = this.prepareImagesAttachmentName(context, baseImageName);
         }
@@ -277,6 +431,7 @@ var Converter = /** @class */ (function () {
         attachment.x = spineOffsetX;
         attachment.y = spineOffsetY;
         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, slot, context, attachment, context.time);
+        Logger_1.Logger.status("[Slot] applied '".concat(slot.name, "' t=").concat(context.time.toFixed(3)));
     };
     Converter.prototype.createSelectionHints = function (context) {
         try {
@@ -1879,6 +2034,26 @@ var Logger = /** @class */ (function () {
         return !!(inst._debugEnabled && Logger.isTraceEnabled());
     };
     //-----------------------------------
+    Logger.appendToFile = function (fileURI, content) {
+        // JSFL's FLfile.write append parameter differs across versions/docs.
+        // Try the string mode first (matches our TS typings), then boolean fallback.
+        try {
+            var ok = FLfile.write(fileURI, content, 'append');
+            if (ok === false) {
+                try {
+                    FLfile.write(fileURI, content, true);
+                }
+                catch (e2) { /* ignore */ }
+            }
+            return;
+        }
+        catch (e) {
+            try {
+                FLfile.write(fileURI, content, true);
+            }
+            catch (e2) { /* ignore */ }
+        }
+    };
     Logger.trace = function () {
         var params = [];
         for (var _i = 0; _i < arguments.length; _i++) {
@@ -1938,10 +2113,7 @@ var Logger = /** @class */ (function () {
         // Always write to file if configured.
         if (this._fileURI) {
             if (level !== 'trace' || this._fileTraceEnabled) {
-                try {
-                    FLfile.write(this._fileURI, message + '\n', 'append');
-                }
-                catch (e) { /* ignore */ }
+                Logger.appendToFile(this._fileURI, message + '\n');
             }
         }
         // Panel output is optional and can be filtered.
@@ -1960,10 +2132,7 @@ var Logger = /** @class */ (function () {
             return;
         this._statusSeq++;
         var line = "[STATUS ".concat(this._statusSeq, "] ").concat(message);
-        try {
-            FLfile.write(this._statusFileURI, line + '\n');
-        }
-        catch (e) { /* ignore */ }
+        Logger.appendToFile(this._statusFileURI, line + '\n');
     };
     Logger.prototype.flush = function () {
         if (!this._panelEnabled) {
@@ -4061,6 +4230,18 @@ var ImageUtil = /** @class */ (function () {
             }
             finally {
                 try {
+                    // Safety: ensure we exit any edit mode before closing tempDoc.
+                    try {
+                        for (var i = 0; i < 8; i++) {
+                            try {
+                                tempDoc.exitEditMode();
+                            }
+                            catch (eExit) {
+                                break;
+                            }
+                        }
+                    }
+                    catch (e) { /* ignore */ }
                     Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage close tempDoc '".concat(elName, "'"));
                     tempDoc.close(false);
                     Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage close tempDoc ok '".concat(elName, "'"));
@@ -4248,6 +4429,18 @@ var ImageUtil = /** @class */ (function () {
         }
         finally {
             try {
+                // Safety: ensure we exit any edit mode before closing tempDoc.
+                try {
+                    for (var i = 0; i < 8; i++) {
+                        try {
+                            tempDoc.exitEditMode();
+                        }
+                        catch (eExit) {
+                            break;
+                        }
+                    }
+                }
+                catch (e) { /* ignore */ }
                 Logger_1.Logger.status("[ImageUtil] exportShape close tempDoc '".concat(elName, "'"));
                 tempDoc.close(false);
                 Logger_1.Logger.status("[ImageUtil] exportShape close tempDoc ok '".concat(elName, "'"));
@@ -4377,8 +4570,10 @@ var ImageUtil = /** @class */ (function () {
         // 5. Cleanup
         Logger_1.Logger.status("[ImageUtil] exportSymbol exitEditMode '".concat(tempSymbolName, "'"));
         dom.exitEditMode();
-        Logger_1.Logger.status("[ImageUtil] exportSymbol deleteItem '".concat(tempSymbolName, "'"));
-        lib.deleteItem(tempSymbolName);
+        // NOTE: We intentionally do NOT delete the duplicated library item here.
+        // Deleting items while exporting can crash Animate in some projects.
+        // This exporter runs on a temporary .fla anyway, so leaving duplicates is safe.
+        Logger_1.Logger.status("[ImageUtil] exportSymbol keep duplicate '".concat(tempSymbolName, "'"));
         Logger_1.Logger.status("[ImageUtil] exportSymbol done '".concat(elName, "'"));
         return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
     };

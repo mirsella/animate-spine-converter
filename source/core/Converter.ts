@@ -42,6 +42,115 @@ export class Converter {
         return tlName + '|' + layerIndex + '|' + spanStart;
     }
 
+    private refreshContextFromHints(context: ConverterContext, hints?: { layerIndex: number, frameIndex: number, elementIndex: number }): boolean {
+        if (!hints) return false;
+        try {
+            const tl = this._document.getTimeline();
+            try { (tl as any).currentFrame = hints.frameIndex; } catch (e) {}
+            const layer = tl.layers && tl.layers[hints.layerIndex];
+            if (!layer) return false;
+            const frame = layer.frames && layer.frames[hints.frameIndex];
+            if (!frame) return false;
+            const el = frame.elements && frame.elements[hints.elementIndex];
+            if (!el) return false;
+
+            context.layer = layer;
+            context.frame = frame;
+            context.element = el;
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    private resolveElementFallback(preHints: { layerIndex: number, frameIndex: number, elementIndex: number } | undefined, layerName: string, elementName: string, libraryItemName: string): { layer: FlashLayer, frame: FlashFrame, element: FlashElement } | null {
+        try {
+            const tl = this._document.getTimeline();
+            const frameIndex = preHints ? preHints.frameIndex : ((tl as any).currentFrame || 0);
+
+            let layer: FlashLayer | null = null;
+            if (preHints && tl.layers && tl.layers[preHints.layerIndex]) {
+                layer = tl.layers[preHints.layerIndex];
+            } else if (layerName && tl.layers) {
+                for (let i = 0; i < tl.layers.length; i++) {
+                    if (tl.layers[i] && tl.layers[i].name === layerName) {
+                        layer = tl.layers[i];
+                        break;
+                    }
+                }
+            }
+            if (!layer) return null;
+
+            const frame = layer.frames && layer.frames[frameIndex];
+            if (!frame || !frame.elements || frame.elements.length === 0) return null;
+
+            // Try original index first.
+            if (preHints && frame.elements[preHints.elementIndex]) {
+                const el = frame.elements[preHints.elementIndex];
+                const dn = this.getElementDebugName(el);
+                const lib = (el as any).libraryItem ? (el as any).libraryItem.name : '';
+                if ((elementName && dn === elementName) || (libraryItemName && lib === libraryItemName)) {
+                    return { layer: layer, frame: frame, element: el };
+                }
+            }
+
+            // Search by names.
+            for (let i = 0; i < frame.elements.length; i++) {
+                const el:any = frame.elements[i];
+                const dn = this.getElementDebugName(el);
+                const lib = el.libraryItem ? el.libraryItem.name : '';
+                if ((libraryItemName && lib === libraryItemName) || (elementName && dn === elementName)) {
+                    return { layer: layer, frame: frame, element: el };
+                }
+            }
+
+            return null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    private restoreTimelineContext(targetTimelineName: string): void {
+        if (!targetTimelineName) return;
+
+        const dom = this._document;
+        let currentName = '';
+        try {
+            currentName = dom.getTimeline().name;
+        } catch (e) {
+            return;
+        }
+
+        if (currentName === targetTimelineName) return;
+
+        Logger.status(`[Ctx] restore tl '${currentName}' -> '${targetTimelineName}'`);
+
+        for (let i = 0; i < 8; i++) {
+            try {
+                currentName = dom.getTimeline().name;
+            } catch (e) {
+                break;
+            }
+            if (currentName === targetTimelineName) break;
+
+            try {
+                if (dom.library && (dom.library as any).itemExists && (dom.library as any).itemExists(targetTimelineName)) {
+                    dom.library.editItem(targetTimelineName);
+                } else {
+                    dom.exitEditMode();
+                }
+            } catch (e2) {
+                try { dom.exitEditMode(); } catch (e3) { /* ignore */ }
+            }
+        }
+
+        try {
+            Logger.status(`[Ctx] now tl='${dom.getTimeline().name}'`);
+        } catch (e) {
+            // ignore
+        }
+    }
+
     private isSpanBaked(timeline: FlashTimeline, layerIndex: number, spanStart: number, frameIndex: number): boolean {
         const key = this.getBakeSpanKey(timeline, layerIndex, spanStart);
         const end = this._bakedSpanEndByKey[key];
@@ -125,6 +234,7 @@ export class Converter {
         
         const dom = this._document;
         const currentTl = dom.getTimeline();
+        const startTlName = currentTl ? currentTl.name : '';
         let mustEdit = false;
         
         if (containerItem && currentTl.name !== containerItem.name) {
@@ -136,32 +246,47 @@ export class Converter {
         if (mustEdit) {
             Logger.status(`[Image] editItem '${containerItem.name}' (from tl='${currentTl.name}')`);
             dom.library.editItem(containerItem.name);
+            let result: SpineImage;
             try {
                 Logger.status(`[Image] exportAction in '${containerItem.name}'`);
-                return exportAction();
+                result = exportAction();
             } finally {
                 Logger.status(`[Image] exitEditMode '${containerItem.name}'`);
-                dom.exitEditMode();
+                try { dom.exitEditMode(); } catch (e) {}
                 Logger.status(`[Image] exitEditMode done '${containerItem.name}'`);
+                this.restoreTimelineContext(startTlName);
             }
-        } else {
-            Logger.status('[Image] exportAction (no edit mode switch)');
-            return exportAction();
+            return result;
         }
+
+        Logger.status('[Image] exportAction (no edit mode switch)');
+        let result: SpineImage;
+        try {
+            result = exportAction();
+        } finally {
+            this.restoreTimelineContext(startTlName);
+        }
+        return result;
     }
 
     private convertElementSlot(context: ConverterContext, exportTarget: FlashElement | FlashItem, imageExportFactory: ImageExportFactory): void {
+        const beforeElementName = this.getElementDebugName(context.element);
+        const beforeLayerName = (context.element && (context.element as any).layer) ? (context.element as any).layer.name : '';
+        const beforeLibraryItemName = (context.element as any).libraryItem ? (context.element as any).libraryItem.name : '';
+        const preHints = this.createSelectionHints(context);
+
         let baseImageName = context.global.shapesCache.get(exportTarget);
         if (baseImageName == null) {
             baseImageName = ConvertUtil.createAttachmentName(context.element, context);
             context.global.shapesCache.set(exportTarget, baseImageName);
         }
 
+        Logger.status(`[Slot] start element='${beforeElementName}' image='${baseImageName}' stage=${context.global.stageType} depth=${context.recursionDepth}`);
+
         const baseImagePath = this.prepareImagesExportPath(context, baseImageName);
         let spineImage = context.global.imagesCache.get(baseImagePath);
         if (spineImage == null) {
             try {
-                const hints = this.createSelectionHints(context);
                 Logger.status(`[IMAGE] Exporting '${baseImageName}'`);
                 spineImage = this.safelyExportImage(context, () => {
                     Logger.status(`[IMAGE] imageExportFactory '${baseImageName}'`);
@@ -176,6 +301,24 @@ export class Converter {
             context.global.imagesCache.set(baseImagePath, spineImage);
         } else {
             // Logger.trace(`[IMAGE] Cache hit for: ${baseImageName}`);
+        }
+
+        // Image export may change edit mode / invalidate JSFL object references.
+        // Refresh element/layer/frame handles before continuing.
+        let refreshed = this.refreshContextFromHints(context, preHints);
+        if (!refreshed) {
+            const resolved = this.resolveElementFallback(preHints, beforeLayerName, beforeElementName, beforeLibraryItemName);
+            if (resolved) {
+                context.layer = resolved.layer;
+                context.frame = resolved.frame;
+                context.element = resolved.element;
+                refreshed = true;
+            }
+        }
+        Logger.status(`[Slot] refresh ${refreshed ? 'ok' : 'fail'} element='${beforeElementName}'`);
+        if (!refreshed) {
+            Logger.error(`[Converter] Failed to refresh element after image export. Skipping slot for '${beforeElementName}'.`);
+            return;
         }
 
         const element = context.element;
@@ -213,6 +356,8 @@ export class Converter {
             spineImage.imageCenterOffsetX, spineImage.imageCenterOffsetY,
             baseImageName
         );
+
+        Logger.status(`[Slot] offset image='${baseImageName}' x=${requiredOffset.x.toFixed(2)} y=${requiredOffset.y.toFixed(2)}`);
 
         const spineOffsetX = requiredOffset.x;
         const spineOffsetY = requiredOffset.y;
@@ -274,17 +419,22 @@ export class Converter {
         const subcontext = context.createSlot(context.element);
         const slot = subcontext.slot;
 
+        Logger.status(`[Slot] created '${slot.name}' image='${baseImageName}'`);
+
         Logger.debug(`[SLOT] Slot '${slot.name}' for '${baseImageName}' (Stage: ${context.global.stageType})`);
 
         if (context.global.stageType === ConverterStageType.STRUCTURE) {
             if (context.clipping != null) {
                 context.clipping.end = slot;
             }
+            Logger.status(`[Slot] structure-only '${slot.name}'`);
             return;
         }
 
         const attachmentName = this.prepareImagesAttachmentName(context, finalAttachmentName);
         const attachment = slot.createAttachment(attachmentName, SpineAttachmentType.REGION) as SpineRegionAttachment;
+
+        Logger.status(`[Slot] attachment '${slot.name}' name='${attachmentName}'`);
 
         if (finalAttachmentName !== baseImageName) {
              attachment.path = this.prepareImagesAttachmentName(context, baseImageName);
@@ -304,6 +454,8 @@ export class Converter {
             attachment,
             context.time
         );
+
+        Logger.status(`[Slot] applied '${slot.name}' t=${context.time.toFixed(3)}`);
     }
 
     private createSelectionHints(context: ConverterContext): { layerIndex: number, frameIndex: number, elementIndex: number } | undefined {
