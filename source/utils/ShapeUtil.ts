@@ -182,12 +182,14 @@ export class ShapeUtil {
                     if (!isLastInLoop) {
                         ShapeUtil.addVertex(vertices, p3.x, p3.y);
                     }
-                } else if (p1 && p2) {
-                    // Cubic bezier - use control points directly as returned by JSFL
-                    ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
                 } else {
-                    // Quadratic bezier
-                    ShapeUtil.adaptiveQuadratic(vertices, p0, p1, p3, tolSq, 0, isLastInLoop);
+                    // In JSFL, edge.getControl(0) returns the INCOMING tangent handle
+                    // (belongs to the previous edge's end transition), NOT this edge's outgoing handle.
+                    // edge.getControl(1) returns the actual control point between start and end.
+                    // Animate uses quadratic Beziers internally, so we use ctrl1 as THE control point.
+                    const ctrl = p2 || p1; // ctrl1 (p2) preferred; fallback to ctrl0 (p1) if null
+                    Logger.debug(`  Using QUADRATIC: p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}) ctrl=(${ctrl.x.toFixed(2)},${ctrl.y.toFixed(2)}) p3=(${p3.x.toFixed(2)},${p3.y.toFixed(2)})`);
+                    ShapeUtil.adaptiveQuadratic(vertices, p0, ctrl, p3, tolSq, 0, isLastInLoop);
                 }
 
                 const vertsAfter = vertices.length;
