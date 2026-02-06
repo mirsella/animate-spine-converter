@@ -17,7 +17,7 @@ const LOG_TO_FILE = true;
 const LOG_FILE_SUFFIX = '_export.log.txt';
 const STATUS_FILE_SUFFIX = '_export.status.txt';
 // If false: trace logs won't write to the log file (safer for large exports).
-const TRACE_TO_LOG_FILE = false;
+const TRACE_TO_LOG_FILE = true;
 const TRACE_TO_OUTPUT_PANEL = false;
 const DEBUG_VERBOSE_LOGS = true;
 const OUTPUT_PANEL_MAX_LINES = 200;

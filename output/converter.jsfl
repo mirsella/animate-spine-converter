@@ -5237,12 +5237,13 @@ var ShapeUtil = /** @class */ (function () {
             // Tolerance for collinearity (0.1 seems safe for pixels)
             if (area < 0.1) {
                 // Replace last vertex with new one
-                // Logger.debug(`[ShapeUtil] Merging collinear vertex at ${x},${newY}`);
+                Logger_1.Logger.debug("    [addVertex] Merging collinear: replacing (".concat(lastX.toFixed(2), ",").concat(lastY.toFixed(2), ") with (").concat(x.toFixed(2), ",").concat(newY.toFixed(2), ")"));
                 vertices[vertices.length - 2] = x;
                 vertices[vertices.length - 1] = newY;
                 return;
             }
         }
+        Logger_1.Logger.debug("    [addVertex] Push (".concat(x.toFixed(2), ",").concat((-y).toFixed(2), ")").concat(force ? ' [forced]' : ''));
         vertices.push(x, -y);
     };
     ShapeUtil.extractVerticesFromContours = function (instance, tolerance, matrix, controlOffset) {
@@ -5326,36 +5327,40 @@ var ShapeUtil = /** @class */ (function () {
                     }
                 }
                 var isLastInLoop = (halfEdge.getNext() === startHalfEdge);
-                if (p1 && p2) {
-                    // Minimize Total Distance Heuristic
-                    // We have two control points: C0 (p1) and C1 (p2).
-                    // We need to assign them to Start (p0) and End (p3).
-                    // Option 1 (Forward): p0 -> p1, p3 -> p2
-                    var distSqP0P1 = Math.pow(p0.x - p1.x, 2) + Math.pow(p0.y - p1.y, 2);
-                    var distSqP3P2 = Math.pow(p3.x - p2.x, 2) + Math.pow(p3.y - p2.y, 2);
-                    var costForward = distSqP0P1 + distSqP3P2;
-                    // Option 2 (Reverse): p0 -> p2, p3 -> p1
-                    var distSqP0P2 = Math.pow(p0.x - p2.x, 2) + Math.pow(p0.y - p2.y, 2);
-                    var distSqP3P1 = Math.pow(p3.x - p1.x, 2) + Math.pow(p3.y - p1.y, 2);
-                    var costReverse = distSqP0P2 + distSqP3P1;
-                    Logger_1.Logger.debug("[ShapeUtil] Edge ".concat(totalEdges, ": CostFwd=").concat(costForward.toFixed(2), " CostRev=").concat(costReverse.toFixed(2)));
-                    if (costReverse < costForward) {
-                        Logger_1.Logger.debug("   [ShapeUtil] Controls: SWAPPED (Reverse wins)");
-                        ShapeUtil.adaptiveCubic(vertices, p0, p2, p1, p3, tolSq, 0, isLastInLoop);
+                // Log raw JSFL data BEFORE transformation for debugging
+                Logger_1.Logger.debug("[ShapeUtil] Edge ".concat(totalEdges, ": raw start=(").concat(rawStart.x.toFixed(2), ",").concat(rawStart.y.toFixed(2), ") end=(").concat(rawEnd.x.toFixed(2), ",").concat(rawEnd.y.toFixed(2), ")"));
+                Logger_1.Logger.debug("  raw ctrl0=(".concat(rawControl0.x.toFixed(2), ",").concat(rawControl0.y.toFixed(2), ") ctrl1=").concat(rawControl1 ? '(' + rawControl1.x.toFixed(2) + ',' + rawControl1.y.toFixed(2) + ')' : 'null'));
+                Logger_1.Logger.debug("  transformed p0=(".concat(p0.x.toFixed(2), ",").concat(p0.y.toFixed(2), ") p3=(").concat(p3.x.toFixed(2), ",").concat(p3.y.toFixed(2), ")"));
+                Logger_1.Logger.debug("  transformed p1=(".concat(p1.x.toFixed(2), ",").concat(p1.y.toFixed(2), ") p2=").concat(p2 ? '(' + p2.x.toFixed(2) + ',' + p2.y.toFixed(2) + ')' : 'null'));
+                Logger_1.Logger.debug("  isLine=".concat(edge.isLine, " isLastInLoop=").concat(isLastInLoop));
+                var vertsBefore = vertices.length;
+                if (edge.isLine) {
+                    // Straight line - just add the endpoint
+                    if (!isLastInLoop) {
+                        ShapeUtil.addVertex(vertices, p3.x, p3.y);
                     }
-                    else {
-                        Logger_1.Logger.debug("   [ShapeUtil] Controls: Standard (Forward wins)");
-                        ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
-                    }
+                }
+                else if (p1 && p2) {
+                    // Cubic bezier - NO swapping. Use controls as-is from JSFL.
+                    ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
                 }
                 else {
                     // Quadratic bezier
                     ShapeUtil.adaptiveQuadratic(vertices, p0, p1, p3, tolSq, 0, isLastInLoop);
                 }
+                var vertsAfter = vertices.length;
+                var pointsAdded = (vertsAfter - vertsBefore) / 2;
+                Logger_1.Logger.debug("  => Added ".concat(pointsAdded, " points. Total vertices now: ").concat(vertsAfter / 2));
                 halfEdge = nextHalfEdge;
                 totalEdges++;
             } while (halfEdge !== startHalfEdge && halfEdge != null);
         }
+        // Dump final vertex list for debugging
+        Logger_1.Logger.debug("[ShapeUtil] === FINAL VERTEX DUMP (".concat(vertices.length / 2, " points) ==="));
+        for (var vi = 0; vi < vertices.length; vi += 2) {
+            Logger_1.Logger.debug("  [".concat(vi / 2, "] (").concat(vertices[vi].toFixed(2), ", ").concat(vertices[vi + 1].toFixed(2), ")"));
+        }
+        Logger_1.Logger.debug("[ShapeUtil] === END VERTEX DUMP ===");
         return vertices;
     };
     ShapeUtil.extractVerticesFromEdges = function (instance, tolerance, matrix) {
@@ -5585,7 +5590,7 @@ var LOG_TO_FILE = true;
 var LOG_FILE_SUFFIX = '_export.log.txt';
 var STATUS_FILE_SUFFIX = '_export.status.txt';
 // If false: trace logs won't write to the log file (safer for large exports).
-var TRACE_TO_LOG_FILE = false;
+var TRACE_TO_LOG_FILE = true;
 var TRACE_TO_OUTPUT_PANEL = false;
 var DEBUG_VERBOSE_LOGS = true;
 var OUTPUT_PANEL_MAX_LINES = 200;

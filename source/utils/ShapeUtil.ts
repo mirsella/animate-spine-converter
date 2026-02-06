@@ -64,12 +64,13 @@ export class ShapeUtil {
             // Tolerance for collinearity (0.1 seems safe for pixels)
             if (area < 0.1) {
                 // Replace last vertex with new one
-                // Logger.debug(`[ShapeUtil] Merging collinear vertex at ${x},${newY}`);
+                Logger.debug(`    [addVertex] Merging collinear: replacing (${lastX.toFixed(2)},${lastY.toFixed(2)}) with (${x.toFixed(2)},${newY.toFixed(2)})`);
                 vertices[vertices.length - 2] = x;
                 vertices[vertices.length - 1] = newY;
                 return;
             }
         }
+        Logger.debug(`    [addVertex] Push (${x.toFixed(2)},${(-y).toFixed(2)})${force ? ' [forced]' : ''}`);
         vertices.push(x, -y);
     }
 
@@ -156,39 +157,43 @@ export class ShapeUtil {
 
                 const isLastInLoop = (halfEdge.getNext() === startHalfEdge);
 
-                if (p1 && p2) {
-                    // Minimize Total Distance Heuristic
-                    // We have two control points: C0 (p1) and C1 (p2).
-                    // We need to assign them to Start (p0) and End (p3).
-                    
-                    // Option 1 (Forward): p0 -> p1, p3 -> p2
-                    const distSqP0P1 = Math.pow(p0.x - p1.x, 2) + Math.pow(p0.y - p1.y, 2);
-                    const distSqP3P2 = Math.pow(p3.x - p2.x, 2) + Math.pow(p3.y - p2.y, 2);
-                    const costForward = distSqP0P1 + distSqP3P2;
+                // Log raw JSFL data BEFORE transformation for debugging
+                Logger.debug(`[ShapeUtil] Edge ${totalEdges}: raw start=(${rawStart.x.toFixed(2)},${rawStart.y.toFixed(2)}) end=(${rawEnd.x.toFixed(2)},${rawEnd.y.toFixed(2)})`);
+                Logger.debug(`  raw ctrl0=(${rawControl0.x.toFixed(2)},${rawControl0.y.toFixed(2)}) ctrl1=${rawControl1 ? '(' + rawControl1.x.toFixed(2) + ',' + rawControl1.y.toFixed(2) + ')' : 'null'}`);
+                Logger.debug(`  transformed p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}) p3=(${p3.x.toFixed(2)},${p3.y.toFixed(2)})`);
+                Logger.debug(`  transformed p1=(${p1.x.toFixed(2)},${p1.y.toFixed(2)}) p2=${p2 ? '(' + p2.x.toFixed(2) + ',' + p2.y.toFixed(2) + ')' : 'null'}`);
+                Logger.debug(`  isLine=${edge.isLine} isLastInLoop=${isLastInLoop}`);
 
-                    // Option 2 (Reverse): p0 -> p2, p3 -> p1
-                    const distSqP0P2 = Math.pow(p0.x - p2.x, 2) + Math.pow(p0.y - p2.y, 2);
-                    const distSqP3P1 = Math.pow(p3.x - p1.x, 2) + Math.pow(p3.y - p1.y, 2);
-                    const costReverse = distSqP0P2 + distSqP3P1;
+                const vertsBefore = vertices.length;
 
-                    Logger.debug(`[ShapeUtil] Edge ${totalEdges}: CostFwd=${costForward.toFixed(2)} CostRev=${costReverse.toFixed(2)}`);
-
-                    if (costReverse < costForward) {
-                        Logger.debug(`   [ShapeUtil] Controls: SWAPPED (Reverse wins)`);
-                        ShapeUtil.adaptiveCubic(vertices, p0, p2, p1, p3, tolSq, 0, isLastInLoop);
-                    } else {
-                        Logger.debug(`   [ShapeUtil] Controls: Standard (Forward wins)`);
-                        ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
+                if (edge.isLine) {
+                    // Straight line - just add the endpoint
+                    if (!isLastInLoop) {
+                        ShapeUtil.addVertex(vertices, p3.x, p3.y);
                     }
+                } else if (p1 && p2) {
+                    // Cubic bezier - NO swapping. Use controls as-is from JSFL.
+                    ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
                 } else {
                     // Quadratic bezier
                     ShapeUtil.adaptiveQuadratic(vertices, p0, p1, p3, tolSq, 0, isLastInLoop);
                 }
 
+                const vertsAfter = vertices.length;
+                const pointsAdded = (vertsAfter - vertsBefore) / 2;
+                Logger.debug(`  => Added ${pointsAdded} points. Total vertices now: ${vertsAfter / 2}`);
+
                 halfEdge = nextHalfEdge;
                 totalEdges++;
             } while (halfEdge !== startHalfEdge && halfEdge != null);
         }
+
+        // Dump final vertex list for debugging
+        Logger.debug(`[ShapeUtil] === FINAL VERTEX DUMP (${vertices.length / 2} points) ===`);
+        for (let vi = 0; vi < vertices.length; vi += 2) {
+            Logger.debug(`  [${vi/2}] (${vertices[vi].toFixed(2)}, ${vertices[vi+1].toFixed(2)})`);
+        }
+        Logger.debug(`[ShapeUtil] === END VERTEX DUMP ===`);
         
         return vertices;
     }
