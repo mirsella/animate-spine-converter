@@ -5351,29 +5351,7 @@ var ShapeUtil = /** @class */ (function () {
                     }
                 }
                 else if (p1 && p2) {
-                    // Cubic bezier
-                    // Check for backward handles (loops/cusps) and clamp them
-                    var dx = p3.x - p0.x;
-                    var dy = p3.y - p0.y;
-                    // Handle 1 (p1 relative to p0)
-                    var h1x = p1.x - p0.x;
-                    var h1y = p1.y - p0.y;
-                    var dot1 = h1x * dx + h1y * dy;
-                    if (dot1 < 0) {
-                        Logger_1.Logger.debug("  [ShapeUtil] Clamping backward handle 1: dot=".concat(dot1.toFixed(2)));
-                        p1.x = p0.x;
-                        p1.y = p0.y;
-                    }
-                    // Handle 2 (p2 relative to p3)
-                    var h2x = p2.x - p3.x;
-                    var h2y = p2.y - p3.y;
-                    // Vector from p3 to p0 is (-dx, -dy)
-                    var dot2 = h2x * (-dx) + h2y * (-dy);
-                    if (dot2 < 0) {
-                        Logger_1.Logger.debug("  [ShapeUtil] Clamping backward handle 2: dot=".concat(dot2.toFixed(2)));
-                        p2.x = p3.x;
-                        p2.y = p3.y;
-                    }
+                    // Cubic bezier - use control points directly as returned by JSFL
                     ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
                 }
                 else {
@@ -5655,7 +5633,7 @@ var config = {
     mergeShapes: true,
     exportImages: true,
     mergeImages: true,
-    maskTolerance: 1.0
+    maskTolerance: 0.5
 };
 var getSelectionPaths = function (doc) {
     var paths = [];

@@ -183,32 +183,7 @@ export class ShapeUtil {
                         ShapeUtil.addVertex(vertices, p3.x, p3.y);
                     }
                 } else if (p1 && p2) {
-                    // Cubic bezier
-                    // Check for backward handles (loops/cusps) and clamp them
-                    const dx = p3.x - p0.x;
-                    const dy = p3.y - p0.y;
-                    
-                    // Handle 1 (p1 relative to p0)
-                    const h1x = p1.x - p0.x;
-                    const h1y = p1.y - p0.y;
-                    const dot1 = h1x * dx + h1y * dy;
-                    if (dot1 < 0) {
-                        Logger.debug(`  [ShapeUtil] Clamping backward handle 1: dot=${dot1.toFixed(2)}`);
-                        p1.x = p0.x;
-                        p1.y = p0.y;
-                    }
-
-                    // Handle 2 (p2 relative to p3)
-                    const h2x = p2.x - p3.x;
-                    const h2y = p2.y - p3.y;
-                    // Vector from p3 to p0 is (-dx, -dy)
-                    const dot2 = h2x * (-dx) + h2y * (-dy);
-                    if (dot2 < 0) {
-                        Logger.debug(`  [ShapeUtil] Clamping backward handle 2: dot=${dot2.toFixed(2)}`);
-                        p2.x = p3.x;
-                        p2.y = p3.y;
-                    }
-
+                    // Cubic bezier - use control points directly as returned by JSFL
                     ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
                 } else {
                     // Quadratic bezier
