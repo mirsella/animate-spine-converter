@@ -5358,10 +5358,15 @@ var ShapeUtil = /** @class */ (function () {
                     var ctrl = p2 || p1; // ctrl1 (p2) preferred; fallback to ctrl0 (p1) if null
                     Logger_1.Logger.debug("  Using QUADRATIC: p0=(".concat(p0.x.toFixed(2), ",").concat(p0.y.toFixed(2), ") ctrl=(").concat(ctrl.x.toFixed(2), ",").concat(ctrl.y.toFixed(2), ") p3=(").concat(p3.x.toFixed(2), ",").concat(p3.y.toFixed(2), ")"));
                     ShapeUtil.adaptiveQuadratic(vertices, p0, ctrl, p3, tolSq, 0, isLastInLoop);
+                    // Remove backward-motion points (mini-hangers).
+                    // At sharp corners, the quadratic control point can be "behind" the start,
+                    // causing early subdivision points to go backward along the chord before
+                    // correcting. We detect and remove these backward points.
+                    ShapeUtil.removeBackwardPoints(vertices, vertsBefore, p0, p3);
                 }
                 var vertsAfter = vertices.length;
                 var pointsAdded = (vertsAfter - vertsBefore) / 2;
-                Logger_1.Logger.debug("  => Added ".concat(pointsAdded, " points. Total vertices now: ").concat(vertsAfter / 2));
+                Logger_1.Logger.debug("  => Added ".concat(pointsAdded, " points (after backward removal). Total vertices now: ").concat(vertsAfter / 2));
                 halfEdge = nextHalfEdge;
                 totalEdges++;
             } while (halfEdge !== startHalfEdge && halfEdge != null);
@@ -5449,6 +5454,54 @@ var ShapeUtil = /** @class */ (function () {
         var r0 = q2;
         ShapeUtil.adaptiveQuadratic(vertices, q0, q1, q2, tolSq, level + 1, false);
         ShapeUtil.adaptiveQuadratic(vertices, r0, r1, r2, tolSq, level + 1, isLastEdge);
+    };
+    /**
+     * Removes points that go backward along the chord direction of a curve edge.
+     * At sharp corners, the quadratic control point can be positioned "behind" the start,
+     * causing early subdivision samples to travel backward before correcting. This creates
+     * small hanger-like artifacts with 2-3 tightly clustered backward points.
+     *
+     * We project each emitted point onto the chord vector (p0→p3) and remove any that
+     * have a lower projection than the previous retained point (i.e., going backward).
+     */
+    ShapeUtil.removeBackwardPoints = function (vertices, startIdx, p0, p3) {
+        // Need at least 2 emitted points (4 values) to check for backward motion
+        if (vertices.length - startIdx < 4)
+            return;
+        // Chord vector
+        var dx = p3.x - p0.x;
+        var dy = p3.y - p0.y;
+        var chordLenSq = dx * dx + dy * dy;
+        if (chordLenSq < 0.001)
+            return; // Degenerate edge
+        // Project a point onto the chord direction: dot(point - p0, chord) / |chord|^2
+        // This gives a scalar 0..1 along the chord. Backward = decreasing value.
+        // The last vertex before this edge's points is our reference start
+        // (the edge start p0 should be at or before startIdx)
+        var maxProj = 0; // p0 projects to 0
+        var toRemove = [];
+        for (var vi = startIdx; vi < vertices.length; vi += 2) {
+            var vx = vertices[vi];
+            var vy = -vertices[vi + 1]; // un-flip Y to match p0/p3 coordinate space
+            var proj = ((vx - p0.x) * dx + (vy - p0.y) * dy) / chordLenSq;
+            if (proj < maxProj - 0.01) {
+                // This point goes backward along the chord
+                Logger_1.Logger.debug("    [removeBackward] Removing backward point [".concat(vi / 2, "] (").concat(vx.toFixed(2), ",").concat(vy.toFixed(2), ") proj=").concat(proj.toFixed(4), " < maxProj=").concat(maxProj.toFixed(4)));
+                toRemove.push(vi);
+            }
+            else {
+                if (proj > maxProj) {
+                    maxProj = proj;
+                }
+            }
+        }
+        // Remove backward points from end to start (so indices stay valid)
+        for (var ri = toRemove.length - 1; ri >= 0; ri--) {
+            vertices.splice(toRemove[ri], 2);
+        }
+        if (toRemove.length > 0) {
+            Logger_1.Logger.debug("    [removeBackward] Removed ".concat(toRemove.length, " backward points"));
+        }
     };
     ShapeUtil.adaptiveCubic = function (vertices, p0, p1, p2, p3, tolSq, level, isLastEdge) {
         // Stop if segment is microscopic (< 0.1px)

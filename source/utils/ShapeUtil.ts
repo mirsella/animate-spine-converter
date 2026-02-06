@@ -190,11 +190,17 @@ export class ShapeUtil {
                     const ctrl = p2 || p1; // ctrl1 (p2) preferred; fallback to ctrl0 (p1) if null
                     Logger.debug(`  Using QUADRATIC: p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}) ctrl=(${ctrl.x.toFixed(2)},${ctrl.y.toFixed(2)}) p3=(${p3.x.toFixed(2)},${p3.y.toFixed(2)})`);
                     ShapeUtil.adaptiveQuadratic(vertices, p0, ctrl, p3, tolSq, 0, isLastInLoop);
+
+                    // Remove backward-motion points (mini-hangers).
+                    // At sharp corners, the quadratic control point can be "behind" the start,
+                    // causing early subdivision points to go backward along the chord before
+                    // correcting. We detect and remove these backward points.
+                    ShapeUtil.removeBackwardPoints(vertices, vertsBefore, p0, p3);
                 }
 
                 const vertsAfter = vertices.length;
                 const pointsAdded = (vertsAfter - vertsBefore) / 2;
-                Logger.debug(`  => Added ${pointsAdded} points. Total vertices now: ${vertsAfter / 2}`);
+                Logger.debug(`  => Added ${pointsAdded} points (after backward removal). Total vertices now: ${vertsAfter / 2}`);
 
                 halfEdge = nextHalfEdge;
                 totalEdges++;
@@ -303,6 +309,65 @@ export class ShapeUtil {
 
         ShapeUtil.adaptiveQuadratic(vertices, q0, q1, q2, tolSq, level + 1, false);
         ShapeUtil.adaptiveQuadratic(vertices, r0, r1, r2, tolSq, level + 1, isLastEdge);
+    }
+
+    /**
+     * Removes points that go backward along the chord direction of a curve edge.
+     * At sharp corners, the quadratic control point can be positioned "behind" the start,
+     * causing early subdivision samples to travel backward before correcting. This creates
+     * small hanger-like artifacts with 2-3 tightly clustered backward points.
+     *
+     * We project each emitted point onto the chord vector (p0→p3) and remove any that
+     * have a lower projection than the previous retained point (i.e., going backward).
+     */
+    private static removeBackwardPoints(
+        vertices: number[],
+        startIdx: number,
+        p0: {x:number, y:number},
+        p3: {x:number, y:number}
+    ): void {
+        // Need at least 2 emitted points (4 values) to check for backward motion
+        if (vertices.length - startIdx < 4) return;
+
+        // Chord vector
+        const dx = p3.x - p0.x;
+        const dy = p3.y - p0.y;
+        const chordLenSq = dx * dx + dy * dy;
+        if (chordLenSq < 0.001) return; // Degenerate edge
+
+        // Project a point onto the chord direction: dot(point - p0, chord) / |chord|^2
+        // This gives a scalar 0..1 along the chord. Backward = decreasing value.
+        
+        // The last vertex before this edge's points is our reference start
+        // (the edge start p0 should be at or before startIdx)
+        let maxProj = 0; // p0 projects to 0
+        const toRemove: number[] = [];
+
+        for (let vi = startIdx; vi < vertices.length; vi += 2) {
+            const vx = vertices[vi];
+            const vy = -vertices[vi + 1]; // un-flip Y to match p0/p3 coordinate space
+            
+            const proj = ((vx - p0.x) * dx + (vy - p0.y) * dy) / chordLenSq;
+            
+            if (proj < maxProj - 0.01) {
+                // This point goes backward along the chord
+                Logger.debug(`    [removeBackward] Removing backward point [${vi/2}] (${vx.toFixed(2)},${vy.toFixed(2)}) proj=${proj.toFixed(4)} < maxProj=${maxProj.toFixed(4)}`);
+                toRemove.push(vi);
+            } else {
+                if (proj > maxProj) {
+                    maxProj = proj;
+                }
+            }
+        }
+
+        // Remove backward points from end to start (so indices stay valid)
+        for (let ri = toRemove.length - 1; ri >= 0; ri--) {
+            vertices.splice(toRemove[ri], 2);
+        }
+
+        if (toRemove.length > 0) {
+            Logger.debug(`    [removeBackward] Removed ${toRemove.length} backward points`);
+        }
     }
 
     private static adaptiveCubic(
