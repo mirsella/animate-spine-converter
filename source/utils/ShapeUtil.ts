@@ -154,32 +154,30 @@ export class ShapeUtil {
                     if (p3) { p3.x += controlOffset.x; p3.y += controlOffset.y; }
                 }
 
-                const canonicalHalfEdge = edge.getHalfEdge(0);
-                const canonicalVertex = canonicalHalfEdge ? canonicalHalfEdge.getVertex() : null;
-                
-                let idMatch = false;
-                // Robust direction check using IDs if available
-                if (canonicalHalfEdge && (halfEdge as any).id !== undefined && (canonicalHalfEdge as any).id !== undefined) {
-                    idMatch = (halfEdge as any).id === (canonicalHalfEdge as any).id;
-                } else {
-                    // Fallback to coordinate check
-                    idMatch = canonicalVertex && Math.abs(canonicalVertex.x - rawStart.x) < 0.01 && Math.abs(canonicalVertex.y - rawStart.y) < 0.01;
-                }
-                
-                // If the current halfEdge is NOT the canonical one, we are likely traversing in reverse 
-                // relative to the edge's definition (or at least the control points need swapping).
-                const isReverse = !idMatch;
                 const isLastInLoop = (halfEdge.getNext() === startHalfEdge);
 
-                Logger.debug(`[ShapeUtil] Edge ${totalEdges}: Start=${p0.x.toFixed(2)},${p0.y.toFixed(2)} End=${p3.x.toFixed(2)},${p3.y.toFixed(2)} Reverse=${isReverse}`);
                 if (p1 && p2) {
-                    Logger.debug(`   Cubic Controls: p1=${p1.x.toFixed(2)},${p1.y.toFixed(2)} p2=${p2.x.toFixed(2)},${p2.y.toFixed(2)}`);
-                    // Cubic Bezier
-                    if (isReverse) {
-                        // Reverse traversal: p0 -> p3. Controls are p2 (near p0) and p1 (near p3).
+                    // Minimize Total Distance Heuristic
+                    // We have two control points: C0 (p1) and C1 (p2).
+                    // We need to assign them to Start (p0) and End (p3).
+                    
+                    // Option 1 (Forward): p0 -> p1, p3 -> p2
+                    const distSqP0P1 = Math.pow(p0.x - p1.x, 2) + Math.pow(p0.y - p1.y, 2);
+                    const distSqP3P2 = Math.pow(p3.x - p2.x, 2) + Math.pow(p3.y - p2.y, 2);
+                    const costForward = distSqP0P1 + distSqP3P2;
+
+                    // Option 2 (Reverse): p0 -> p2, p3 -> p1
+                    const distSqP0P2 = Math.pow(p0.x - p2.x, 2) + Math.pow(p0.y - p2.y, 2);
+                    const distSqP3P1 = Math.pow(p3.x - p1.x, 2) + Math.pow(p3.y - p1.y, 2);
+                    const costReverse = distSqP0P2 + distSqP3P1;
+
+                    Logger.debug(`[ShapeUtil] Edge ${totalEdges}: CostFwd=${costForward.toFixed(2)} CostRev=${costReverse.toFixed(2)}`);
+
+                    if (costReverse < costForward) {
+                        Logger.debug(`   [ShapeUtil] Controls: SWAPPED (Reverse wins)`);
                         ShapeUtil.adaptiveCubic(vertices, p0, p2, p1, p3, tolSq, 0, isLastInLoop);
                     } else {
-                        // Forward traversal: p0 -> p3. Controls are p1 (near p0) and p2 (near p3).
+                        Logger.debug(`   [ShapeUtil] Controls: Standard (Forward wins)`);
                         ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
                     }
                 } else {
