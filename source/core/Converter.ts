@@ -605,8 +605,14 @@ export class Converter {
         const attachment = slot.createAttachment(attachmentName, SpineAttachmentType.CLIPPING) as SpineClippingAttachment;
         context.clipping = attachment;
 
-        attachment.vertices = ShapeUtil.extractVertices(context.element, 32, matrix, controlOffset);
+        // Use adaptive subdivision tolerance from config, default to 2.0 (high quality but reasonable vertex count)
+        const tolerance = this._config.maskTolerance ?? 2.0;
+        Logger.debug(`[Converter] Processing mask slot '${slot.name}'. Tolerance: ${tolerance}`);
+        
+        attachment.vertices = ShapeUtil.extractVertices(context.element, tolerance, matrix, controlOffset);
         attachment.vertexCount = attachment.vertices != null ? attachment.vertices.length / 2 : 0;
+        
+        Logger.debug(`[Converter] Mask '${slot.name}' created with ${attachment.vertexCount} vertices.`);
 
         if (context.global.stageType === ConverterStageType.STRUCTURE) {
             attachment.end = slot;

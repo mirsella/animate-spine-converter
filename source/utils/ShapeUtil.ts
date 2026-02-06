@@ -1,18 +1,24 @@
 import { Logger } from '../logger/Logger';
 
-const DEFAULT_CURVE_SEGMENTS = 20;
-
 export class ShapeUtil {
-    public static extractVertices(instance:FlashElement, segmentsPerCurve:number = DEFAULT_CURVE_SEGMENTS, matrix:FlashMatrix = null, controlOffset:{x:number, y:number} = null):number[] {
+    public static extractVertices(instance:FlashElement, tolerance:number = 2.0, matrix:FlashMatrix = null, controlOffset:{x:number, y:number} = null):number[] {
         if (instance.elementType !== 'shape') {
+            Logger.debug(`[ShapeUtil] Skipping non-shape element: ${instance.elementType}`);
             return null;
         }
 
-        if (instance.contours && instance.contours.length > 0) {
-            return ShapeUtil.extractVerticesFromContours(instance, segmentsPerCurve, matrix, controlOffset);
+        const mode = (instance.contours && instance.contours.length > 0) ? 'contours' : 'edges';
+        Logger.debug(`[ShapeUtil] extractVertices start. Mode=${mode} Tolerance=${tolerance} Matrix=${!!matrix}`);
+
+        if (mode === 'contours') {
+            const result = ShapeUtil.extractVerticesFromContours(instance, tolerance, matrix, controlOffset);
+            Logger.debug(`[ShapeUtil] extractVertices complete. Generated ${result.length/2} points from ${instance.contours.length} contours.`);
+            return result;
         }
 
-        return ShapeUtil.extractVerticesFromEdges(instance, segmentsPerCurve, matrix);
+        const result = ShapeUtil.extractVerticesFromEdges(instance, tolerance, matrix);
+        Logger.debug(`[ShapeUtil] extractVertices complete. Generated ${result.length/2} points from ${instance.edges.length} edges.`);
+        return result;
     }
 
     /**
@@ -40,26 +46,26 @@ export class ShapeUtil {
         };
     }
 
-    private static extractVerticesFromContours(instance:FlashElement, segmentsPerCurve:number, matrix:FlashMatrix, controlOffset:{x:number, y:number} = null):number[] {
+    private static extractVerticesFromContours(instance:FlashElement, tolerance:number, matrix:FlashMatrix, controlOffset:{x:number, y:number} = null):number[] {
         const vertices:number[] = [];
         let totalEdges = 0;
-
-        if (instance.contours.length > 1) {
-            // Shape has multiple contours
-        }
-
-        if (matrix) {
-            // Matrix available
-        }
+        
+        // Use tolerance squared for faster distance checks
+        const tolSq = tolerance * tolerance;
 
         for (let i = 0; i < instance.contours.length; i++) {
             const contour = instance.contours[i];
+            // Skip interior contours (holes) for now as Spine clipping doesn't support them natively 
+            // without complex triangulation/bridging. 
+            // TODO: Implement keyhole/bridge technique if hole support is critical.
             if (contour.interior) {
+                Logger.debug(`[ShapeUtil] Skipping interior contour ${i}`);
                 continue;
             }
 
             const startHalfEdge = contour.getHalfEdge();
             if (startHalfEdge == null) {
+                Logger.warning(`[ShapeUtil] Contour ${i} has no startHalfEdge`);
                 continue;
             }
 
@@ -108,9 +114,12 @@ export class ShapeUtil {
                 const canonicalVertex = canonicalHalfEdge ? canonicalHalfEdge.getVertex() : null;
                 const isReverse = canonicalVertex && 
                     (Math.abs(canonicalVertex.x - rawStart.x) > 0.01 || Math.abs(canonicalVertex.y - rawStart.y) > 0.01);
+                
+                const isLastInLoop = halfEdge.getNext() === startHalfEdge;
 
                 if (edge.isLine) {
-                    if (halfEdge.getNext() !== startHalfEdge) {
+                    // For a line, we just push the end point if it's not the loop closer
+                    if (!isLastInLoop) {
                         vertices.push(p3.x, -p3.y);
                     }
                 } else {
@@ -136,18 +145,14 @@ export class ShapeUtil {
                         
                         if (isReverse) {
                             // Reverse traversal: p0 -> p3. Controls are p2 (near p0) and p1 (near p3).
-                            const validP2 = ShapeUtil.clampControlPoint(p0, p3, p2);
-                            const validP1 = ShapeUtil.clampControlPoint(p3, p0, p1);
-                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, validP2, validP1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
+                            ShapeUtil.adaptiveCubic(vertices, p0, p2, p1, p3, tolSq, 0, isLastInLoop);
                         } else {
                             // Forward traversal: p0 -> p3. Controls are p1 (near p0) and p2 (near p3).
-                            const validP1 = ShapeUtil.clampControlPoint(p0, p3, p1);
-                            const validP2 = ShapeUtil.clampControlPoint(p3, p0, p2);
-                            ShapeUtil.tessellateCubicBezierPart(vertices, p0, validP1, validP2, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
+                            ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
                         }
                     } else {
-                        const validP1 = ShapeUtil.clampControlPoint(p0, p3, p1);
-                        ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, validP1, p3, segmentsPerCurve, halfEdge.getNext() === startHalfEdge);
+                        // Quadratic bezier
+                        ShapeUtil.adaptiveQuadratic(vertices, p0, p1, p3, tolSq, 0, isLastInLoop);
                     }
                 }
 
@@ -159,32 +164,10 @@ export class ShapeUtil {
         return vertices;
     }
 
-    private static clampControlPoint(pAnchor: {x:number, y:number}, pOpposite: {x:number, y:number}, pControl: {x:number, y:number}): {x:number, y:number} {
-        const dx = pOpposite.x - pAnchor.x;
-        const dy = pOpposite.y - pAnchor.y;
-        const lenSq = dx*dx + dy*dy;
-        if (lenSq < 0.0001) return pAnchor;
-
-        const cx = pControl.x - pAnchor.x;
-        const cy = pControl.y - pAnchor.y;
-        
-        // Project onto edge vector: t = (c . d) / (d . d)
-        const t = (cx * dx + cy * dy) / lenSq;
-
-        if (t < 0) {
-            // Pulls backward
-            return { x: pAnchor.x, y: pAnchor.y };
-        }
-        if (t > 1) {
-            // Overshoots
-            return { x: pOpposite.x, y: pOpposite.y };
-        }
-        
-        return pControl;
-    }
-
-    private static extractVerticesFromEdges(instance:FlashElement, segmentsPerCurve:number, matrix:FlashMatrix):number[] {
+    private static extractVerticesFromEdges(instance:FlashElement, tolerance:number, matrix:FlashMatrix):number[] {
         const vertices:number[] = [];
+        const tolSq = tolerance * tolerance;
+
         for (let i = 0; i < instance.edges.length; i++) {
             const edge = instance.edges[i];
             const halfEdge = edge.getHalfEdge(0);
@@ -193,6 +176,7 @@ export class ShapeUtil {
             const rawStart = halfEdge.getVertex();
             const nextHalfEdge = halfEdge.getOppositeHalfEdge();
             if (!nextHalfEdge) {
+                // Isolated point or incomplete edge? Just push start.
                 const p = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
                 vertices.push(p.x, -p.y);
                 continue;
@@ -201,65 +185,116 @@ export class ShapeUtil {
             const rawEnd = nextHalfEdge.getVertex();
             const p0 = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
             const p3 = ShapeUtil.transformPoint(rawEnd.x, rawEnd.y, matrix);
+            
+            // In edge mode, we usually push start and then the curve points.
+            // Since this mode iterates unconnected edges (potentially), we might want to push p0 always?
+            // The previous implementation pushed p0 then curve points.
+            vertices.push(p0.x, -p0.y);
 
             if (edge.isLine) {
-                vertices.push(p0.x, -p0.y);
+                vertices.push(p3.x, -p3.y);
             } else {
                 const rawControl0 = edge.getControl(0);
                 const p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
-                ShapeUtil.tessellateQuadraticBezierPart(vertices, p0, p1, p3, segmentsPerCurve, false);
+                // Note: Edges usually have 2 controls in JSFL if they are cubic, but extractVerticesFromEdges
+                // in previous code only handled Quadratic (getControl(0)).
+                // We'll stick to that or upgrade to cubic if possible, but safe to assume simple handling here.
+                ShapeUtil.adaptiveQuadratic(vertices, p0, p1, p3, tolSq, 0, false);
             }
         }
         return vertices;
     }
 
-    private static tessellateQuadraticBezierPart(
+    private static pointLineDistSq(p: {x:number, y:number}, v: {x:number, y:number}, w: {x:number, y:number}): number {
+        // Distance from point p to line segment vw.
+        // If segment is a point
+        const l2 = (w.x - v.x)**2 + (w.y - v.y)**2;
+        if (l2 === 0) return (p.x - v.x)**2 + (p.y - v.y)**2;
+        
+        // Project p onto line
+        let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+        
+        // Clamp to segment
+        t = Math.max(0, Math.min(1, t));
+        
+        const projX = v.x + t * (w.x - v.x);
+        const projY = v.y + t * (w.y - v.y);
+        
+        return (p.x - projX)**2 + (p.y - projY)**2;
+    }
+
+    private static adaptiveQuadratic(
         vertices:number[],
         p0:{x:number, y:number},
         p1:{x:number, y:number},
         p2:{x:number, y:number},
-        segments:number,
-        isLast:boolean
+        tolSq:number,
+        level:number,
+        isLastEdge:boolean
     ):void {
-        // Start point p0 is already pushed. We push from t = 1/seg to 1.0 (if not last)
-        const endLimit = isLast ? segments : segments + 1;
-        for (let i = 1; i < endLimit; i++) {
-            const t = i / segments;
-            const mt = 1 - t;
-            const x = mt * mt * p0.x + 2 * mt * t * p1.x + t * t * p2.x;
-            const y = mt * mt * p0.y + 2 * mt * t * p1.y + t * t * p2.y;
-            
-            // Avoid duplicate of start if it's the very last point
-            if (isLast && i === segments) continue; 
-
-            vertices.push(x, -y);
+        if (level > 10) {
+            // Logger.debug(`[ShapeUtil] Max recursion level reached at ${p2.x},${p2.y}`);
+            if (!isLastEdge) vertices.push(p2.x, -p2.y);
+            return;
         }
+
+        const d1 = ShapeUtil.pointLineDistSq(p1, p0, p2);
+        if (d1 < tolSq) {
+             if (!isLastEdge) vertices.push(p2.x, -p2.y);
+             return;
+        }
+
+        // Split at t=0.5
+        const q0 = p0;
+        const q1 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+        const r1 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+        const q2 = { x: (q1.x + r1.x) / 2, y: (q1.y + r1.y) / 2 };
+        const r2 = p2;
+        const r0 = q2;
+
+        ShapeUtil.adaptiveQuadratic(vertices, q0, q1, q2, tolSq, level + 1, false);
+        ShapeUtil.adaptiveQuadratic(vertices, r0, r1, r2, tolSq, level + 1, isLastEdge);
     }
 
-    private static tessellateCubicBezierPart(
+    private static adaptiveCubic(
         vertices:number[],
         p0:{x:number, y:number},
         p1:{x:number, y:number},
         p2:{x:number, y:number},
         p3:{x:number, y:number},
-        segments:number,
-        isLast:boolean
+        tolSq:number,
+        level:number,
+        isLastEdge:boolean
     ):void {
-        const endLimit = isLast ? segments : segments + 1;
-        for (let i = 1; i < endLimit; i++) {
-            const t = i / segments;
-            const mt = 1 - t;
-            const mt2 = mt * mt;
-            const mt3 = mt2 * mt;
-            const t2 = t * t;
-            const t3 = t2 * t;
-
-            const x = mt3 * p0.x + 3 * mt2 * t * p1.x + 3 * mt * t2 * p2.x + t3 * p3.x;
-            const y = mt3 * p0.y + 3 * mt2 * t * p1.y + 3 * mt * t2 * p2.y + t3 * p3.y;
-
-            if (isLast && i === segments) continue;
-
-            vertices.push(x, -y);
+        if (level > 10) {
+            // Logger.debug(`[ShapeUtil] Max recursion level reached (Cubic) at ${p3.x},${p3.y}`);
+            if (!isLastEdge) vertices.push(p3.x, -p3.y);
+            return;
         }
+
+        // Check flatness
+        const d1 = ShapeUtil.pointLineDistSq(p1, p0, p3);
+        const d2 = ShapeUtil.pointLineDistSq(p2, p0, p3);
+
+        if (d1 < tolSq && d2 < tolSq) {
+            if (!isLastEdge) vertices.push(p3.x, -p3.y);
+            return;
+        }
+
+        // Split at t=0.5
+        const q0 = p0;
+        const q1 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+        const tmp = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+        const r2 = { x: (p2.x + p3.x) / 2, y: (p2.y + p3.y) / 2 };
+        
+        const q2 = { x: (q1.x + tmp.x) / 2, y: (q1.y + tmp.y) / 2 };
+        const r1 = { x: (tmp.x + r2.x) / 2, y: (tmp.y + r2.y) / 2 };
+        
+        const q3 = { x: (q2.x + r1.x) / 2, y: (q2.y + r1.y) / 2 };
+        const r0 = q3;
+        const r3 = p3;
+
+        ShapeUtil.adaptiveCubic(vertices, q0, q1, q2, q3, tolSq, level + 1, false);
+        ShapeUtil.adaptiveCubic(vertices, r0, r1, r2, r3, tolSq, level + 1, isLastEdge);
     }
 }
