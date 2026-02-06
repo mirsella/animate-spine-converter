@@ -15,5 +15,5 @@ export interface ConverterConfig {
     mergeShapes?:boolean;
     exportImages?:boolean;
     mergeImages?:boolean;
-    maskTolerance?:number;
+    maskTolerance?:number; // Default 1.0
 }

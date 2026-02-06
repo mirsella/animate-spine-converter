@@ -5223,13 +5223,23 @@ var ShapeUtil = /** @class */ (function () {
     };
     ShapeUtil.addVertex = function (vertices, x, y, force) {
         if (force === void 0) { force = false; }
+        var newY = -y;
+        // Check for duplicate/extremely close points (min distance check)
+        if (vertices.length >= 2) {
+            var lastX = vertices[vertices.length - 2];
+            var lastY = vertices[vertices.length - 1];
+            var distSq = (lastX - x) * (lastX - x) + (lastY - newY) * (lastY - newY);
+            // 0.05px tolerance (0.0025 sq) to prevent stacking
+            if (distSq < 0.0025 && !force) {
+                Logger_1.Logger.debug("    [addVertex] Skipping close vertex: (".concat(x.toFixed(2), ",").concat(newY.toFixed(2), ") dist=").concat(Math.sqrt(distSq).toFixed(4)));
+                return;
+            }
+        }
         if (vertices.length >= 4 && !force) {
             var lastX = vertices[vertices.length - 2];
             var lastY = vertices[vertices.length - 1]; // Already flipped -y
             var prevX = vertices[vertices.length - 4];
             var prevY = vertices[vertices.length - 3];
-            // Current point to add (flipping Y here to match stored format)
-            var newY = -y;
             // Check if last point is redundant (collinear with prev and new)
             // Area of triangle method: |x1(y2-y3) + x2(y3-y1) + x3(y1-y2)| / 2
             // If area is ~0, they are collinear.
@@ -5243,8 +5253,8 @@ var ShapeUtil = /** @class */ (function () {
                 return;
             }
         }
-        Logger_1.Logger.debug("    [addVertex] Push (".concat(x.toFixed(2), ",").concat((-y).toFixed(2), ")").concat(force ? ' [forced]' : ''));
-        vertices.push(x, -y);
+        Logger_1.Logger.debug("    [addVertex] Push (".concat(x.toFixed(2), ",").concat(newY.toFixed(2), ")").concat(force ? ' [forced]' : ''));
+        vertices.push(x, newY);
     };
     ShapeUtil.extractVerticesFromContours = function (instance, tolerance, matrix, controlOffset) {
         if (controlOffset === void 0) { controlOffset = null; }
@@ -5432,6 +5442,13 @@ var ShapeUtil = /** @class */ (function () {
         return Math.pow((p.x - projX), 2) + Math.pow((p.y - projY), 2);
     };
     ShapeUtil.adaptiveQuadratic = function (vertices, p0, p1, p2, tolSq, level, isLastEdge) {
+        // Stop if segment is microscopic (< 0.1px)
+        var segDistSq = Math.pow((p0.x - p2.x), 2) + Math.pow((p0.y - p2.y), 2);
+        if (segDistSq < 0.01) {
+            if (!isLastEdge)
+                ShapeUtil.addVertex(vertices, p2.x, p2.y);
+            return;
+        }
         if (level > 20) {
             Logger_1.Logger.debug("[ShapeUtil] Max recursion level (20) reached at ".concat(p2.x, ",").concat(p2.y));
             if (!isLastEdge)
@@ -5455,6 +5472,13 @@ var ShapeUtil = /** @class */ (function () {
         ShapeUtil.adaptiveQuadratic(vertices, r0, r1, r2, tolSq, level + 1, isLastEdge);
     };
     ShapeUtil.adaptiveCubic = function (vertices, p0, p1, p2, p3, tolSq, level, isLastEdge) {
+        // Stop if segment is microscopic (< 0.1px)
+        var segDistSq = Math.pow((p0.x - p3.x), 2) + Math.pow((p0.y - p3.y), 2);
+        if (segDistSq < 0.01) {
+            if (!isLastEdge)
+                ShapeUtil.addVertex(vertices, p3.x, p3.y);
+            return;
+        }
         if (level > 20) {
             Logger_1.Logger.debug("[ShapeUtil] Max recursion level (20) reached (Cubic) at ".concat(p3.x, ",").concat(p3.y));
             if (!isLastEdge)
@@ -5631,7 +5655,7 @@ var config = {
     mergeShapes: true,
     exportImages: true,
     mergeImages: true,
-    maskTolerance: 2.0
+    maskTolerance: 1.0
 };
 var getSelectionPaths = function (doc) {
     var paths = [];

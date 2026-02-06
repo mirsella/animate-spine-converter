@@ -47,14 +47,25 @@ export class ShapeUtil {
     }
 
     private static addVertex(vertices:number[], x:number, y:number, force:boolean = false):void {
+        const newY = -y;
+        
+        // Check for duplicate/extremely close points (min distance check)
+        if (vertices.length >= 2) {
+             const lastX = vertices[vertices.length - 2];
+             const lastY = vertices[vertices.length - 1];
+             const distSq = (lastX - x) * (lastX - x) + (lastY - newY) * (lastY - newY);
+             // 0.05px tolerance (0.0025 sq) to prevent stacking
+             if (distSq < 0.0025 && !force) {
+                 Logger.debug(`    [addVertex] Skipping close vertex: (${x.toFixed(2)},${newY.toFixed(2)}) dist=${Math.sqrt(distSq).toFixed(4)}`);
+                 return;
+             }
+        }
+
         if (vertices.length >= 4 && !force) {
             const lastX = vertices[vertices.length - 2];
             const lastY = vertices[vertices.length - 1]; // Already flipped -y
             const prevX = vertices[vertices.length - 4];
             const prevY = vertices[vertices.length - 3];
-
-            // Current point to add (flipping Y here to match stored format)
-            const newY = -y;
 
             // Check if last point is redundant (collinear with prev and new)
             // Area of triangle method: |x1(y2-y3) + x2(y3-y1) + x3(y1-y2)| / 2
@@ -70,8 +81,8 @@ export class ShapeUtil {
                 return;
             }
         }
-        Logger.debug(`    [addVertex] Push (${x.toFixed(2)},${(-y).toFixed(2)})${force ? ' [forced]' : ''}`);
-        vertices.push(x, -y);
+        Logger.debug(`    [addVertex] Push (${x.toFixed(2)},${newY.toFixed(2)})${force ? ' [forced]' : ''}`);
+        vertices.push(x, newY);
     }
 
     private static extractVerticesFromContours(instance:FlashElement, tolerance:number, matrix:FlashMatrix, controlOffset:{x:number, y:number} = null):number[] {
@@ -286,6 +297,13 @@ export class ShapeUtil {
         level:number,
         isLastEdge:boolean
     ):void {
+        // Stop if segment is microscopic (< 0.1px)
+        const segDistSq = (p0.x - p2.x)**2 + (p0.y - p2.y)**2;
+        if (segDistSq < 0.01) {
+             if (!isLastEdge) ShapeUtil.addVertex(vertices, p2.x, p2.y);
+             return;
+        }
+
         if (level > 20) {
             Logger.debug(`[ShapeUtil] Max recursion level (20) reached at ${p2.x},${p2.y}`);
             if (!isLastEdge) ShapeUtil.addVertex(vertices, p2.x, p2.y);
@@ -320,6 +338,13 @@ export class ShapeUtil {
         level:number,
         isLastEdge:boolean
     ):void {
+        // Stop if segment is microscopic (< 0.1px)
+        const segDistSq = (p0.x - p3.x)**2 + (p0.y - p3.y)**2;
+        if (segDistSq < 0.01) {
+             if (!isLastEdge) ShapeUtil.addVertex(vertices, p3.x, p3.y);
+             return;
+        }
+
         if (level > 20) {
             Logger.debug(`[ShapeUtil] Max recursion level (20) reached (Cubic) at ${p3.x},${p3.y}`);
             if (!isLastEdge) ShapeUtil.addVertex(vertices, p3.x, p3.y);

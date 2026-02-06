@@ -37,7 +37,7 @@ const config:ConverterConfig = {
     mergeShapes: true,
     exportImages: true,
     mergeImages: true,
-    maskTolerance: 2.0
+    maskTolerance: 1.0
 };
 
 //-----------------------------------
