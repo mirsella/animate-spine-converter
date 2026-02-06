@@ -46,6 +46,32 @@ export class ShapeUtil {
         };
     }
 
+    private static addVertex(vertices:number[], x:number, y:number, force:boolean = false):void {
+        if (vertices.length >= 4 && !force) {
+            const lastX = vertices[vertices.length - 2];
+            const lastY = vertices[vertices.length - 1]; // Already flipped -y
+            const prevX = vertices[vertices.length - 4];
+            const prevY = vertices[vertices.length - 3];
+
+            // Current point to add (flipping Y here to match stored format)
+            const newY = -y;
+
+            // Check if last point is redundant (collinear with prev and new)
+            // Area of triangle method: |x1(y2-y3) + x2(y3-y1) + x3(y1-y2)| / 2
+            // If area is ~0, they are collinear.
+            const area = Math.abs(prevX * (lastY - newY) + lastX * (newY - prevY) + x * (prevY - lastY));
+            
+            // Tolerance for collinearity (0.1 seems safe for pixels)
+            if (area < 0.1) {
+                // Replace last vertex with new one
+                vertices[vertices.length - 2] = x;
+                vertices[vertices.length - 1] = newY;
+                return;
+            }
+        }
+        vertices.push(x, -y);
+    }
+
     private static extractVerticesFromContours(instance:FlashElement, tolerance:number, matrix:FlashMatrix, controlOffset:{x:number, y:number} = null):number[] {
         const vertices:number[] = [];
         let totalEdges = 0;
@@ -69,10 +95,13 @@ export class ShapeUtil {
                 continue;
             }
 
+            Logger.debug(`[ShapeUtil] Processing Contour ${i}. Start Vertex: ${startHalfEdge.getVertex().x},${startHalfEdge.getVertex().y}`);
+
             // Push the very first vertex of the contour
             const firstVertex = startHalfEdge.getVertex();
             const pStart = ShapeUtil.transformPoint(firstVertex.x, firstVertex.y, matrix);
-            vertices.push(pStart.x, -pStart.y);
+            // Always force the start point of a contour
+            ShapeUtil.addVertex(vertices, pStart.x, pStart.y, true);
 
             let halfEdge = startHalfEdge;
             let safetyCounter = 0;
@@ -103,7 +132,7 @@ export class ShapeUtil {
                 // Check for sequence continuity
                 if (vertices.length >= 2) {
                     const lastX = vertices[vertices.length - 2];
-                    const lastY = -vertices[vertices.length - 1];
+                    const lastY = -vertices[vertices.length - 1]; // Unflip for distance check
                     const distSq = Math.pow(lastX - p0.x, 2) + Math.pow(lastY - p0.y, 2);
                     if (distSq > 0.01) {
                         Logger.warning("Contour GAP at Edge " + totalEdges + ": [" + lastX.toFixed(2) + "," + lastY.toFixed(2) + "] -> [" + p0.x.toFixed(2) + "," + p0.y.toFixed(2) + "]");
@@ -120,7 +149,7 @@ export class ShapeUtil {
                 if (edge.isLine) {
                     // For a line, we just push the end point if it's not the loop closer
                     if (!isLastInLoop) {
-                        vertices.push(p3.x, -p3.y);
+                        ShapeUtil.addVertex(vertices, p3.x, p3.y);
                     }
                 } else {
                     const rawControl0 = edge.getControl(0);
@@ -178,7 +207,7 @@ export class ShapeUtil {
             if (!nextHalfEdge) {
                 // Isolated point or incomplete edge? Just push start.
                 const p = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
-                vertices.push(p.x, -p.y);
+                ShapeUtil.addVertex(vertices, p.x, p.y, true);
                 continue;
             }
             
@@ -187,18 +216,13 @@ export class ShapeUtil {
             const p3 = ShapeUtil.transformPoint(rawEnd.x, rawEnd.y, matrix);
             
             // In edge mode, we usually push start and then the curve points.
-            // Since this mode iterates unconnected edges (potentially), we might want to push p0 always?
-            // The previous implementation pushed p0 then curve points.
-            vertices.push(p0.x, -p0.y);
+            ShapeUtil.addVertex(vertices, p0.x, p0.y, true);
 
             if (edge.isLine) {
-                vertices.push(p3.x, -p3.y);
+                ShapeUtil.addVertex(vertices, p3.x, p3.y);
             } else {
                 const rawControl0 = edge.getControl(0);
                 const p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
-                // Note: Edges usually have 2 controls in JSFL if they are cubic, but extractVerticesFromEdges
-                // in previous code only handled Quadratic (getControl(0)).
-                // We'll stick to that or upgrade to cubic if possible, but safe to assume simple handling here.
                 ShapeUtil.adaptiveQuadratic(vertices, p0, p1, p3, tolSq, 0, false);
             }
         }
@@ -232,15 +256,15 @@ export class ShapeUtil {
         level:number,
         isLastEdge:boolean
     ):void {
-        if (level > 10) {
-            // Logger.debug(`[ShapeUtil] Max recursion level reached at ${p2.x},${p2.y}`);
-            if (!isLastEdge) vertices.push(p2.x, -p2.y);
+        if (level > 20) {
+            Logger.debug(`[ShapeUtil] Max recursion level (20) reached at ${p2.x},${p2.y}`);
+            if (!isLastEdge) ShapeUtil.addVertex(vertices, p2.x, p2.y);
             return;
         }
 
         const d1 = ShapeUtil.pointLineDistSq(p1, p0, p2);
         if (d1 < tolSq) {
-             if (!isLastEdge) vertices.push(p2.x, -p2.y);
+             if (!isLastEdge) ShapeUtil.addVertex(vertices, p2.x, p2.y);
              return;
         }
 
@@ -266,9 +290,9 @@ export class ShapeUtil {
         level:number,
         isLastEdge:boolean
     ):void {
-        if (level > 10) {
-            // Logger.debug(`[ShapeUtil] Max recursion level reached (Cubic) at ${p3.x},${p3.y}`);
-            if (!isLastEdge) vertices.push(p3.x, -p3.y);
+        if (level > 20) {
+            Logger.debug(`[ShapeUtil] Max recursion level (20) reached (Cubic) at ${p3.x},${p3.y}`);
+            if (!isLastEdge) ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
         }
 
@@ -277,7 +301,7 @@ export class ShapeUtil {
         const d2 = ShapeUtil.pointLineDistSq(p2, p0, p3);
 
         if (d1 < tolSq && d2 < tolSq) {
-            if (!isLastEdge) vertices.push(p3.x, -p3.y);
+            if (!isLastEdge) ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
         }
 

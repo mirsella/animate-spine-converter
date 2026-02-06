@@ -5221,6 +5221,29 @@ var ShapeUtil = /** @class */ (function () {
             ty: m1.tx * m2.b + m1.ty * m2.d + m2.ty
         };
     };
+    ShapeUtil.addVertex = function (vertices, x, y, force) {
+        if (force === void 0) { force = false; }
+        if (vertices.length >= 4 && !force) {
+            var lastX = vertices[vertices.length - 2];
+            var lastY = vertices[vertices.length - 1]; // Already flipped -y
+            var prevX = vertices[vertices.length - 4];
+            var prevY = vertices[vertices.length - 3];
+            // Current point to add (flipping Y here to match stored format)
+            var newY = -y;
+            // Check if last point is redundant (collinear with prev and new)
+            // Area of triangle method: |x1(y2-y3) + x2(y3-y1) + x3(y1-y2)| / 2
+            // If area is ~0, they are collinear.
+            var area = Math.abs(prevX * (lastY - newY) + lastX * (newY - prevY) + x * (prevY - lastY));
+            // Tolerance for collinearity (0.1 seems safe for pixels)
+            if (area < 0.1) {
+                // Replace last vertex with new one
+                vertices[vertices.length - 2] = x;
+                vertices[vertices.length - 1] = newY;
+                return;
+            }
+        }
+        vertices.push(x, -y);
+    };
     ShapeUtil.extractVerticesFromContours = function (instance, tolerance, matrix, controlOffset) {
         if (controlOffset === void 0) { controlOffset = null; }
         var vertices = [];
@@ -5241,10 +5264,12 @@ var ShapeUtil = /** @class */ (function () {
                 Logger_1.Logger.warning("[ShapeUtil] Contour ".concat(i, " has no startHalfEdge"));
                 continue;
             }
+            Logger_1.Logger.debug("[ShapeUtil] Processing Contour ".concat(i, ". Start Vertex: ").concat(startHalfEdge.getVertex().x, ",").concat(startHalfEdge.getVertex().y));
             // Push the very first vertex of the contour
             var firstVertex = startHalfEdge.getVertex();
             var pStart = ShapeUtil.transformPoint(firstVertex.x, firstVertex.y, matrix);
-            vertices.push(pStart.x, -pStart.y);
+            // Always force the start point of a contour
+            ShapeUtil.addVertex(vertices, pStart.x, pStart.y, true);
             var halfEdge = startHalfEdge;
             var safetyCounter = 0;
             var MAX_EDGES = 5000;
@@ -5270,7 +5295,7 @@ var ShapeUtil = /** @class */ (function () {
                 // Check for sequence continuity
                 if (vertices.length >= 2) {
                     var lastX = vertices[vertices.length - 2];
-                    var lastY = -vertices[vertices.length - 1];
+                    var lastY = -vertices[vertices.length - 1]; // Unflip for distance check
                     var distSq = Math.pow(lastX - p0.x, 2) + Math.pow(lastY - p0.y, 2);
                     if (distSq > 0.01) {
                         Logger_1.Logger.warning("Contour GAP at Edge " + totalEdges + ": [" + lastX.toFixed(2) + "," + lastY.toFixed(2) + "] -> [" + p0.x.toFixed(2) + "," + p0.y.toFixed(2) + "]");
@@ -5284,7 +5309,7 @@ var ShapeUtil = /** @class */ (function () {
                 if (edge.isLine) {
                     // For a line, we just push the end point if it's not the loop closer
                     if (!isLastInLoop) {
-                        vertices.push(p3.x, -p3.y);
+                        ShapeUtil.addVertex(vertices, p3.x, p3.y);
                     }
                 }
                 else {
@@ -5338,25 +5363,20 @@ var ShapeUtil = /** @class */ (function () {
             if (!nextHalfEdge) {
                 // Isolated point or incomplete edge? Just push start.
                 var p = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
-                vertices.push(p.x, -p.y);
+                ShapeUtil.addVertex(vertices, p.x, p.y, true);
                 continue;
             }
             var rawEnd = nextHalfEdge.getVertex();
             var p0 = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
             var p3 = ShapeUtil.transformPoint(rawEnd.x, rawEnd.y, matrix);
             // In edge mode, we usually push start and then the curve points.
-            // Since this mode iterates unconnected edges (potentially), we might want to push p0 always?
-            // The previous implementation pushed p0 then curve points.
-            vertices.push(p0.x, -p0.y);
+            ShapeUtil.addVertex(vertices, p0.x, p0.y, true);
             if (edge.isLine) {
-                vertices.push(p3.x, -p3.y);
+                ShapeUtil.addVertex(vertices, p3.x, p3.y);
             }
             else {
                 var rawControl0 = edge.getControl(0);
                 var p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
-                // Note: Edges usually have 2 controls in JSFL if they are cubic, but extractVerticesFromEdges
-                // in previous code only handled Quadratic (getControl(0)).
-                // We'll stick to that or upgrade to cubic if possible, but safe to assume simple handling here.
                 ShapeUtil.adaptiveQuadratic(vertices, p0, p1, p3, tolSq, 0, false);
             }
         }
@@ -5377,16 +5397,16 @@ var ShapeUtil = /** @class */ (function () {
         return Math.pow((p.x - projX), 2) + Math.pow((p.y - projY), 2);
     };
     ShapeUtil.adaptiveQuadratic = function (vertices, p0, p1, p2, tolSq, level, isLastEdge) {
-        if (level > 10) {
-            // Logger.debug(`[ShapeUtil] Max recursion level reached at ${p2.x},${p2.y}`);
+        if (level > 20) {
+            Logger_1.Logger.debug("[ShapeUtil] Max recursion level (20) reached at ".concat(p2.x, ",").concat(p2.y));
             if (!isLastEdge)
-                vertices.push(p2.x, -p2.y);
+                ShapeUtil.addVertex(vertices, p2.x, p2.y);
             return;
         }
         var d1 = ShapeUtil.pointLineDistSq(p1, p0, p2);
         if (d1 < tolSq) {
             if (!isLastEdge)
-                vertices.push(p2.x, -p2.y);
+                ShapeUtil.addVertex(vertices, p2.x, p2.y);
             return;
         }
         // Split at t=0.5
@@ -5400,10 +5420,10 @@ var ShapeUtil = /** @class */ (function () {
         ShapeUtil.adaptiveQuadratic(vertices, r0, r1, r2, tolSq, level + 1, isLastEdge);
     };
     ShapeUtil.adaptiveCubic = function (vertices, p0, p1, p2, p3, tolSq, level, isLastEdge) {
-        if (level > 10) {
-            // Logger.debug(`[ShapeUtil] Max recursion level reached (Cubic) at ${p3.x},${p3.y}`);
+        if (level > 20) {
+            Logger_1.Logger.debug("[ShapeUtil] Max recursion level (20) reached (Cubic) at ".concat(p3.x, ",").concat(p3.y));
             if (!isLastEdge)
-                vertices.push(p3.x, -p3.y);
+                ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
         }
         // Check flatness
@@ -5411,7 +5431,7 @@ var ShapeUtil = /** @class */ (function () {
         var d2 = ShapeUtil.pointLineDistSq(p2, p0, p3);
         if (d1 < tolSq && d2 < tolSq) {
             if (!isLastEdge)
-                vertices.push(p3.x, -p3.y);
+                ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
         }
         // Split at t=0.5
