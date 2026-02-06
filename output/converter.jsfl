@@ -5237,6 +5237,7 @@ var ShapeUtil = /** @class */ (function () {
             // Tolerance for collinearity (0.1 seems safe for pixels)
             if (area < 0.1) {
                 // Replace last vertex with new one
+                // Logger.debug(`[ShapeUtil] Merging collinear vertex at ${x},${newY}`);
                 vertices[vertices.length - 2] = x;
                 vertices[vertices.length - 1] = newY;
                 return;
@@ -5301,48 +5302,60 @@ var ShapeUtil = /** @class */ (function () {
                         Logger_1.Logger.warning("Contour GAP at Edge " + totalEdges + ": [" + lastX.toFixed(2) + "," + lastY.toFixed(2) + "] -> [" + p0.x.toFixed(2) + "," + p0.y.toFixed(2) + "]");
                     }
                 }
+                // Get control points
+                var rawControl0 = edge.getControl(0);
+                var rawControl1 = edge.getControl(1);
+                var p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
+                var p2 = rawControl1 ? ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix) : null;
+                if (controlOffset) {
+                    if (p0) {
+                        p0.x += controlOffset.x;
+                        p0.y += controlOffset.y;
+                    }
+                    if (p1) {
+                        p1.x += controlOffset.x;
+                        p1.y += controlOffset.y;
+                    }
+                    if (p2) {
+                        p2.x += controlOffset.x;
+                        p2.y += controlOffset.y;
+                    }
+                    if (p3) {
+                        p3.x += controlOffset.x;
+                        p3.y += controlOffset.y;
+                    }
+                }
                 var canonicalHalfEdge = edge.getHalfEdge(0);
                 var canonicalVertex = canonicalHalfEdge ? canonicalHalfEdge.getVertex() : null;
-                var isReverse = canonicalVertex &&
-                    (Math.abs(canonicalVertex.x - rawStart.x) > 0.01 || Math.abs(canonicalVertex.y - rawStart.y) > 0.01);
-                var isLastInLoop = halfEdge.getNext() === startHalfEdge;
-                if (edge.isLine) {
-                    // For a line, we just push the end point if it's not the loop closer
-                    if (!isLastInLoop) {
-                        ShapeUtil.addVertex(vertices, p3.x, p3.y);
+                var idMatch = false;
+                // Robust direction check using IDs if available
+                if (canonicalHalfEdge && halfEdge.id !== undefined && canonicalHalfEdge.id !== undefined) {
+                    idMatch = halfEdge.id === canonicalHalfEdge.id;
+                }
+                else {
+                    // Fallback to coordinate check
+                    idMatch = canonicalVertex && Math.abs(canonicalVertex.x - rawStart.x) < 0.01 && Math.abs(canonicalVertex.y - rawStart.y) < 0.01;
+                }
+                // If the current halfEdge is NOT the canonical one, we are likely traversing in reverse 
+                // relative to the edge's definition (or at least the control points need swapping).
+                var isReverse = !idMatch;
+                var isLastInLoop = (halfEdge.getNext() === startHalfEdge);
+                Logger_1.Logger.debug("[ShapeUtil] Edge ".concat(totalEdges, ": Start=").concat(p0.x.toFixed(2), ",").concat(p0.y.toFixed(2), " End=").concat(p3.x.toFixed(2), ",").concat(p3.y.toFixed(2), " Reverse=").concat(isReverse));
+                if (p1 && p2) {
+                    Logger_1.Logger.debug("   Cubic Controls: p1=".concat(p1.x.toFixed(2), ",").concat(p1.y.toFixed(2), " p2=").concat(p2.x.toFixed(2), ",").concat(p2.y.toFixed(2)));
+                    // Cubic Bezier
+                    if (isReverse) {
+                        // Reverse traversal: p0 -> p3. Controls are p2 (near p0) and p1 (near p3).
+                        ShapeUtil.adaptiveCubic(vertices, p0, p2, p1, p3, tolSq, 0, isLastInLoop);
+                    }
+                    else {
+                        // Forward traversal: p0 -> p3. Controls are p1 (near p0) and p2 (near p3).
+                        ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
                     }
                 }
                 else {
-                    var rawControl0 = edge.getControl(0);
-                    if (controlOffset) {
-                        rawControl0.x += controlOffset.x;
-                        rawControl0.y += controlOffset.y;
-                    }
-                    var rawControl1 = null;
-                    try {
-                        rawControl1 = edge.getControl(1);
-                        if (rawControl1 && controlOffset) {
-                            rawControl1.x += controlOffset.x;
-                            rawControl1.y += controlOffset.y;
-                        }
-                    }
-                    catch (e) { }
-                    var p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
-                    if (rawControl1) {
-                        var p2 = ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix);
-                        if (isReverse) {
-                            // Reverse traversal: p0 -> p3. Controls are p2 (near p0) and p1 (near p3).
-                            ShapeUtil.adaptiveCubic(vertices, p0, p2, p1, p3, tolSq, 0, isLastInLoop);
-                        }
-                        else {
-                            // Forward traversal: p0 -> p3. Controls are p1 (near p0) and p2 (near p3).
-                            ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
-                        }
-                    }
-                    else {
-                        // Quadratic bezier
-                        ShapeUtil.adaptiveQuadratic(vertices, p0, p1, p3, tolSq, 0, isLastInLoop);
-                    }
+                    // Quadratic bezier
+                    ShapeUtil.adaptiveQuadratic(vertices, p0, p1, p3, tolSq, 0, isLastInLoop);
                 }
                 halfEdge = nextHalfEdge;
                 totalEdges++;
@@ -5579,7 +5592,7 @@ var STATUS_FILE_SUFFIX = '_export.status.txt';
 // If false: trace logs won't write to the log file (safer for large exports).
 var TRACE_TO_LOG_FILE = false;
 var TRACE_TO_OUTPUT_PANEL = false;
-var DEBUG_VERBOSE_LOGS = false;
+var DEBUG_VERBOSE_LOGS = true;
 var OUTPUT_PANEL_MAX_LINES = 200;
 var config = {
     outputFormat: new SpineFormatV4_2_00_1.SpineFormatV4_2_00(),

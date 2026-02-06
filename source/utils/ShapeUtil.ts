@@ -64,6 +64,7 @@ export class ShapeUtil {
             // Tolerance for collinearity (0.1 seems safe for pixels)
             if (area < 0.1) {
                 // Replace last vertex with new one
+                // Logger.debug(`[ShapeUtil] Merging collinear vertex at ${x},${newY}`);
                 vertices[vertices.length - 2] = x;
                 vertices[vertices.length - 1] = newY;
                 return;
@@ -139,50 +140,51 @@ export class ShapeUtil {
                     }
                 }
 
+                // Get control points
+                const rawControl0 = edge.getControl(0);
+                const rawControl1 = edge.getControl(1);
+                
+                const p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
+                const p2 = rawControl1 ? ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix) : null;
+
+                if (controlOffset) {
+                    if (p0) { p0.x += controlOffset.x; p0.y += controlOffset.y; }
+                    if (p1) { p1.x += controlOffset.x; p1.y += controlOffset.y; }
+                    if (p2) { p2.x += controlOffset.x; p2.y += controlOffset.y; }
+                    if (p3) { p3.x += controlOffset.x; p3.y += controlOffset.y; }
+                }
+
                 const canonicalHalfEdge = edge.getHalfEdge(0);
                 const canonicalVertex = canonicalHalfEdge ? canonicalHalfEdge.getVertex() : null;
-                const isReverse = canonicalVertex && 
-                    (Math.abs(canonicalVertex.x - rawStart.x) > 0.01 || Math.abs(canonicalVertex.y - rawStart.y) > 0.01);
                 
-                const isLastInLoop = halfEdge.getNext() === startHalfEdge;
+                let idMatch = false;
+                // Robust direction check using IDs if available
+                if (canonicalHalfEdge && (halfEdge as any).id !== undefined && (canonicalHalfEdge as any).id !== undefined) {
+                    idMatch = (halfEdge as any).id === (canonicalHalfEdge as any).id;
+                } else {
+                    // Fallback to coordinate check
+                    idMatch = canonicalVertex && Math.abs(canonicalVertex.x - rawStart.x) < 0.01 && Math.abs(canonicalVertex.y - rawStart.y) < 0.01;
+                }
+                
+                // If the current halfEdge is NOT the canonical one, we are likely traversing in reverse 
+                // relative to the edge's definition (or at least the control points need swapping).
+                const isReverse = !idMatch;
+                const isLastInLoop = (halfEdge.getNext() === startHalfEdge);
 
-                if (edge.isLine) {
-                    // For a line, we just push the end point if it's not the loop closer
-                    if (!isLastInLoop) {
-                        ShapeUtil.addVertex(vertices, p3.x, p3.y);
+                Logger.debug(`[ShapeUtil] Edge ${totalEdges}: Start=${p0.x.toFixed(2)},${p0.y.toFixed(2)} End=${p3.x.toFixed(2)},${p3.y.toFixed(2)} Reverse=${isReverse}`);
+                if (p1 && p2) {
+                    Logger.debug(`   Cubic Controls: p1=${p1.x.toFixed(2)},${p1.y.toFixed(2)} p2=${p2.x.toFixed(2)},${p2.y.toFixed(2)}`);
+                    // Cubic Bezier
+                    if (isReverse) {
+                        // Reverse traversal: p0 -> p3. Controls are p2 (near p0) and p1 (near p3).
+                        ShapeUtil.adaptiveCubic(vertices, p0, p2, p1, p3, tolSq, 0, isLastInLoop);
+                    } else {
+                        // Forward traversal: p0 -> p3. Controls are p1 (near p0) and p2 (near p3).
+                        ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
                     }
                 } else {
-                    const rawControl0 = edge.getControl(0);
-                    if (controlOffset) {
-                        rawControl0.x += controlOffset.x;
-                        rawControl0.y += controlOffset.y;
-                    }
-
-                    let rawControl1 = null;
-                    try { 
-                        rawControl1 = edge.getControl(1); 
-                        if (rawControl1 && controlOffset) {
-                            rawControl1.x += controlOffset.x;
-                            rawControl1.y += controlOffset.y;
-                        }
-                    } catch(e) {}
-
-                    const p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
-
-                    if (rawControl1) {
-                        const p2 = ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix);
-                        
-                        if (isReverse) {
-                            // Reverse traversal: p0 -> p3. Controls are p2 (near p0) and p1 (near p3).
-                            ShapeUtil.adaptiveCubic(vertices, p0, p2, p1, p3, tolSq, 0, isLastInLoop);
-                        } else {
-                            // Forward traversal: p0 -> p3. Controls are p1 (near p0) and p2 (near p3).
-                            ShapeUtil.adaptiveCubic(vertices, p0, p1, p2, p3, tolSq, 0, isLastInLoop);
-                        }
-                    } else {
-                        // Quadratic bezier
-                        ShapeUtil.adaptiveQuadratic(vertices, p0, p1, p3, tolSq, 0, isLastInLoop);
-                    }
+                    // Quadratic bezier
+                    ShapeUtil.adaptiveQuadratic(vertices, p0, p1, p3, tolSq, 0, isLastInLoop);
                 }
 
                 halfEdge = nextHalfEdge;
