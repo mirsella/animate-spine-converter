@@ -5262,11 +5262,89 @@ var ShapeUtil = /** @class */ (function () {
         var totalEdges = 0;
         // Use tolerance squared for faster distance checks
         var tolSq = tolerance * tolerance;
+        // ===== STEP 1: Probe the cubic segment API =====
+        // Animate's getCubicSegmentPoints() returns true cubic Bezier data.
+        // We need to discover what's available before processing edges.
+        var shape = instance;
+        var cubicSegments = {};
+        var hasCubicData = false;
+        // Probe: try to read cubicSegmentIndex from first edge
+        try {
+            if (shape.contours && shape.contours.length > 0) {
+                var probeHE = shape.contours[0].getHalfEdge();
+                if (probeHE) {
+                    var probeEdge = probeHE.getEdge();
+                    var probeIdx = probeEdge.cubicSegmentIndex;
+                    Logger_1.Logger.debug("[ShapeUtil] Probing cubic API: edge.cubicSegmentIndex = ".concat(probeIdx, " (type: ").concat(typeof probeIdx, ")"));
+                    if (probeIdx !== undefined && probeIdx !== null && probeIdx >= 0) {
+                        // Try to get the cubic segment points
+                        try {
+                            var cubicPts = shape.getCubicSegmentPoints(probeIdx);
+                            Logger_1.Logger.debug("[ShapeUtil] getCubicSegmentPoints(".concat(probeIdx, ") returned: ").concat(cubicPts, " (type: ").concat(typeof cubicPts, ", isArray: ").concat(cubicPts instanceof Array, ")"));
+                            if (cubicPts) {
+                                Logger_1.Logger.debug("[ShapeUtil] cubicPts length: ".concat(cubicPts.length));
+                                for (var ci = 0; ci < cubicPts.length; ci++) {
+                                    var cp = cubicPts[ci];
+                                    Logger_1.Logger.debug("[ShapeUtil]   cubicPt[".concat(ci, "]: x=").concat(cp.x, ", y=").concat(cp.y));
+                                }
+                                hasCubicData = true;
+                            }
+                        }
+                        catch (cubicErr) {
+                            Logger_1.Logger.debug("[ShapeUtil] getCubicSegmentPoints failed: ".concat(cubicErr.message || cubicErr));
+                        }
+                    }
+                    else {
+                        Logger_1.Logger.debug("[ShapeUtil] cubicSegmentIndex not available (".concat(probeIdx, "). Falling back to quadratic."));
+                    }
+                }
+            }
+        }
+        catch (probeErr) {
+            Logger_1.Logger.debug("[ShapeUtil] Cubic API probe failed: ".concat(probeErr.message || probeErr, ". Using quadratic fallback."));
+        }
+        // ===== STEP 2: If cubic data is available, collect ALL cubic segments =====
+        if (hasCubicData) {
+            Logger_1.Logger.debug("[ShapeUtil] === COLLECTING CUBIC SEGMENTS ===");
+            var seenSegments = {};
+            for (var i = 0; i < instance.contours.length; i++) {
+                var contour = instance.contours[i];
+                if (contour.interior)
+                    continue;
+                var startHE = contour.getHalfEdge();
+                if (!startHE)
+                    continue;
+                var he = startHE;
+                var safety = 0;
+                do {
+                    if (safety++ > 5000)
+                        break;
+                    var edge = he.getEdge();
+                    var csIdx = edge.cubicSegmentIndex;
+                    if (csIdx !== undefined && csIdx !== null && csIdx >= 0 && !seenSegments[csIdx]) {
+                        seenSegments[csIdx] = true;
+                        try {
+                            var pts = shape.getCubicSegmentPoints(csIdx);
+                            if (pts && pts.length >= 4) {
+                                cubicSegments[csIdx] = pts;
+                                Logger_1.Logger.debug("[ShapeUtil] CubicSegment[".concat(csIdx, "]: ").concat(pts.length, " points"));
+                                for (var pi = 0; pi < pts.length; pi++) {
+                                    Logger_1.Logger.debug("  pt[".concat(pi, "] = (").concat(pts[pi].x.toFixed(2), ", ").concat(pts[pi].y.toFixed(2), ")"));
+                                }
+                            }
+                        }
+                        catch (e) {
+                            Logger_1.Logger.debug("[ShapeUtil] Failed to get cubic segment ".concat(csIdx, ": ").concat(e.message || e));
+                        }
+                    }
+                    he = he.getNext();
+                } while (he && he !== startHE);
+            }
+            Logger_1.Logger.debug("[ShapeUtil] Collected ".concat(Object.keys(cubicSegments).length, " cubic segments"));
+        }
+        // ===== STEP 3: Process contours =====
         for (var i = 0; i < instance.contours.length; i++) {
             var contour = instance.contours[i];
-            // Skip interior contours (holes) for now as Spine clipping doesn't support them natively 
-            // without complex triangulation/bridging. 
-            // TODO: Implement keyhole/bridge technique if hole support is critical.
             if (contour.interior) {
                 Logger_1.Logger.debug("[ShapeUtil] Skipping interior contour ".concat(i));
                 continue;
@@ -5277,15 +5355,15 @@ var ShapeUtil = /** @class */ (function () {
                 continue;
             }
             Logger_1.Logger.debug("[ShapeUtil] Processing Contour ".concat(i, ". Start Vertex: ").concat(startHalfEdge.getVertex().x, ",").concat(startHalfEdge.getVertex().y));
-            // Push the very first vertex of the contour
             var firstVertex = startHalfEdge.getVertex();
             var pStart = ShapeUtil.transformPoint(firstVertex.x, firstVertex.y, matrix);
-            // Always force the start point of a contour
             ShapeUtil.addVertex(vertices, pStart.x, pStart.y, true);
             var halfEdge = startHalfEdge;
             var safetyCounter = 0;
             var MAX_EDGES = 5000;
             var visitedEdges = {};
+            // Track which cubic segments we've already processed to avoid duplication
+            var processedCubicSegments = {};
             do {
                 if (safetyCounter++ > MAX_EDGES) {
                     Logger_1.Logger.warning("Contour " + i + " exceeded MAX_EDGES. Breaking loop.");
@@ -5297,75 +5375,94 @@ var ShapeUtil = /** @class */ (function () {
                 if (!nextHalfEdge)
                     break;
                 var rawEnd = nextHalfEdge.getVertex();
-                // Loop detection
                 var edgeKey = rawStart.x.toFixed(2) + "_" + rawStart.y.toFixed(2) + "_" + rawEnd.x.toFixed(2) + "_" + rawEnd.y.toFixed(2);
                 if (visitedEdges[edgeKey])
                     break;
                 visitedEdges[edgeKey] = true;
                 var p0 = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
                 var p3 = ShapeUtil.transformPoint(rawEnd.x, rawEnd.y, matrix);
-                // Check for sequence continuity
-                if (vertices.length >= 2) {
-                    var lastX = vertices[vertices.length - 2];
-                    var lastY = -vertices[vertices.length - 1]; // Unflip for distance check
-                    var distSq = Math.pow(lastX - p0.x, 2) + Math.pow(lastY - p0.y, 2);
-                    if (distSq > 0.01) {
-                        Logger_1.Logger.warning("Contour GAP at Edge " + totalEdges + ": [" + lastX.toFixed(2) + "," + lastY.toFixed(2) + "] -> [" + p0.x.toFixed(2) + "," + p0.y.toFixed(2) + "]");
-                    }
-                }
-                // Get control points
-                var rawControl0 = edge.getControl(0);
-                var rawControl1 = edge.getControl(1);
-                var p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
-                var p2 = rawControl1 ? ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix) : null;
                 if (controlOffset) {
-                    if (p0) {
-                        p0.x += controlOffset.x;
-                        p0.y += controlOffset.y;
-                    }
-                    if (p1) {
-                        p1.x += controlOffset.x;
-                        p1.y += controlOffset.y;
-                    }
-                    if (p2) {
-                        p2.x += controlOffset.x;
-                        p2.y += controlOffset.y;
-                    }
-                    if (p3) {
-                        p3.x += controlOffset.x;
-                        p3.y += controlOffset.y;
-                    }
+                    p0.x += controlOffset.x;
+                    p0.y += controlOffset.y;
+                    p3.x += controlOffset.x;
+                    p3.y += controlOffset.y;
                 }
                 var isLastInLoop = (halfEdge.getNext() === startHalfEdge);
-                // Log raw JSFL data BEFORE transformation for debugging
-                Logger_1.Logger.debug("[ShapeUtil] Edge ".concat(totalEdges, ": raw start=(").concat(rawStart.x.toFixed(2), ",").concat(rawStart.y.toFixed(2), ") end=(").concat(rawEnd.x.toFixed(2), ",").concat(rawEnd.y.toFixed(2), ")"));
-                Logger_1.Logger.debug("  raw ctrl0=(".concat(rawControl0.x.toFixed(2), ",").concat(rawControl0.y.toFixed(2), ") ctrl1=").concat(rawControl1 ? '(' + rawControl1.x.toFixed(2) + ',' + rawControl1.y.toFixed(2) + ')' : 'null'));
-                Logger_1.Logger.debug("  transformed p0=(".concat(p0.x.toFixed(2), ",").concat(p0.y.toFixed(2), ") p3=(").concat(p3.x.toFixed(2), ",").concat(p3.y.toFixed(2), ")"));
-                Logger_1.Logger.debug("  transformed p1=(".concat(p1.x.toFixed(2), ",").concat(p1.y.toFixed(2), ") p2=").concat(p2 ? '(' + p2.x.toFixed(2) + ',' + p2.y.toFixed(2) + ')' : 'null'));
-                Logger_1.Logger.debug("  isLine=".concat(edge.isLine, " isLastInLoop=").concat(isLastInLoop));
+                Logger_1.Logger.debug("[ShapeUtil] Edge ".concat(totalEdges, ": raw start=(").concat(rawStart.x.toFixed(2), ",").concat(rawStart.y.toFixed(2), ") end=(").concat(rawEnd.x.toFixed(2), ",").concat(rawEnd.y.toFixed(2), ") isLine=").concat(edge.isLine));
                 var vertsBefore = vertices.length;
                 if (edge.isLine) {
-                    // Straight line - just add the endpoint
                     if (!isLastInLoop) {
                         ShapeUtil.addVertex(vertices, p3.x, p3.y);
                     }
                 }
                 else {
-                    // In JSFL, edge.getControl(0) returns the INCOMING tangent handle
-                    // (belongs to the previous edge's end transition), NOT this edge's outgoing handle.
-                    // edge.getControl(1) returns the actual control point between start and end.
-                    // Animate uses quadratic Beziers internally, so we use ctrl1 as THE control point.
-                    var ctrl = p2 || p1; // ctrl1 (p2) preferred; fallback to ctrl0 (p1) if null
-                    // Measure how "bent" this curve is:
-                    // - chord length (straight line p0->p3)
-                    // - control point deviation from chord
-                    var chordLenSq = (p3.x - p0.x) * (p3.x - p0.x) + (p3.y - p0.y) * (p3.y - p0.y);
-                    var chordLen = Math.sqrt(chordLenSq);
-                    var ctrlDevSq = ShapeUtil.pointLineDistSq(ctrl, p0, p3);
-                    var ctrlDev = Math.sqrt(ctrlDevSq);
-                    Logger_1.Logger.debug("  Using QUADRATIC: p0=(".concat(p0.x.toFixed(2), ",").concat(p0.y.toFixed(2), ") ctrl=(").concat(ctrl.x.toFixed(2), ",").concat(ctrl.y.toFixed(2), ") p3=(").concat(p3.x.toFixed(2), ",").concat(p3.y.toFixed(2), ")"));
-                    Logger_1.Logger.debug("  Curve metrics: chordLen=".concat(chordLen.toFixed(2), " ctrlDev=").concat(ctrlDev.toFixed(2), " ratio=").concat((ctrlDev / chordLen).toFixed(3), " tolSq=").concat(tolSq.toFixed(4)));
-                    ShapeUtil.adaptiveQuadratic(vertices, p0, ctrl, p3, tolSq, 0, isLastInLoop);
+                    // ===== Try cubic path first =====
+                    var csIdx = edge.cubicSegmentIndex;
+                    var cubicPts = (csIdx !== undefined && csIdx !== null && csIdx >= 0) ? cubicSegments[csIdx] : null;
+                    if (cubicPts && cubicPts.length >= 4 && !processedCubicSegments[csIdx]) {
+                        processedCubicSegments[csIdx] = true;
+                        // getCubicSegmentPoints returns an array of points defining cubic Bezier(s).
+                        // For a single cubic: [p0, cp1, cp2, p3] (4 points)
+                        // For a multi-segment cubic: [p0, cp1, cp2, p3, cp1, cp2, p3, ...] (4 + 3n points)
+                        Logger_1.Logger.debug("  Using CUBIC segment ".concat(csIdx, ": ").concat(cubicPts.length, " control points"));
+                        // Process each cubic sub-segment (groups of 4, then 3)
+                        // First segment: indices 0,1,2,3. Subsequent: 3+i*3, 4+i*3, 5+i*3, 6+i*3
+                        var cp0 = ShapeUtil.transformPoint(cubicPts[0].x, cubicPts[0].y, matrix);
+                        if (controlOffset) {
+                            cp0.x += controlOffset.x;
+                            cp0.y += controlOffset.y;
+                        }
+                        var numCubicSubs = 0;
+                        for (var ci = 0; ci + 3 <= cubicPts.length - 1; ci += 3) {
+                            var rawCp1 = cubicPts[ci + 1];
+                            var rawCp2 = cubicPts[ci + 2];
+                            var rawCp3 = cubicPts[ci + 3];
+                            var cp1 = ShapeUtil.transformPoint(rawCp1.x, rawCp1.y, matrix);
+                            var cp2 = ShapeUtil.transformPoint(rawCp2.x, rawCp2.y, matrix);
+                            var cp3 = ShapeUtil.transformPoint(rawCp3.x, rawCp3.y, matrix);
+                            if (controlOffset) {
+                                cp1.x += controlOffset.x;
+                                cp1.y += controlOffset.y;
+                                cp2.x += controlOffset.x;
+                                cp2.y += controlOffset.y;
+                                cp3.x += controlOffset.x;
+                                cp3.y += controlOffset.y;
+                            }
+                            // Check if this is the last sub-segment AND the last edge in the contour loop
+                            var isLastSub = (ci + 3 >= cubicPts.length - 1);
+                            // Only skip the endpoint if this is the last sub AND we're closing the loop
+                            var skipEndpoint = isLastSub && isLastInLoop;
+                            Logger_1.Logger.debug("    CubicSub[".concat(ci / 3, "]: p0=(").concat(cp0.x.toFixed(2), ",").concat(cp0.y.toFixed(2), ") cp1=(").concat(cp1.x.toFixed(2), ",").concat(cp1.y.toFixed(2), ") cp2=(").concat(cp2.x.toFixed(2), ",").concat(cp2.y.toFixed(2), ") p3=(").concat(cp3.x.toFixed(2), ",").concat(cp3.y.toFixed(2), ")"));
+                            ShapeUtil.adaptiveCubic(vertices, cp0, cp1, cp2, cp3, tolSq, 0, skipEndpoint);
+                            cp0 = cp3; // Next sub-segment starts where this one ends
+                            numCubicSubs++;
+                        }
+                        Logger_1.Logger.debug("    Processed ".concat(numCubicSubs, " cubic sub-segments"));
+                    }
+                    else if (cubicPts && processedCubicSegments[csIdx]) {
+                        // This edge belongs to a cubic segment we already processed — skip it
+                        Logger_1.Logger.debug("  Skipping edge ".concat(totalEdges, " (cubic segment ").concat(csIdx, " already processed)"));
+                    }
+                    else {
+                        // ===== Quadratic fallback =====
+                        var rawControl0 = edge.getControl(0);
+                        var rawControl1 = edge.getControl(1);
+                        var p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
+                        var p2 = rawControl1 ? ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix) : null;
+                        if (controlOffset) {
+                            if (p1) {
+                                p1.x += controlOffset.x;
+                                p1.y += controlOffset.y;
+                            }
+                            if (p2) {
+                                p2.x += controlOffset.x;
+                                p2.y += controlOffset.y;
+                            }
+                        }
+                        var ctrl = p2 || p1;
+                        Logger_1.Logger.debug("  Using QUADRATIC fallback: p0=(".concat(p0.x.toFixed(2), ",").concat(p0.y.toFixed(2), ") ctrl=(").concat(ctrl.x.toFixed(2), ",").concat(ctrl.y.toFixed(2), ") p3=(").concat(p3.x.toFixed(2), ",").concat(p3.y.toFixed(2), ")"));
+                        ShapeUtil.adaptiveQuadratic(vertices, p0, ctrl, p3, tolSq, 0, isLastInLoop);
+                    }
                 }
                 var vertsAfter = vertices.length;
                 var pointsAdded = (vertsAfter - vertsBefore) / 2;
@@ -5469,15 +5566,21 @@ var ShapeUtil = /** @class */ (function () {
         ShapeUtil.adaptiveQuadratic(vertices, r0, r1, r2, tolSq, level + 1, isLastEdge);
     };
     ShapeUtil.adaptiveCubic = function (vertices, p0, p1, p2, p3, tolSq, level, isLastEdge) {
+        var indentStr = "      ";
+        for (var li = 0; li < level; li++) {
+            indentStr += "  ";
+        }
+        var indent = indentStr;
         // Stop if segment is microscopic (< 0.1px)
         var segDistSq = Math.pow((p0.x - p3.x), 2) + Math.pow((p0.y - p3.y), 2);
         if (segDistSq < 0.01) {
+            Logger_1.Logger.debug("".concat(indent, "[CL").concat(level, "] MICRO: segDist=").concat(Math.sqrt(segDistSq).toFixed(4), " => emit endpoint"));
             if (!isLastEdge)
                 ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
         }
         if (level > 20) {
-            Logger_1.Logger.debug("[ShapeUtil] Max recursion level (20) reached (Cubic) at ".concat(p3.x, ",").concat(p3.y));
+            Logger_1.Logger.debug("".concat(indent, "[CL").concat(level, "] MAX LEVEL => emit endpoint"));
             if (!isLastEdge)
                 ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
@@ -5485,11 +5588,15 @@ var ShapeUtil = /** @class */ (function () {
         // Check flatness
         var d1 = ShapeUtil.pointLineDistSq(p1, p0, p3);
         var d2 = ShapeUtil.pointLineDistSq(p2, p0, p3);
+        var segDist = Math.sqrt(segDistSq);
+        Logger_1.Logger.debug("".concat(indent, "[CL").concat(level, "] p0=(").concat(p0.x.toFixed(2), ",").concat(p0.y.toFixed(2), ") cp1=(").concat(p1.x.toFixed(2), ",").concat(p1.y.toFixed(2), ") cp2=(").concat(p2.x.toFixed(2), ",").concat(p2.y.toFixed(2), ") p3=(").concat(p3.x.toFixed(2), ",").concat(p3.y.toFixed(2), ") d1=").concat(Math.sqrt(d1).toFixed(4), " d2=").concat(Math.sqrt(d2).toFixed(4), " tol=").concat(Math.sqrt(tolSq).toFixed(4), " segLen=").concat(segDist.toFixed(2)));
         if (d1 < tolSq && d2 < tolSq) {
+            Logger_1.Logger.debug("".concat(indent, "  => FLAT => emit endpoint (").concat(p3.x.toFixed(2), ",").concat(p3.y.toFixed(2), ")"));
             if (!isLastEdge)
                 ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
         }
+        Logger_1.Logger.debug("".concat(indent, "  => SPLIT"));
         // Split at t=0.5
         var q0 = p0;
         var q1 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };

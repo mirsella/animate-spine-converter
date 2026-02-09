@@ -92,11 +92,91 @@ export class ShapeUtil {
         // Use tolerance squared for faster distance checks
         const tolSq = tolerance * tolerance;
 
+        // ===== STEP 1: Probe the cubic segment API =====
+        // Animate's getCubicSegmentPoints() returns true cubic Bezier data.
+        // We need to discover what's available before processing edges.
+        const shape = instance as any;
+        let cubicSegments: Record<number, any[]> = {};
+        let hasCubicData = false;
+        
+        // Probe: try to read cubicSegmentIndex from first edge
+        try {
+            if (shape.contours && shape.contours.length > 0) {
+                const probeHE = shape.contours[0].getHalfEdge();
+                if (probeHE) {
+                    const probeEdge = probeHE.getEdge();
+                    const probeIdx = probeEdge.cubicSegmentIndex;
+                    Logger.debug(`[ShapeUtil] Probing cubic API: edge.cubicSegmentIndex = ${probeIdx} (type: ${typeof probeIdx})`);
+                    
+                    if (probeIdx !== undefined && probeIdx !== null && probeIdx >= 0) {
+                        // Try to get the cubic segment points
+                        try {
+                            const cubicPts = shape.getCubicSegmentPoints(probeIdx);
+                            Logger.debug(`[ShapeUtil] getCubicSegmentPoints(${probeIdx}) returned: ${cubicPts} (type: ${typeof cubicPts}, isArray: ${cubicPts instanceof Array})`);
+                            if (cubicPts) {
+                                Logger.debug(`[ShapeUtil] cubicPts length: ${cubicPts.length}`);
+                                for (let ci = 0; ci < cubicPts.length; ci++) {
+                                    const cp = cubicPts[ci];
+                                    Logger.debug(`[ShapeUtil]   cubicPt[${ci}]: x=${cp.x}, y=${cp.y}`);
+                                }
+                                hasCubicData = true;
+                            }
+                        } catch (cubicErr: any) {
+                            Logger.debug(`[ShapeUtil] getCubicSegmentPoints failed: ${cubicErr.message || cubicErr}`);
+                        }
+                    } else {
+                        Logger.debug(`[ShapeUtil] cubicSegmentIndex not available (${probeIdx}). Falling back to quadratic.`);
+                    }
+                }
+            }
+        } catch (probeErr: any) {
+            Logger.debug(`[ShapeUtil] Cubic API probe failed: ${probeErr.message || probeErr}. Using quadratic fallback.`);
+        }
+
+        // ===== STEP 2: If cubic data is available, collect ALL cubic segments =====
+        if (hasCubicData) {
+            Logger.debug(`[ShapeUtil] === COLLECTING CUBIC SEGMENTS ===`);
+            const seenSegments: Record<number, boolean> = {};
+            
+            for (let i = 0; i < instance.contours.length; i++) {
+                const contour = instance.contours[i];
+                if (contour.interior) continue;
+                
+                const startHE = contour.getHalfEdge();
+                if (!startHE) continue;
+                
+                let he = startHE;
+                let safety = 0;
+                do {
+                    if (safety++ > 5000) break;
+                    const edge = he.getEdge();
+                    const csIdx = edge.cubicSegmentIndex;
+                    
+                    if (csIdx !== undefined && csIdx !== null && csIdx >= 0 && !seenSegments[csIdx]) {
+                        seenSegments[csIdx] = true;
+                        try {
+                            const pts = shape.getCubicSegmentPoints(csIdx);
+                            if (pts && pts.length >= 4) {
+                                cubicSegments[csIdx] = pts;
+                                Logger.debug(`[ShapeUtil] CubicSegment[${csIdx}]: ${pts.length} points`);
+                                for (let pi = 0; pi < pts.length; pi++) {
+                                    Logger.debug(`  pt[${pi}] = (${pts[pi].x.toFixed(2)}, ${pts[pi].y.toFixed(2)})`);
+                                }
+                            }
+                        } catch (e: any) {
+                            Logger.debug(`[ShapeUtil] Failed to get cubic segment ${csIdx}: ${e.message || e}`);
+                        }
+                    }
+                    
+                    he = he.getNext();
+                } while (he && he !== startHE);
+            }
+            Logger.debug(`[ShapeUtil] Collected ${Object.keys(cubicSegments).length} cubic segments`);
+        }
+
+        // ===== STEP 3: Process contours =====
         for (let i = 0; i < instance.contours.length; i++) {
             const contour = instance.contours[i];
-            // Skip interior contours (holes) for now as Spine clipping doesn't support them natively 
-            // without complex triangulation/bridging. 
-            // TODO: Implement keyhole/bridge technique if hole support is critical.
             if (contour.interior) {
                 Logger.debug(`[ShapeUtil] Skipping interior contour ${i}`);
                 continue;
@@ -110,16 +190,16 @@ export class ShapeUtil {
 
             Logger.debug(`[ShapeUtil] Processing Contour ${i}. Start Vertex: ${startHalfEdge.getVertex().x},${startHalfEdge.getVertex().y}`);
 
-            // Push the very first vertex of the contour
             const firstVertex = startHalfEdge.getVertex();
             const pStart = ShapeUtil.transformPoint(firstVertex.x, firstVertex.y, matrix);
-            // Always force the start point of a contour
             ShapeUtil.addVertex(vertices, pStart.x, pStart.y, true);
 
             let halfEdge = startHalfEdge;
             let safetyCounter = 0;
             const MAX_EDGES = 5000;
             const visitedEdges: Record<string, boolean> = {};
+            // Track which cubic segments we've already processed to avoid duplication
+            const processedCubicSegments: Record<number, boolean> = {};
 
             do {
                 if (safetyCounter++ > MAX_EDGES) {
@@ -134,7 +214,6 @@ export class ShapeUtil {
                 
                 const rawEnd = nextHalfEdge.getVertex();
 
-                // Loop detection
                 const edgeKey = rawStart.x.toFixed(2) + "_" + rawStart.y.toFixed(2) + "_" + rawEnd.x.toFixed(2) + "_" + rawEnd.y.toFixed(2);
                 if (visitedEdges[edgeKey]) break;
                 visitedEdges[edgeKey] = true;
@@ -142,65 +221,89 @@ export class ShapeUtil {
                 const p0 = ShapeUtil.transformPoint(rawStart.x, rawStart.y, matrix);
                 const p3 = ShapeUtil.transformPoint(rawEnd.x, rawEnd.y, matrix);
 
-                // Check for sequence continuity
-                if (vertices.length >= 2) {
-                    const lastX = vertices[vertices.length - 2];
-                    const lastY = -vertices[vertices.length - 1]; // Unflip for distance check
-                    const distSq = Math.pow(lastX - p0.x, 2) + Math.pow(lastY - p0.y, 2);
-                    if (distSq > 0.01) {
-                        Logger.warning("Contour GAP at Edge " + totalEdges + ": [" + lastX.toFixed(2) + "," + lastY.toFixed(2) + "] -> [" + p0.x.toFixed(2) + "," + p0.y.toFixed(2) + "]");
-                    }
-                }
-
-                // Get control points
-                const rawControl0 = edge.getControl(0);
-                const rawControl1 = edge.getControl(1);
-                
-                const p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
-                const p2 = rawControl1 ? ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix) : null;
-
                 if (controlOffset) {
-                    if (p0) { p0.x += controlOffset.x; p0.y += controlOffset.y; }
-                    if (p1) { p1.x += controlOffset.x; p1.y += controlOffset.y; }
-                    if (p2) { p2.x += controlOffset.x; p2.y += controlOffset.y; }
-                    if (p3) { p3.x += controlOffset.x; p3.y += controlOffset.y; }
+                    p0.x += controlOffset.x; p0.y += controlOffset.y;
+                    p3.x += controlOffset.x; p3.y += controlOffset.y;
                 }
 
                 const isLastInLoop = (halfEdge.getNext() === startHalfEdge);
 
-                // Log raw JSFL data BEFORE transformation for debugging
-                Logger.debug(`[ShapeUtil] Edge ${totalEdges}: raw start=(${rawStart.x.toFixed(2)},${rawStart.y.toFixed(2)}) end=(${rawEnd.x.toFixed(2)},${rawEnd.y.toFixed(2)})`);
-                Logger.debug(`  raw ctrl0=(${rawControl0.x.toFixed(2)},${rawControl0.y.toFixed(2)}) ctrl1=${rawControl1 ? '(' + rawControl1.x.toFixed(2) + ',' + rawControl1.y.toFixed(2) + ')' : 'null'}`);
-                Logger.debug(`  transformed p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}) p3=(${p3.x.toFixed(2)},${p3.y.toFixed(2)})`);
-                Logger.debug(`  transformed p1=(${p1.x.toFixed(2)},${p1.y.toFixed(2)}) p2=${p2 ? '(' + p2.x.toFixed(2) + ',' + p2.y.toFixed(2) + ')' : 'null'}`);
-                Logger.debug(`  isLine=${edge.isLine} isLastInLoop=${isLastInLoop}`);
+                Logger.debug(`[ShapeUtil] Edge ${totalEdges}: raw start=(${rawStart.x.toFixed(2)},${rawStart.y.toFixed(2)}) end=(${rawEnd.x.toFixed(2)},${rawEnd.y.toFixed(2)}) isLine=${edge.isLine}`);
 
                 const vertsBefore = vertices.length;
 
                 if (edge.isLine) {
-                    // Straight line - just add the endpoint
                     if (!isLastInLoop) {
                         ShapeUtil.addVertex(vertices, p3.x, p3.y);
                     }
                 } else {
-                    // In JSFL, edge.getControl(0) returns the INCOMING tangent handle
-                    // (belongs to the previous edge's end transition), NOT this edge's outgoing handle.
-                    // edge.getControl(1) returns the actual control point between start and end.
-                    // Animate uses quadratic Beziers internally, so we use ctrl1 as THE control point.
-                    const ctrl = p2 || p1; // ctrl1 (p2) preferred; fallback to ctrl0 (p1) if null
+                    // ===== Try cubic path first =====
+                    const csIdx = edge.cubicSegmentIndex;
+                    const cubicPts = (csIdx !== undefined && csIdx !== null && csIdx >= 0) ? cubicSegments[csIdx] : null;
+                    
+                    if (cubicPts && cubicPts.length >= 4 && !processedCubicSegments[csIdx]) {
+                        processedCubicSegments[csIdx] = true;
+                        
+                        // getCubicSegmentPoints returns an array of points defining cubic Bezier(s).
+                        // For a single cubic: [p0, cp1, cp2, p3] (4 points)
+                        // For a multi-segment cubic: [p0, cp1, cp2, p3, cp1, cp2, p3, ...] (4 + 3n points)
+                        Logger.debug(`  Using CUBIC segment ${csIdx}: ${cubicPts.length} control points`);
+                        
+                        // Process each cubic sub-segment (groups of 4, then 3)
+                        // First segment: indices 0,1,2,3. Subsequent: 3+i*3, 4+i*3, 5+i*3, 6+i*3
+                        let cp0 = ShapeUtil.transformPoint(cubicPts[0].x, cubicPts[0].y, matrix);
+                        if (controlOffset) { cp0.x += controlOffset.x; cp0.y += controlOffset.y; }
+                        
+                        let numCubicSubs = 0;
+                        for (let ci = 0; ci + 3 <= cubicPts.length - 1; ci += 3) {
+                            const rawCp1 = cubicPts[ci + 1];
+                            const rawCp2 = cubicPts[ci + 2];
+                            const rawCp3 = cubicPts[ci + 3];
+                            
+                            let cp1 = ShapeUtil.transformPoint(rawCp1.x, rawCp1.y, matrix);
+                            let cp2 = ShapeUtil.transformPoint(rawCp2.x, rawCp2.y, matrix);
+                            let cp3 = ShapeUtil.transformPoint(rawCp3.x, rawCp3.y, matrix);
+                            
+                            if (controlOffset) {
+                                cp1.x += controlOffset.x; cp1.y += controlOffset.y;
+                                cp2.x += controlOffset.x; cp2.y += controlOffset.y;
+                                cp3.x += controlOffset.x; cp3.y += controlOffset.y;
+                            }
+                            
+                            // Check if this is the last sub-segment AND the last edge in the contour loop
+                            const isLastSub = (ci + 3 >= cubicPts.length - 1);
+                            // Only skip the endpoint if this is the last sub AND we're closing the loop
+                            const skipEndpoint = isLastSub && isLastInLoop;
+                            
+                            Logger.debug(`    CubicSub[${ci/3}]: p0=(${cp0.x.toFixed(2)},${cp0.y.toFixed(2)}) cp1=(${cp1.x.toFixed(2)},${cp1.y.toFixed(2)}) cp2=(${cp2.x.toFixed(2)},${cp2.y.toFixed(2)}) p3=(${cp3.x.toFixed(2)},${cp3.y.toFixed(2)})`);
+                            
+                            ShapeUtil.adaptiveCubic(vertices, cp0, cp1, cp2, cp3, tolSq, 0, skipEndpoint);
+                            
+                            cp0 = cp3; // Next sub-segment starts where this one ends
+                            numCubicSubs++;
+                        }
+                        Logger.debug(`    Processed ${numCubicSubs} cubic sub-segments`);
+                        
+                    } else if (cubicPts && processedCubicSegments[csIdx]) {
+                        // This edge belongs to a cubic segment we already processed — skip it
+                        Logger.debug(`  Skipping edge ${totalEdges} (cubic segment ${csIdx} already processed)`);
+                    } else {
+                        // ===== Quadratic fallback =====
+                        const rawControl0 = edge.getControl(0);
+                        const rawControl1 = edge.getControl(1);
+                        const p1 = ShapeUtil.transformPoint(rawControl0.x, rawControl0.y, matrix);
+                        const p2 = rawControl1 ? ShapeUtil.transformPoint(rawControl1.x, rawControl1.y, matrix) : null;
+                        
+                        if (controlOffset) {
+                            if (p1) { p1.x += controlOffset.x; p1.y += controlOffset.y; }
+                            if (p2) { p2.x += controlOffset.x; p2.y += controlOffset.y; }
+                        }
 
-                    // Measure how "bent" this curve is:
-                    // - chord length (straight line p0->p3)
-                    // - control point deviation from chord
-                    const chordLenSq = (p3.x - p0.x) * (p3.x - p0.x) + (p3.y - p0.y) * (p3.y - p0.y);
-                    const chordLen = Math.sqrt(chordLenSq);
-                    const ctrlDevSq = ShapeUtil.pointLineDistSq(ctrl, p0, p3);
-                    const ctrlDev = Math.sqrt(ctrlDevSq);
+                        const ctrl = p2 || p1;
+                        Logger.debug(`  Using QUADRATIC fallback: p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}) ctrl=(${ctrl.x.toFixed(2)},${ctrl.y.toFixed(2)}) p3=(${p3.x.toFixed(2)},${p3.y.toFixed(2)})`);
 
-                    Logger.debug(`  Using QUADRATIC: p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}) ctrl=(${ctrl.x.toFixed(2)},${ctrl.y.toFixed(2)}) p3=(${p3.x.toFixed(2)},${p3.y.toFixed(2)})`);
-                    Logger.debug(`  Curve metrics: chordLen=${chordLen.toFixed(2)} ctrlDev=${ctrlDev.toFixed(2)} ratio=${(ctrlDev/chordLen).toFixed(3)} tolSq=${tolSq.toFixed(4)}`);
-
-                    ShapeUtil.adaptiveQuadratic(vertices, p0, ctrl, p3, tolSq, 0, isLastInLoop);
+                        ShapeUtil.adaptiveQuadratic(vertices, p0, ctrl, p3, tolSq, 0, isLastInLoop);
+                    }
                 }
 
                 const vertsAfter = vertices.length;
@@ -336,15 +439,20 @@ export class ShapeUtil {
         level:number,
         isLastEdge:boolean
     ):void {
+        let indentStr = "      ";
+        for (let li = 0; li < level; li++) { indentStr += "  "; }
+        const indent = indentStr;
+
         // Stop if segment is microscopic (< 0.1px)
         const segDistSq = (p0.x - p3.x)**2 + (p0.y - p3.y)**2;
         if (segDistSq < 0.01) {
+             Logger.debug(`${indent}[CL${level}] MICRO: segDist=${Math.sqrt(segDistSq).toFixed(4)} => emit endpoint`);
              if (!isLastEdge) ShapeUtil.addVertex(vertices, p3.x, p3.y);
              return;
         }
 
         if (level > 20) {
-            Logger.debug(`[ShapeUtil] Max recursion level (20) reached (Cubic) at ${p3.x},${p3.y}`);
+            Logger.debug(`${indent}[CL${level}] MAX LEVEL => emit endpoint`);
             if (!isLastEdge) ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
         }
@@ -352,11 +460,16 @@ export class ShapeUtil {
         // Check flatness
         const d1 = ShapeUtil.pointLineDistSq(p1, p0, p3);
         const d2 = ShapeUtil.pointLineDistSq(p2, p0, p3);
+        const segDist = Math.sqrt(segDistSq);
+        Logger.debug(`${indent}[CL${level}] p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}) cp1=(${p1.x.toFixed(2)},${p1.y.toFixed(2)}) cp2=(${p2.x.toFixed(2)},${p2.y.toFixed(2)}) p3=(${p3.x.toFixed(2)},${p3.y.toFixed(2)}) d1=${Math.sqrt(d1).toFixed(4)} d2=${Math.sqrt(d2).toFixed(4)} tol=${Math.sqrt(tolSq).toFixed(4)} segLen=${segDist.toFixed(2)}`);
 
         if (d1 < tolSq && d2 < tolSq) {
+            Logger.debug(`${indent}  => FLAT => emit endpoint (${p3.x.toFixed(2)},${p3.y.toFixed(2)})`);
             if (!isLastEdge) ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
         }
+
+        Logger.debug(`${indent}  => SPLIT`);
 
         // Split at t=0.5
         const q0 = p0;
