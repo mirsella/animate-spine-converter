@@ -171,7 +171,9 @@ export class ShapeUtil {
                     he = he.getNext();
                 } while (he && he !== startHE);
             }
-            Logger.debug(`[ShapeUtil] Collected ${Object.keys(cubicSegments).length} cubic segments`);
+            let cubicCount = 0;
+            for (let _k in cubicSegments) { if (cubicSegments.hasOwnProperty(_k)) { cubicCount++; } }
+            Logger.debug(`[ShapeUtil] Collected ${cubicCount} cubic segments`);
         }
 
         // ===== STEP 3: Process contours =====

@@ -5340,7 +5340,13 @@ var ShapeUtil = /** @class */ (function () {
                     he = he.getNext();
                 } while (he && he !== startHE);
             }
-            Logger_1.Logger.debug("[ShapeUtil] Collected ".concat(Object.keys(cubicSegments).length, " cubic segments"));
+            var cubicCount = 0;
+            for (var _k in cubicSegments) {
+                if (cubicSegments.hasOwnProperty(_k)) {
+                    cubicCount++;
+                }
+            }
+            Logger_1.Logger.debug("[ShapeUtil] Collected ".concat(cubicCount, " cubic segments"));
         }
         // ===== STEP 3: Process contours =====
         for (var i = 0; i < instance.contours.length; i++) {
