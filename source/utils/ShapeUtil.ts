@@ -188,19 +188,24 @@ export class ShapeUtil {
                     // edge.getControl(1) returns the actual control point between start and end.
                     // Animate uses quadratic Beziers internally, so we use ctrl1 as THE control point.
                     const ctrl = p2 || p1; // ctrl1 (p2) preferred; fallback to ctrl0 (p1) if null
-                    Logger.debug(`  Using QUADRATIC: p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}) ctrl=(${ctrl.x.toFixed(2)},${ctrl.y.toFixed(2)}) p3=(${p3.x.toFixed(2)},${p3.y.toFixed(2)})`);
-                    ShapeUtil.adaptiveQuadratic(vertices, p0, ctrl, p3, tolSq, 0, isLastInLoop);
 
-                    // Remove backward-motion points (mini-hangers).
-                    // At sharp corners, the quadratic control point can be "behind" the start,
-                    // causing early subdivision points to go backward along the chord before
-                    // correcting. We detect and remove these backward points.
-                    ShapeUtil.removeBackwardPoints(vertices, vertsBefore, p0, p3);
+                    // Measure how "bent" this curve is:
+                    // - chord length (straight line p0->p3)
+                    // - control point deviation from chord
+                    const chordLenSq = (p3.x - p0.x) * (p3.x - p0.x) + (p3.y - p0.y) * (p3.y - p0.y);
+                    const chordLen = Math.sqrt(chordLenSq);
+                    const ctrlDevSq = ShapeUtil.pointLineDistSq(ctrl, p0, p3);
+                    const ctrlDev = Math.sqrt(ctrlDevSq);
+
+                    Logger.debug(`  Using QUADRATIC: p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}) ctrl=(${ctrl.x.toFixed(2)},${ctrl.y.toFixed(2)}) p3=(${p3.x.toFixed(2)},${p3.y.toFixed(2)})`);
+                    Logger.debug(`  Curve metrics: chordLen=${chordLen.toFixed(2)} ctrlDev=${ctrlDev.toFixed(2)} ratio=${(ctrlDev/chordLen).toFixed(3)} tolSq=${tolSq.toFixed(4)}`);
+
+                    ShapeUtil.adaptiveQuadratic(vertices, p0, ctrl, p3, tolSq, 0, isLastInLoop);
                 }
 
                 const vertsAfter = vertices.length;
                 const pointsAdded = (vertsAfter - vertsBefore) / 2;
-                Logger.debug(`  => Added ${pointsAdded} points (after backward removal). Total vertices now: ${vertsAfter / 2}`);
+                Logger.debug(`  => Added ${pointsAdded} points. Total vertices now: ${vertsAfter / 2}`);
 
                 halfEdge = nextHalfEdge;
                 totalEdges++;
@@ -280,24 +285,34 @@ export class ShapeUtil {
         level:number,
         isLastEdge:boolean
     ):void {
+        let indentStr = "      ";
+        for (let li = 0; li < level; li++) { indentStr += "  "; }
+        const indent = indentStr;
         // Stop if segment is microscopic (< 0.1px)
         const segDistSq = (p0.x - p2.x)**2 + (p0.y - p2.y)**2;
         if (segDistSq < 0.01) {
+             Logger.debug(`${indent}[L${level}] MICRO: segDist=${Math.sqrt(segDistSq).toFixed(4)} => emit endpoint`);
              if (!isLastEdge) ShapeUtil.addVertex(vertices, p2.x, p2.y);
              return;
         }
 
         if (level > 20) {
-            Logger.debug(`[ShapeUtil] Max recursion level (20) reached at ${p2.x},${p2.y}`);
+            Logger.debug(`${indent}[L${level}] MAX LEVEL => emit endpoint`);
             if (!isLastEdge) ShapeUtil.addVertex(vertices, p2.x, p2.y);
             return;
         }
 
         const d1 = ShapeUtil.pointLineDistSq(p1, p0, p2);
+        const segDist = Math.sqrt(segDistSq);
+        Logger.debug(`${indent}[L${level}] p0=(${p0.x.toFixed(2)},${p0.y.toFixed(2)}) ctrl=(${p1.x.toFixed(2)},${p1.y.toFixed(2)}) p2=(${p2.x.toFixed(2)},${p2.y.toFixed(2)}) ctrlDev=${Math.sqrt(d1).toFixed(4)} tol=${Math.sqrt(tolSq).toFixed(4)} segLen=${segDist.toFixed(2)}`);
+
         if (d1 < tolSq) {
+             Logger.debug(`${indent}  => FLAT (dev ${Math.sqrt(d1).toFixed(4)} < tol ${Math.sqrt(tolSq).toFixed(4)}) => emit endpoint (${p2.x.toFixed(2)},${p2.y.toFixed(2)})`);
              if (!isLastEdge) ShapeUtil.addVertex(vertices, p2.x, p2.y);
              return;
         }
+
+        Logger.debug(`${indent}  => SPLIT (dev ${Math.sqrt(d1).toFixed(4)} >= tol ${Math.sqrt(tolSq).toFixed(4)})`);
 
         // Split at t=0.5
         const q0 = p0;
@@ -309,65 +324,6 @@ export class ShapeUtil {
 
         ShapeUtil.adaptiveQuadratic(vertices, q0, q1, q2, tolSq, level + 1, false);
         ShapeUtil.adaptiveQuadratic(vertices, r0, r1, r2, tolSq, level + 1, isLastEdge);
-    }
-
-    /**
-     * Removes points that go backward along the chord direction of a curve edge.
-     * At sharp corners, the quadratic control point can be positioned "behind" the start,
-     * causing early subdivision samples to travel backward before correcting. This creates
-     * small hanger-like artifacts with 2-3 tightly clustered backward points.
-     *
-     * We project each emitted point onto the chord vector (p0→p3) and remove any that
-     * have a lower projection than the previous retained point (i.e., going backward).
-     */
-    private static removeBackwardPoints(
-        vertices: number[],
-        startIdx: number,
-        p0: {x:number, y:number},
-        p3: {x:number, y:number}
-    ): void {
-        // Need at least 2 emitted points (4 values) to check for backward motion
-        if (vertices.length - startIdx < 4) return;
-
-        // Chord vector
-        const dx = p3.x - p0.x;
-        const dy = p3.y - p0.y;
-        const chordLenSq = dx * dx + dy * dy;
-        if (chordLenSq < 0.001) return; // Degenerate edge
-
-        // Project a point onto the chord direction: dot(point - p0, chord) / |chord|^2
-        // This gives a scalar 0..1 along the chord. Backward = decreasing value.
-        
-        // The last vertex before this edge's points is our reference start
-        // (the edge start p0 should be at or before startIdx)
-        let maxProj = 0; // p0 projects to 0
-        const toRemove: number[] = [];
-
-        for (let vi = startIdx; vi < vertices.length; vi += 2) {
-            const vx = vertices[vi];
-            const vy = -vertices[vi + 1]; // un-flip Y to match p0/p3 coordinate space
-            
-            const proj = ((vx - p0.x) * dx + (vy - p0.y) * dy) / chordLenSq;
-            
-            if (proj < maxProj - 0.01) {
-                // This point goes backward along the chord
-                Logger.debug(`    [removeBackward] Removing backward point [${vi/2}] (${vx.toFixed(2)},${vy.toFixed(2)}) proj=${proj.toFixed(4)} < maxProj=${maxProj.toFixed(4)}`);
-                toRemove.push(vi);
-            } else {
-                if (proj > maxProj) {
-                    maxProj = proj;
-                }
-            }
-        }
-
-        // Remove backward points from end to start (so indices stay valid)
-        for (let ri = toRemove.length - 1; ri >= 0; ri--) {
-            vertices.splice(toRemove[ri], 2);
-        }
-
-        if (toRemove.length > 0) {
-            Logger.debug(`    [removeBackward] Removed ${toRemove.length} backward points`);
-        }
     }
 
     private static adaptiveCubic(
