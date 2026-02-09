@@ -1169,7 +1169,38 @@ var Converter = /** @class */ (function () {
                     }
                 }
                 if (isNoneTween || classicCurveSupported || !allowBaking) {
-                    continue;
+                    // Even with no tween or supported ease, we must NOT skip if the frame
+                    // contains symbol instances with internal animated timelines (e.g. nested
+                    // movie clips playing their own rotation/scale tweens). Each parent frame
+                    // advances the child's playhead, so we need frame-by-frame sampling.
+                    var hasNestedAnimation = false;
+                    if (isNoneTween) {
+                        for (var eCheck = 0; eCheck < frame.elements.length; eCheck++) {
+                            var elCheck = frame.elements[eCheck];
+                            if (elCheck.elementType === 'instance' && elCheck.instanceType === 'symbol') {
+                                var loopMode = elCheck.loop || 'loop';
+                                if (loopMode !== 'single frame') {
+                                    // Check if the child symbol's timeline has more than 1 frame
+                                    try {
+                                        var libItem = elCheck.libraryItem;
+                                        if (libItem && libItem.timeline && libItem.timeline.frameCount > 1) {
+                                            hasNestedAnimation = true;
+                                            if (Logger_1.Logger.isTraceEnabled()) {
+                                                Logger_1.Logger.trace("".concat(indent, "    [NESTED_DETECT] Frame ").concat(i, ": element '").concat(elCheck.name || libItem.name, "' has internal timeline (").concat(libItem.timeline.frameCount, " frames, loop='").concat(loopMode, "') - forcing sampling"));
+                                            }
+                                            break;
+                                        }
+                                    }
+                                    catch (e) {
+                                        // libraryItem may not be accessible; skip this element
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (!hasNestedAnimation) {
+                        continue;
+                    }
                 }
             }
             // STRUCTURE pass should only visit keyframes.
@@ -1218,11 +1249,35 @@ var Converter = /** @class */ (function () {
                         Logger_1.Logger.trace("[DEBUG_ANIM] Element '".concat(elName, "' Frame ").concat(i, " (Start: ").concat(frame.startFrame, "): TweenType='").concat(frame.tweenType, "' Classic=").concat(isClassic, " Guided=").concat(isGuided, " SupportedEase=").concat(isSupportedEase, " -> BAKING=").concat(shouldBake));
                         Logger_1.Logger.trace("[DEBUG_ANIM]   Frame Values: Alpha=".concat(el.colorAlphaPercent, " Matrix=[a:").concat(el.matrix.a.toFixed(2), ", tx:").concat(el.matrix.tx.toFixed(2), "]"));
                     }
-                    if (!allowBaking || isNoneTween || (isClassic && !isGuided && isSupportedEase)) {
+                    // Check for nested animated symbols before skipping baking
+                    var hasNestedAnimInBake = false;
+                    if (isNoneTween) {
+                        for (var eCheck2 = 0; eCheck2 < frame.elements.length; eCheck2++) {
+                            var elCheck2 = frame.elements[eCheck2];
+                            if (elCheck2.elementType === 'instance' && elCheck2.instanceType === 'symbol') {
+                                var loopMode2 = elCheck2.loop || 'loop';
+                                if (loopMode2 !== 'single frame') {
+                                    try {
+                                        var libItem2 = elCheck2.libraryItem;
+                                        if (libItem2 && libItem2.timeline && libItem2.timeline.frameCount > 1) {
+                                            hasNestedAnimInBake = true;
+                                            break;
+                                        }
+                                    }
+                                    catch (e2) {
+                                        // libraryItem may not be accessible
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if ((!allowBaking || (isClassic && !isGuided && isSupportedEase)) && !hasNestedAnimInBake
+                        || (isNoneTween && !hasNestedAnimInBake)) {
                         // Skip baking, let Spine interpolate
                         // But we MUST still mark the slot as active!
                         // Recursively discover the slot name
                         var sub_1 = context.switchContextFrame(frame).createBone(el, time, null, null);
+                        sub_1.internalFrame = i;
                         if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === "animation" /* ConverterStageType.ANIMATION */) {
                             var instance = el;
                             var firstFrameOffset = (instance.firstFrame || 0) / frameRate;
@@ -1247,8 +1302,8 @@ var Converter = /** @class */ (function () {
                             var savedElement = context.element;
                             var savedFrame = context.frame;
                             bakedData = this_1.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
-                            if (bakedData && (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1)) {
-                                Logger_1.Logger.trace("[DEBUG_ANIM]   BAKED Live Transform: Alpha=".concat(bakedData.colorAlpha, " Matrix=[a:").concat(bakedData.matrix.a.toFixed(2), ", tx:").concat(bakedData.matrix.tx.toFixed(2), "]"));
+                            if (bakedData && Logger_1.Logger.isTraceEnabled()) {
+                                Logger_1.Logger.trace("".concat(indent, "    [BAKE] '").concat(elName, "' frame ").concat(i, ": Matrix=[a:").concat(bakedData.matrix.a.toFixed(3), ", b:").concat(bakedData.matrix.b.toFixed(3), ", c:").concat(bakedData.matrix.c.toFixed(3), ", d:").concat(bakedData.matrix.d.toFixed(3), ", tx:").concat(bakedData.matrix.tx.toFixed(2), ", ty:").concat(bakedData.matrix.ty.toFixed(2), "] Alpha=").concat(bakedData.colorAlpha));
                             }
                             // RESTORE CONTEXT STATE
                             context.element = savedElement;
@@ -5183,19 +5238,13 @@ var ShapeUtil = /** @class */ (function () {
         if (matrix === void 0) { matrix = null; }
         if (controlOffset === void 0) { controlOffset = null; }
         if (instance.elementType !== 'shape') {
-            Logger_1.Logger.debug("[ShapeUtil] Skipping non-shape element: ".concat(instance.elementType));
             return null;
         }
         var mode = (instance.contours && instance.contours.length > 0) ? 'contours' : 'edges';
-        Logger_1.Logger.debug("[ShapeUtil] extractVertices start. Mode=".concat(mode, " Tolerance=").concat(tolerance, " Matrix=").concat(!!matrix));
         if (mode === 'contours') {
-            var result_1 = ShapeUtil.extractVerticesFromContours(instance, tolerance, matrix, controlOffset);
-            Logger_1.Logger.debug("[ShapeUtil] extractVertices complete. Generated ".concat(result_1.length / 2, " points from ").concat(instance.contours.length, " contours."));
-            return result_1;
+            return ShapeUtil.extractVerticesFromContours(instance, tolerance, matrix, controlOffset);
         }
-        var result = ShapeUtil.extractVerticesFromEdges(instance, tolerance, matrix);
-        Logger_1.Logger.debug("[ShapeUtil] extractVertices complete. Generated ".concat(result.length / 2, " points from ").concat(instance.edges.length, " edges."));
-        return result;
+        return ShapeUtil.extractVerticesFromEdges(instance, tolerance, matrix);
     };
     /**
      * Transforms a point by a 2D affine matrix.
@@ -5231,7 +5280,6 @@ var ShapeUtil = /** @class */ (function () {
             var distSq = (lastX - x) * (lastX - x) + (lastY - newY) * (lastY - newY);
             // 0.05px tolerance (0.0025 sq) to prevent stacking
             if (distSq < 0.0025 && !force) {
-                Logger_1.Logger.debug("    [addVertex] Skipping close vertex: (".concat(x.toFixed(2), ",").concat(newY.toFixed(2), ") dist=").concat(Math.sqrt(distSq).toFixed(4)));
                 return;
             }
         }
@@ -5247,13 +5295,11 @@ var ShapeUtil = /** @class */ (function () {
             // Tolerance for collinearity (0.1 seems safe for pixels)
             if (area < 0.1) {
                 // Replace last vertex with new one
-                Logger_1.Logger.debug("    [addVertex] Merging collinear: replacing (".concat(lastX.toFixed(2), ",").concat(lastY.toFixed(2), ") with (").concat(x.toFixed(2), ",").concat(newY.toFixed(2), ")"));
                 vertices[vertices.length - 2] = x;
                 vertices[vertices.length - 1] = newY;
                 return;
             }
         }
-        Logger_1.Logger.debug("    [addVertex] Push (".concat(x.toFixed(2), ",").concat(newY.toFixed(2), ")").concat(force ? ' [forced]' : ''));
         vertices.push(x, newY);
     };
     ShapeUtil.extractVerticesFromContours = function (instance, tolerance, matrix, controlOffset) {
@@ -5275,37 +5321,25 @@ var ShapeUtil = /** @class */ (function () {
                 if (probeHE) {
                     var probeEdge = probeHE.getEdge();
                     var probeIdx = probeEdge.cubicSegmentIndex;
-                    Logger_1.Logger.debug("[ShapeUtil] Probing cubic API: edge.cubicSegmentIndex = ".concat(probeIdx, " (type: ").concat(typeof probeIdx, ")"));
                     if (probeIdx !== undefined && probeIdx !== null && probeIdx >= 0) {
-                        // Try to get the cubic segment points
                         try {
                             var cubicPts = shape.getCubicSegmentPoints(probeIdx);
-                            Logger_1.Logger.debug("[ShapeUtil] getCubicSegmentPoints(".concat(probeIdx, ") returned: ").concat(cubicPts, " (type: ").concat(typeof cubicPts, ", isArray: ").concat(cubicPts instanceof Array, ")"));
                             if (cubicPts) {
-                                Logger_1.Logger.debug("[ShapeUtil] cubicPts length: ".concat(cubicPts.length));
-                                for (var ci = 0; ci < cubicPts.length; ci++) {
-                                    var cp = cubicPts[ci];
-                                    Logger_1.Logger.debug("[ShapeUtil]   cubicPt[".concat(ci, "]: x=").concat(cp.x, ", y=").concat(cp.y));
-                                }
                                 hasCubicData = true;
                             }
                         }
                         catch (cubicErr) {
-                            Logger_1.Logger.debug("[ShapeUtil] getCubicSegmentPoints failed: ".concat(cubicErr.message || cubicErr));
+                            // getCubicSegmentPoints not available
                         }
-                    }
-                    else {
-                        Logger_1.Logger.debug("[ShapeUtil] cubicSegmentIndex not available (".concat(probeIdx, "). Falling back to quadratic."));
                     }
                 }
             }
         }
         catch (probeErr) {
-            Logger_1.Logger.debug("[ShapeUtil] Cubic API probe failed: ".concat(probeErr.message || probeErr, ". Using quadratic fallback."));
+            // Cubic API not available, will use quadratic fallback
         }
         // ===== STEP 2: If cubic data is available, collect ALL cubic segments =====
         if (hasCubicData) {
-            Logger_1.Logger.debug("[ShapeUtil] === COLLECTING CUBIC SEGMENTS ===");
             var seenSegments = {};
             for (var i = 0; i < instance.contours.length; i++) {
                 var contour = instance.contours[i];
@@ -5327,40 +5361,24 @@ var ShapeUtil = /** @class */ (function () {
                             var pts = shape.getCubicSegmentPoints(csIdx);
                             if (pts && pts.length >= 4) {
                                 cubicSegments[csIdx] = pts;
-                                Logger_1.Logger.debug("[ShapeUtil] CubicSegment[".concat(csIdx, "]: ").concat(pts.length, " points"));
-                                for (var pi = 0; pi < pts.length; pi++) {
-                                    Logger_1.Logger.debug("  pt[".concat(pi, "] = (").concat(pts[pi].x.toFixed(2), ", ").concat(pts[pi].y.toFixed(2), ")"));
-                                }
                             }
                         }
                         catch (e) {
-                            Logger_1.Logger.debug("[ShapeUtil] Failed to get cubic segment ".concat(csIdx, ": ").concat(e.message || e));
+                            // Failed to get cubic segment
                         }
                     }
                     he = he.getNext();
                 } while (he && he !== startHE);
             }
-            var cubicCount = 0;
-            for (var _k in cubicSegments) {
-                if (cubicSegments.hasOwnProperty(_k)) {
-                    cubicCount++;
-                }
-            }
-            Logger_1.Logger.debug("[ShapeUtil] Collected ".concat(cubicCount, " cubic segments"));
         }
         // ===== STEP 3: Process contours =====
         for (var i = 0; i < instance.contours.length; i++) {
             var contour = instance.contours[i];
-            if (contour.interior) {
-                Logger_1.Logger.debug("[ShapeUtil] Skipping interior contour ".concat(i));
+            if (contour.interior)
                 continue;
-            }
             var startHalfEdge = contour.getHalfEdge();
-            if (startHalfEdge == null) {
-                Logger_1.Logger.warning("[ShapeUtil] Contour ".concat(i, " has no startHalfEdge"));
+            if (startHalfEdge == null)
                 continue;
-            }
-            Logger_1.Logger.debug("[ShapeUtil] Processing Contour ".concat(i, ". Start Vertex: ").concat(startHalfEdge.getVertex().x, ",").concat(startHalfEdge.getVertex().y));
             var firstVertex = startHalfEdge.getVertex();
             var pStart = ShapeUtil.transformPoint(firstVertex.x, firstVertex.y, matrix);
             ShapeUtil.addVertex(vertices, pStart.x, pStart.y, true);
@@ -5394,8 +5412,6 @@ var ShapeUtil = /** @class */ (function () {
                     p3.y += controlOffset.y;
                 }
                 var isLastInLoop = (halfEdge.getNext() === startHalfEdge);
-                Logger_1.Logger.debug("[ShapeUtil] Edge ".concat(totalEdges, ": raw start=(").concat(rawStart.x.toFixed(2), ",").concat(rawStart.y.toFixed(2), ") end=(").concat(rawEnd.x.toFixed(2), ",").concat(rawEnd.y.toFixed(2), ") isLine=").concat(edge.isLine));
-                var vertsBefore = vertices.length;
                 if (edge.isLine) {
                     if (!isLastInLoop) {
                         ShapeUtil.addVertex(vertices, p3.x, p3.y);
@@ -5410,9 +5426,8 @@ var ShapeUtil = /** @class */ (function () {
                         // getCubicSegmentPoints returns an array of points defining cubic Bezier(s).
                         // For a single cubic: [p0, cp1, cp2, p3] (4 points)
                         // For a multi-segment cubic: [p0, cp1, cp2, p3, cp1, cp2, p3, ...] (4 + 3n points)
-                        Logger_1.Logger.debug("  Using CUBIC segment ".concat(csIdx, ": ").concat(cubicPts.length, " control points"));
                         // ===== Direction detection: reverse cubic if it's oriented backward =====
-                        // Some cubic segments have their p0→p3 direction opposite to the contour
+                        // Some cubic segments have their p0->p3 direction opposite to the contour
                         // traversal direction. Detect this by comparing distances from the last
                         // emitted vertex to the cubic's start vs end points.
                         var activePts = cubicPts;
@@ -5431,10 +5446,8 @@ var ShapeUtil = /** @class */ (function () {
                             }
                             var dStart = (cubicStart.x - lastVx) * (cubicStart.x - lastVx) + (cubicStart.y - lastVy) * (cubicStart.y - lastVy);
                             var dEnd = (cubicEnd.x - lastVx) * (cubicEnd.x - lastVx) + (cubicEnd.y - lastVy) * (cubicEnd.y - lastVy);
-                            Logger_1.Logger.debug("    Direction check: lastVertex=(".concat(lastVx.toFixed(2), ",").concat(lastVy.toFixed(2), ") cubicStart=(").concat(cubicStart.x.toFixed(2), ",").concat(cubicStart.y.toFixed(2), ") cubicEnd=(").concat(cubicEnd.x.toFixed(2), ",").concat(cubicEnd.y.toFixed(2), ") dStart=").concat(Math.sqrt(dStart).toFixed(4), " dEnd=").concat(Math.sqrt(dEnd).toFixed(4)));
                             if (dEnd < dStart) {
                                 // Cubic is backward — reverse the points array
-                                Logger_1.Logger.debug("    REVERSING cubic segment ".concat(csIdx, ": end (dist=").concat(Math.sqrt(dEnd).toFixed(4), ") closer to last vertex than start (dist=").concat(Math.sqrt(dStart).toFixed(4), ")"));
                                 activePts = [];
                                 for (var ri = cubicPts.length - 1; ri >= 0; ri--) {
                                     activePts.push(cubicPts[ri]);
@@ -5448,7 +5461,6 @@ var ShapeUtil = /** @class */ (function () {
                             cp0.x += controlOffset.x;
                             cp0.y += controlOffset.y;
                         }
-                        var numCubicSubs = 0;
                         for (var ci = 0; ci + 3 <= activePts.length - 1; ci += 3) {
                             var rawCp1 = activePts[ci + 1];
                             var rawCp2 = activePts[ci + 2];
@@ -5468,16 +5480,12 @@ var ShapeUtil = /** @class */ (function () {
                             var isLastSub = (ci + 3 >= activePts.length - 1);
                             // Only skip the endpoint if this is the last sub AND we're closing the loop
                             var skipEndpoint = isLastSub && isLastInLoop;
-                            Logger_1.Logger.debug("    CubicSub[".concat(ci / 3, "]: p0=(").concat(cp0.x.toFixed(2), ",").concat(cp0.y.toFixed(2), ") cp1=(").concat(cp1.x.toFixed(2), ",").concat(cp1.y.toFixed(2), ") cp2=(").concat(cp2.x.toFixed(2), ",").concat(cp2.y.toFixed(2), ") p3=(").concat(cp3.x.toFixed(2), ",").concat(cp3.y.toFixed(2), ")"));
                             ShapeUtil.adaptiveCubic(vertices, cp0, cp1, cp2, cp3, tolSq, 0, skipEndpoint);
                             cp0 = cp3; // Next sub-segment starts where this one ends
-                            numCubicSubs++;
                         }
-                        Logger_1.Logger.debug("    Processed ".concat(numCubicSubs, " cubic sub-segments"));
                     }
                     else if (cubicPts && processedCubicSegments[csIdx]) {
                         // This edge belongs to a cubic segment we already processed — skip it
-                        Logger_1.Logger.debug("  Skipping edge ".concat(totalEdges, " (cubic segment ").concat(csIdx, " already processed)"));
                     }
                     else {
                         // ===== Quadratic fallback =====
@@ -5496,23 +5504,13 @@ var ShapeUtil = /** @class */ (function () {
                             }
                         }
                         var ctrl = p2 || p1;
-                        Logger_1.Logger.debug("  Using QUADRATIC fallback: p0=(".concat(p0.x.toFixed(2), ",").concat(p0.y.toFixed(2), ") ctrl=(").concat(ctrl.x.toFixed(2), ",").concat(ctrl.y.toFixed(2), ") p3=(").concat(p3.x.toFixed(2), ",").concat(p3.y.toFixed(2), ")"));
                         ShapeUtil.adaptiveQuadratic(vertices, p0, ctrl, p3, tolSq, 0, isLastInLoop);
                     }
                 }
-                var vertsAfter = vertices.length;
-                var pointsAdded = (vertsAfter - vertsBefore) / 2;
-                Logger_1.Logger.debug("  => Added ".concat(pointsAdded, " points. Total vertices now: ").concat(vertsAfter / 2));
                 halfEdge = nextHalfEdge;
                 totalEdges++;
             } while (halfEdge !== startHalfEdge && halfEdge != null);
         }
-        // Dump final vertex list for debugging
-        Logger_1.Logger.debug("[ShapeUtil] === FINAL VERTEX DUMP (".concat(vertices.length / 2, " points) ==="));
-        for (var vi = 0; vi < vertices.length; vi += 2) {
-            Logger_1.Logger.debug("  [".concat(vi / 2, "] (").concat(vertices[vi].toFixed(2), ", ").concat(vertices[vi + 1].toFixed(2), ")"));
-        }
-        Logger_1.Logger.debug("[ShapeUtil] === END VERTEX DUMP ===");
         return vertices;
     };
     ShapeUtil.extractVerticesFromEdges = function (instance, tolerance, matrix) {
@@ -5562,35 +5560,24 @@ var ShapeUtil = /** @class */ (function () {
         return Math.pow((p.x - projX), 2) + Math.pow((p.y - projY), 2);
     };
     ShapeUtil.adaptiveQuadratic = function (vertices, p0, p1, p2, tolSq, level, isLastEdge) {
-        var indentStr = "      ";
-        for (var li = 0; li < level; li++) {
-            indentStr += "  ";
-        }
-        var indent = indentStr;
         // Stop if segment is microscopic (< 0.1px)
         var segDistSq = Math.pow((p0.x - p2.x), 2) + Math.pow((p0.y - p2.y), 2);
         if (segDistSq < 0.01) {
-            Logger_1.Logger.debug("".concat(indent, "[L").concat(level, "] MICRO: segDist=").concat(Math.sqrt(segDistSq).toFixed(4), " => emit endpoint"));
             if (!isLastEdge)
                 ShapeUtil.addVertex(vertices, p2.x, p2.y);
             return;
         }
         if (level > 20) {
-            Logger_1.Logger.debug("".concat(indent, "[L").concat(level, "] MAX LEVEL => emit endpoint"));
             if (!isLastEdge)
                 ShapeUtil.addVertex(vertices, p2.x, p2.y);
             return;
         }
         var d1 = ShapeUtil.pointLineDistSq(p1, p0, p2);
-        var segDist = Math.sqrt(segDistSq);
-        Logger_1.Logger.debug("".concat(indent, "[L").concat(level, "] p0=(").concat(p0.x.toFixed(2), ",").concat(p0.y.toFixed(2), ") ctrl=(").concat(p1.x.toFixed(2), ",").concat(p1.y.toFixed(2), ") p2=(").concat(p2.x.toFixed(2), ",").concat(p2.y.toFixed(2), ") ctrlDev=").concat(Math.sqrt(d1).toFixed(4), " tol=").concat(Math.sqrt(tolSq).toFixed(4), " segLen=").concat(segDist.toFixed(2)));
         if (d1 < tolSq) {
-            Logger_1.Logger.debug("".concat(indent, "  => FLAT (dev ").concat(Math.sqrt(d1).toFixed(4), " < tol ").concat(Math.sqrt(tolSq).toFixed(4), ") => emit endpoint (").concat(p2.x.toFixed(2), ",").concat(p2.y.toFixed(2), ")"));
             if (!isLastEdge)
                 ShapeUtil.addVertex(vertices, p2.x, p2.y);
             return;
         }
-        Logger_1.Logger.debug("".concat(indent, "  => SPLIT (dev ").concat(Math.sqrt(d1).toFixed(4), " >= tol ").concat(Math.sqrt(tolSq).toFixed(4), ")"));
         // Split at t=0.5
         var q0 = p0;
         var q1 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
@@ -5602,21 +5589,14 @@ var ShapeUtil = /** @class */ (function () {
         ShapeUtil.adaptiveQuadratic(vertices, r0, r1, r2, tolSq, level + 1, isLastEdge);
     };
     ShapeUtil.adaptiveCubic = function (vertices, p0, p1, p2, p3, tolSq, level, isLastEdge) {
-        var indentStr = "      ";
-        for (var li = 0; li < level; li++) {
-            indentStr += "  ";
-        }
-        var indent = indentStr;
         // Stop if segment is microscopic (< 0.1px)
         var segDistSq = Math.pow((p0.x - p3.x), 2) + Math.pow((p0.y - p3.y), 2);
         if (segDistSq < 0.01) {
-            Logger_1.Logger.debug("".concat(indent, "[CL").concat(level, "] MICRO: segDist=").concat(Math.sqrt(segDistSq).toFixed(4), " => emit endpoint"));
             if (!isLastEdge)
                 ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
         }
         if (level > 20) {
-            Logger_1.Logger.debug("".concat(indent, "[CL").concat(level, "] MAX LEVEL => emit endpoint"));
             if (!isLastEdge)
                 ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
@@ -5624,15 +5604,11 @@ var ShapeUtil = /** @class */ (function () {
         // Check flatness
         var d1 = ShapeUtil.pointLineDistSq(p1, p0, p3);
         var d2 = ShapeUtil.pointLineDistSq(p2, p0, p3);
-        var segDist = Math.sqrt(segDistSq);
-        Logger_1.Logger.debug("".concat(indent, "[CL").concat(level, "] p0=(").concat(p0.x.toFixed(2), ",").concat(p0.y.toFixed(2), ") cp1=(").concat(p1.x.toFixed(2), ",").concat(p1.y.toFixed(2), ") cp2=(").concat(p2.x.toFixed(2), ",").concat(p2.y.toFixed(2), ") p3=(").concat(p3.x.toFixed(2), ",").concat(p3.y.toFixed(2), ") d1=").concat(Math.sqrt(d1).toFixed(4), " d2=").concat(Math.sqrt(d2).toFixed(4), " tol=").concat(Math.sqrt(tolSq).toFixed(4), " segLen=").concat(segDist.toFixed(2)));
         if (d1 < tolSq && d2 < tolSq) {
-            Logger_1.Logger.debug("".concat(indent, "  => FLAT => emit endpoint (").concat(p3.x.toFixed(2), ",").concat(p3.y.toFixed(2), ")"));
             if (!isLastEdge)
                 ShapeUtil.addVertex(vertices, p3.x, p3.y);
             return;
         }
-        Logger_1.Logger.debug("".concat(indent, "  => SPLIT"));
         // Split at t=0.5
         var q0 = p0;
         var q1 = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };

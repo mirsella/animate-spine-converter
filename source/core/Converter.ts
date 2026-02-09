@@ -1237,7 +1237,37 @@ export class Converter {
                 }
 
                 if (isNoneTween || classicCurveSupported || !allowBaking) {
-                    continue;
+                    // Even with no tween or supported ease, we must NOT skip if the frame
+                    // contains symbol instances with internal animated timelines (e.g. nested
+                    // movie clips playing their own rotation/scale tweens). Each parent frame
+                    // advances the child's playhead, so we need frame-by-frame sampling.
+                    let hasNestedAnimation = false;
+                    if (isNoneTween) {
+                        for (let eCheck = 0; eCheck < frame.elements.length; eCheck++) {
+                            const elCheck = frame.elements[eCheck] as any;
+                            if (elCheck.elementType === 'instance' && elCheck.instanceType === 'symbol') {
+                                const loopMode: string = elCheck.loop || 'loop';
+                                if (loopMode !== 'single frame') {
+                                    // Check if the child symbol's timeline has more than 1 frame
+                                    try {
+                                        const libItem = elCheck.libraryItem;
+                                        if (libItem && libItem.timeline && libItem.timeline.frameCount > 1) {
+                                            hasNestedAnimation = true;
+                                            if (Logger.isTraceEnabled()) {
+                                                Logger.trace(`${indent}    [NESTED_DETECT] Frame ${i}: element '${elCheck.name || libItem.name}' has internal timeline (${libItem.timeline.frameCount} frames, loop='${loopMode}') - forcing sampling`);
+                                            }
+                                            break;
+                                        }
+                                    } catch (e) {
+                                        // libraryItem may not be accessible; skip this element
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (!hasNestedAnimation) {
+                        continue;
+                    }
                 }
             }
 
@@ -1293,11 +1323,35 @@ export class Converter {
                          Logger.trace(`[DEBUG_ANIM]   Frame Values: Alpha=${el.colorAlphaPercent} Matrix=[a:${el.matrix.a.toFixed(2)}, tx:${el.matrix.tx.toFixed(2)}]`);
                     }
 
-                    if (!allowBaking || isNoneTween || (isClassic && !isGuided && isSupportedEase)) {
+                    // Check for nested animated symbols before skipping baking
+                    let hasNestedAnimInBake = false;
+                    if (isNoneTween) {
+                        for (let eCheck2 = 0; eCheck2 < frame.elements.length; eCheck2++) {
+                            const elCheck2 = frame.elements[eCheck2] as any;
+                            if (elCheck2.elementType === 'instance' && elCheck2.instanceType === 'symbol') {
+                                const loopMode2: string = elCheck2.loop || 'loop';
+                                if (loopMode2 !== 'single frame') {
+                                    try {
+                                        const libItem2 = elCheck2.libraryItem;
+                                        if (libItem2 && libItem2.timeline && libItem2.timeline.frameCount > 1) {
+                                            hasNestedAnimInBake = true;
+                                            break;
+                                        }
+                                    } catch (e2) {
+                                        // libraryItem may not be accessible
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if ((!allowBaking || (isClassic && !isGuided && isSupportedEase)) && !hasNestedAnimInBake
+                        || (isNoneTween && !hasNestedAnimInBake)) {
                         // Skip baking, let Spine interpolate
                         // But we MUST still mark the slot as active!
                         // Recursively discover the slot name
                         const sub = context.switchContextFrame(frame).createBone(el, time, null, null);
+                        sub.internalFrame = i;
                         if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === ConverterStageType.ANIMATION) {
                              const instance = el as any;
                              const firstFrameOffset = (instance.firstFrame || 0) / frameRate;
@@ -1326,8 +1380,8 @@ export class Converter {
 
                             bakedData = this.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
                             
-                            if (bakedData && (elName.toLowerCase().indexOf('yellow') !== -1 || elName.toLowerCase().indexOf('glow') !== -1)) {
-                                Logger.trace(`[DEBUG_ANIM]   BAKED Live Transform: Alpha=${bakedData.colorAlpha} Matrix=[a:${bakedData.matrix.a.toFixed(2)}, tx:${bakedData.matrix.tx.toFixed(2)}]`);
+                            if (bakedData && Logger.isTraceEnabled()) {
+                                Logger.trace(`${indent}    [BAKE] '${elName}' frame ${i}: Matrix=[a:${bakedData.matrix.a.toFixed(3)}, b:${bakedData.matrix.b.toFixed(3)}, c:${bakedData.matrix.c.toFixed(3)}, d:${bakedData.matrix.d.toFixed(3)}, tx:${bakedData.matrix.tx.toFixed(2)}, ty:${bakedData.matrix.ty.toFixed(2)}] Alpha=${bakedData.colorAlpha}`);
                             }
 
                             // RESTORE CONTEXT STATE
