@@ -5411,18 +5411,48 @@ var ShapeUtil = /** @class */ (function () {
                         // For a single cubic: [p0, cp1, cp2, p3] (4 points)
                         // For a multi-segment cubic: [p0, cp1, cp2, p3, cp1, cp2, p3, ...] (4 + 3n points)
                         Logger_1.Logger.debug("  Using CUBIC segment ".concat(csIdx, ": ").concat(cubicPts.length, " control points"));
+                        // ===== Direction detection: reverse cubic if it's oriented backward =====
+                        // Some cubic segments have their p0→p3 direction opposite to the contour
+                        // traversal direction. Detect this by comparing distances from the last
+                        // emitted vertex to the cubic's start vs end points.
+                        var activePts = cubicPts;
+                        if (vertices.length >= 2) {
+                            // Last emitted vertex (un-flip Y since addVertex stores -y)
+                            var lastVx = vertices[vertices.length - 2];
+                            var lastVy = -vertices[vertices.length - 1]; // un-flip Y
+                            // Transform cubic start and end points
+                            var cubicStart = ShapeUtil.transformPoint(cubicPts[0].x, cubicPts[0].y, matrix);
+                            var cubicEnd = ShapeUtil.transformPoint(cubicPts[cubicPts.length - 1].x, cubicPts[cubicPts.length - 1].y, matrix);
+                            if (controlOffset) {
+                                cubicStart.x += controlOffset.x;
+                                cubicStart.y += controlOffset.y;
+                                cubicEnd.x += controlOffset.x;
+                                cubicEnd.y += controlOffset.y;
+                            }
+                            var dStart = (cubicStart.x - lastVx) * (cubicStart.x - lastVx) + (cubicStart.y - lastVy) * (cubicStart.y - lastVy);
+                            var dEnd = (cubicEnd.x - lastVx) * (cubicEnd.x - lastVx) + (cubicEnd.y - lastVy) * (cubicEnd.y - lastVy);
+                            Logger_1.Logger.debug("    Direction check: lastVertex=(".concat(lastVx.toFixed(2), ",").concat(lastVy.toFixed(2), ") cubicStart=(").concat(cubicStart.x.toFixed(2), ",").concat(cubicStart.y.toFixed(2), ") cubicEnd=(").concat(cubicEnd.x.toFixed(2), ",").concat(cubicEnd.y.toFixed(2), ") dStart=").concat(Math.sqrt(dStart).toFixed(4), " dEnd=").concat(Math.sqrt(dEnd).toFixed(4)));
+                            if (dEnd < dStart) {
+                                // Cubic is backward — reverse the points array
+                                Logger_1.Logger.debug("    REVERSING cubic segment ".concat(csIdx, ": end (dist=").concat(Math.sqrt(dEnd).toFixed(4), ") closer to last vertex than start (dist=").concat(Math.sqrt(dStart).toFixed(4), ")"));
+                                activePts = [];
+                                for (var ri = cubicPts.length - 1; ri >= 0; ri--) {
+                                    activePts.push(cubicPts[ri]);
+                                }
+                            }
+                        }
                         // Process each cubic sub-segment (groups of 4, then 3)
                         // First segment: indices 0,1,2,3. Subsequent: 3+i*3, 4+i*3, 5+i*3, 6+i*3
-                        var cp0 = ShapeUtil.transformPoint(cubicPts[0].x, cubicPts[0].y, matrix);
+                        var cp0 = ShapeUtil.transformPoint(activePts[0].x, activePts[0].y, matrix);
                         if (controlOffset) {
                             cp0.x += controlOffset.x;
                             cp0.y += controlOffset.y;
                         }
                         var numCubicSubs = 0;
-                        for (var ci = 0; ci + 3 <= cubicPts.length - 1; ci += 3) {
-                            var rawCp1 = cubicPts[ci + 1];
-                            var rawCp2 = cubicPts[ci + 2];
-                            var rawCp3 = cubicPts[ci + 3];
+                        for (var ci = 0; ci + 3 <= activePts.length - 1; ci += 3) {
+                            var rawCp1 = activePts[ci + 1];
+                            var rawCp2 = activePts[ci + 2];
+                            var rawCp3 = activePts[ci + 3];
                             var cp1 = ShapeUtil.transformPoint(rawCp1.x, rawCp1.y, matrix);
                             var cp2 = ShapeUtil.transformPoint(rawCp2.x, rawCp2.y, matrix);
                             var cp3 = ShapeUtil.transformPoint(rawCp3.x, rawCp3.y, matrix);
@@ -5435,7 +5465,7 @@ var ShapeUtil = /** @class */ (function () {
                                 cp3.y += controlOffset.y;
                             }
                             // Check if this is the last sub-segment AND the last edge in the contour loop
-                            var isLastSub = (ci + 3 >= cubicPts.length - 1);
+                            var isLastSub = (ci + 3 >= activePts.length - 1);
                             // Only skip the endpoint if this is the last sub AND we're closing the loop
                             var skipEndpoint = isLastSub && isLastInLoop;
                             Logger_1.Logger.debug("    CubicSub[".concat(ci / 3, "]: p0=(").concat(cp0.x.toFixed(2), ",").concat(cp0.y.toFixed(2), ") cp1=(").concat(cp1.x.toFixed(2), ",").concat(cp1.y.toFixed(2), ") cp2=(").concat(cp2.x.toFixed(2), ",").concat(cp2.y.toFixed(2), ") p3=(").concat(cp3.x.toFixed(2), ",").concat(cp3.y.toFixed(2), ")"));
