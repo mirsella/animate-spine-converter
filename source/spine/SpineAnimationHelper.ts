@@ -89,6 +89,12 @@ export class SpineAnimationHelper {
         const curve = SpineAnimationHelper.obtainFrameCurve(context);
 
         const attachmentTimeline = timeline.createTimeline(SpineTimelineType.ATTACHMENT);
+        const frameStart = context && context.frame ? context.frame.startFrame : -1;
+        const previousTail = attachmentTimeline.frames.length > 0 ? attachmentTimeline.frames[attachmentTimeline.frames.length - 1] : null;
+
+        if (previousTail != null && time < previousTail.time && previousTail.time !== time) {
+            Logger.warning(`[VISIBILITY_ORDER] Slot '${slot.name}' out-of-order key: new=${time.toFixed(3)} prevTail=${previousTail.time.toFixed(3)} frame.start=${frameStart} ctx.time=${context.time.toFixed(3)} ctx.offset=${context.timeOffset.toFixed(3)} path='${context.symbolPath}'`);
+        }
         
         // VISIBILITY FIX: Start of Animation
         if (attachmentTimeline.frames.length === 0 && time > 0) {
@@ -99,12 +105,23 @@ export class SpineAnimationHelper {
 
         const attachmentFrame = attachmentTimeline.createFrame(time, curve);
         attachmentFrame.name = (attachment != null) ? attachment.name : null;
+
+        let prevSummary = '<none>';
+        if (attachmentTimeline.frames.length > 1) {
+            const prevFrame = attachmentTimeline.frames[attachmentTimeline.frames.length - 2];
+            prevSummary = `t=${prevFrame.time.toFixed(3)} name=${prevFrame.name ? prevFrame.name : 'HIDDEN'}`;
+        }
         
-        Logger.debug(`[VISIBILITY] Slot '${slot.name}' -> ${attachmentFrame.name ? attachmentFrame.name : 'HIDDEN'} at Time ${time.toFixed(3)} (Frame: ${context.frame?.startFrame})`);
+        Logger.debug(`[VISIBILITY] Slot '${slot.name}' -> ${attachmentFrame.name ? attachmentFrame.name : 'HIDDEN'} at Time ${time.toFixed(3)} (Frame: ${frameStart}) Keys=${attachmentTimeline.frames.length} Prev=${prevSummary}`);
+
+        if (Logger.isTraceEnabled()) {
+            const parentBoneName = (context.parent && context.parent.bone) ? context.parent.bone.name : '<none>';
+            Logger.trace(`[VISIBILITY_TL] slot='${slot.name}' keyTime=${time.toFixed(3)} frame.start=${frameStart} keys=${attachmentTimeline.frames.length} ctx.time=${context.time.toFixed(3)} ctx.offset=${context.timeOffset.toFixed(3)} parentBone='${parentBoneName}' path='${context.symbolPath}'`);
+        }
 
         if (SpineAnimationHelper.isDebugName(slot.name) || SpineAnimationHelper.isDebugName(attachmentFrame.name || '')) {
             const color = context && context.color ? context.color.merge() : '<no-color>';
-            Logger.debug(`[VIS_DBG] Slot '${slot.name}' T=${time.toFixed(3)} frame.start=${context.frame?.startFrame} attachment='${attachmentFrame.name ? attachmentFrame.name : 'HIDDEN'}' color=${color} blend=${context.blendMode}`);
+            Logger.debug(`[VIS_DBG] Slot '${slot.name}' T=${time.toFixed(3)} frame.start=${frameStart} attachment='${attachmentFrame.name ? attachmentFrame.name : 'HIDDEN'}' color=${color} blend=${context.blendMode}`);
         }
 
         if (context.frame != null && context.frame.startFrame === 0) {

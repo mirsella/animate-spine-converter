@@ -964,9 +964,15 @@ var Converter = /** @class */ (function () {
             }
         }
     };
-    Converter.prototype.hideLayerSlots = function (context, layer, time) {
+    Converter.prototype.hideLayerSlots = function (context, layer, time, reason) {
+        if (reason === void 0) { reason = 'unspecified'; }
         var slots = context.global.layersCache.get(layer);
+        var bones = context.global.layerBonesCache.get(layer);
         var indent = this.getIndent(context.recursionDepth);
+        if (Logger_1.Logger.isTraceEnabled()) {
+            var frameStart = context.frame ? context.frame.startFrame : -1;
+            Logger_1.Logger.trace("".concat(indent, "    [Visibility] hideLayerSlots reason='").concat(reason, "' layer='").concat(layer.name, "' time=").concat(time.toFixed(3), " ctx.time=").concat(context.time.toFixed(3), " ctx.offset=").concat(context.timeOffset.toFixed(3), " frame.start=").concat(frameStart, " slots=").concat(slots ? slots.length : 0, " bones=").concat(bones ? bones.length : 0, " path='").concat(context.symbolPath, "'"));
+        }
         if (slots && slots.length > 0) {
             for (var _i = 0, slots_1 = slots; _i < slots_1.length; _i++) {
                 var s = slots_1[_i];
@@ -978,7 +984,6 @@ var Converter = /** @class */ (function () {
             }
         }
         // Fix: Also hide slots associated with bones on this layer (for nested symbols)
-        var bones = context.global.layerBonesCache.get(layer);
         if (bones && bones.length > 0) {
             for (var _a = 0, bones_1 = bones; _a < bones_1.length; _a++) {
                 var b = bones_1[_a];
@@ -1060,19 +1065,30 @@ var Converter = /** @class */ (function () {
             }
             catch (e) { }
         }
+        if (Logger_1.Logger.isTraceEnabled()) {
+            var frameStart = context.frame ? context.frame.startFrame : -1;
+            var parentName = layer.parentLayer ? layer.parentLayer.name : '<none>';
+            var labelName = label ? label.name : '<none>';
+            Logger_1.Logger.trace("".concat(indent, "  [LAYER_CTX] Stage=").concat(stageType, " Layer='").concat(layer.name, "' Type=").concat(layer.layerType, " Parent='").concat(parentName, "' Label='").concat(labelName, "' Range=").concat(start, "-").concat(end, " Nested=").concat(isNestedFlattening, " CtxTime=").concat(context.time.toFixed(3), " CtxOffset=").concat(context.timeOffset.toFixed(3), " Internal=").concat(context.internalFrame, " Frame.start=").concat(frameStart, " Path='").concat(context.symbolPath, "'"));
+        }
         if (isNestedFlattening) {
             var frame = layer.frames[start];
             if (!frame)
                 return;
-            var time = context.timeOffset;
-            Logger_1.Logger.trace("".concat(indent, "  [FLATTEN] ").concat(layer.name, " Frame: ").concat(start, " (Time: ").concat(time.toFixed(3), ") (context.time: ").concat(context.time.toFixed(3), ")"));
+            var time = context.time;
+            Logger_1.Logger.trace("".concat(indent, "  [FLATTEN] ").concat(layer.name, " Frame: ").concat(start, " (AbsTime: ").concat(time.toFixed(3), ") (context.timeOffset: ").concat(context.timeOffset.toFixed(3), ")"));
+            var flattenDelta = time - context.timeOffset;
+            if (Logger_1.Logger.isTraceEnabled() && Math.abs(flattenDelta) > 0.0001) {
+                Logger_1.Logger.trace("".concat(indent, "    [FLATTEN_TIME] Layer='").concat(layer.name, "' using absolute context.time=").concat(time.toFixed(3), " instead of context.timeOffset=").concat(context.timeOffset.toFixed(3), " (delta=").concat(flattenDelta.toFixed(3), ") frame=").concat(start, " path='").concat(context.symbolPath, "'"));
+            }
             if (frame.elements.length === 0) {
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
-                    this.hideLayerSlots(context, layer, time);
+                    this.hideLayerSlots(context, layer, time, "flatten-empty-frame(target=".concat(start, ")"));
                 }
                 return;
             }
-            for (var eIdx = 0; eIdx < frame.elements.length; eIdx++) {
+            var activeSlots = [];
+            var _loop_1 = function (eIdx) {
                 var el = frame.elements[eIdx];
                 var matrixOverride = null;
                 var positionOverride = null;
@@ -1082,7 +1098,7 @@ var Converter = /** @class */ (function () {
                     // SAVE CONTEXT STATE: getLiveTransform uses switchContext... which mutates the context
                     var savedElement = context.element;
                     var savedFrame = context.frame;
-                    var live = this.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), start);
+                    var live = this_1.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), start);
                     // RESTORE CONTEXT STATE
                     context.element = savedElement;
                     context.frame = savedFrame;
@@ -1109,7 +1125,7 @@ var Converter = /** @class */ (function () {
                     else {
                         Logger_1.Logger.trace("".concat(indent, "    [LIVE] Sampling failed for '").concat(elName, "' at frame ").concat(start, ". Using context matrix."));
                     }
-                    if (this.isDebugName(elName)) {
+                    if (this_1.isDebugName(elName)) {
                         var m = el.matrix;
                         var mo = matrixOverride;
                         var px = positionOverride ? positionOverride.x.toFixed(2) : 'NA';
@@ -1126,7 +1142,41 @@ var Converter = /** @class */ (function () {
                     // timeOffset must be set relative to the new sub-context's absolute time
                     sub.timeOffset = sub.time - firstFrameOffset;
                 }
+                var frameSlot = null;
+                var originalCreateSlot = sub.createSlot;
+                sub.createSlot = function (element) {
+                    var res = originalCreateSlot.call(sub, element);
+                    frameSlot = res.slot;
+                    return res;
+                };
                 factory(sub);
+                if (frameSlot)
+                    activeSlots.push(frameSlot);
+            };
+            var this_1 = this;
+            for (var eIdx = 0; eIdx < frame.elements.length; eIdx++) {
+                _loop_1(eIdx);
+            }
+            if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
+                var allLayerSlots = context.global.layersCache.get(layer);
+                if (allLayerSlots) {
+                    for (var sIdx = 0; sIdx < allLayerSlots.length; sIdx++) {
+                        var s = allLayerSlots[sIdx];
+                        var isActive = false;
+                        for (var aIdx = 0; aIdx < activeSlots.length; aIdx++) {
+                            if (activeSlots[aIdx] === s) {
+                                isActive = true;
+                                break;
+                            }
+                        }
+                        if (!isActive) {
+                            if (Logger_1.Logger.isTraceEnabled())
+                                Logger_1.Logger.trace("".concat(indent, "    [Visibility] Flatten auto-hiding inactive slot '").concat(s.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
+                            SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
+                            this.hideChildSlots(context, s.bone, time);
+                        }
+                    }
+                }
             }
             return;
         }
@@ -1137,7 +1187,7 @@ var Converter = /** @class */ (function () {
             time += context.timeOffset;
             if (i < 0 || i >= layer.frames.length || !layer.frames[i]) {
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
-                    this.hideLayerSlots(context, layer, time);
+                    this.hideLayerSlots(context, layer, time, "loop-missing-frame(i=".concat(i, ")"));
                 }
                 continue;
             }
@@ -1217,12 +1267,12 @@ var Converter = /** @class */ (function () {
             }
             if (frame.elements.length === 0) {
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
-                    this.hideLayerSlots(context, layer, time);
+                    this.hideLayerSlots(context, layer, time, "loop-empty-frame(i=".concat(i, ")"));
                 }
                 continue;
             }
             var activeSlots = [];
-            var _loop_1 = function (eIdx) {
+            var _loop_2 = function (eIdx) {
                 var el = frame.elements[eIdx];
                 var elName = el.name || ((_b = el.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '<anon>';
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
@@ -1231,8 +1281,8 @@ var Converter = /** @class */ (function () {
                 }
                 var parentMat = null;
                 if (layer.parentLayer) {
-                    this_1._document.getTimeline().currentFrame = i;
-                    parentMat = this_1.getLayerParentMatrix(layer, i);
+                    this_2._document.getTimeline().currentFrame = i;
+                    parentMat = this_2.getLayerParentMatrix(layer, i);
                 }
                 var bakedData = null;
                 if (stageType === "animation" /* ConverterStageType.ANIMATION */ && i !== frame.startFrame) {
@@ -1240,7 +1290,7 @@ var Converter = /** @class */ (function () {
                     var isNoneTween = frame.tweenType === 'none';
                     var isGuided = (layer.parentLayer && layer.parentLayer.layerType === 'guide');
                     var isSupportedEase = !frame.hasCustomEase;
-                    if (this_1.isDebugName(elName)) {
+                    if (this_2.isDebugName(elName)) {
                         Logger_1.Logger.trace("[FRAME_DBG] '".concat(elName, "' i=").concat(i, " frame.start=").concat(frame.startFrame, " dur=").concat(frame.duration, " tween='").concat(frame.tweenType, "' hasCustomEase=").concat(frame.hasCustomEase, " tweenEasing=").concat(frame.tweenEasing, " labelType=").concat(frame.labelType || '', " label='").concat(frame.name || '', "'"));
                     }
                     // DEBUG: Detailed Logging for Yellow/Glow/Dash elements
@@ -1301,7 +1351,7 @@ var Converter = /** @class */ (function () {
                             // SAVE CONTEXT STATE
                             var savedElement = context.element;
                             var savedFrame = context.frame;
-                            bakedData = this_1.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
+                            bakedData = this_2.getLiveTransform(context.switchContextFrame(frame).switchContextElement(el), i);
                             if (bakedData && Logger_1.Logger.isTraceEnabled()) {
                                 Logger_1.Logger.trace("".concat(indent, "    [BAKE] '").concat(elName, "' frame ").concat(i, ": Matrix=[a:").concat(bakedData.matrix.a.toFixed(3), ", b:").concat(bakedData.matrix.b.toFixed(3), ", c:").concat(bakedData.matrix.c.toFixed(3), ", d:").concat(bakedData.matrix.d.toFixed(3), ", tx:").concat(bakedData.matrix.tx.toFixed(2), ", ty:").concat(bakedData.matrix.ty.toFixed(2), "] Alpha=").concat(bakedData.colorAlpha));
                             }
@@ -1311,27 +1361,27 @@ var Converter = /** @class */ (function () {
                         }
                         else {
                             // ... depth 0 baking ...
-                            this_1._document.getTimeline().currentFrame = i;
+                            this_2._document.getTimeline().currentFrame = i;
                             var wasLocked = layer.locked;
                             var wasVisible = layer.visible;
                             layer.locked = false;
                             layer.visible = true;
-                            var timeline = this_1._document.getTimeline();
+                            var timeline = this_2._document.getTimeline();
                             // Keep UI updates disabled as much as possible. Some Animate versions
                             // require livePreview=true for correct sampling, so we toggle it only
                             // for the duration of the bake and then restore.
                             var hadLivePreview = false;
                             var prevLivePreview = null;
-                            if (this_1._document.livePreview !== undefined) {
+                            if (this_2._document.livePreview !== undefined) {
                                 hadLivePreview = true;
                                 try {
-                                    prevLivePreview = this_1._document.livePreview;
+                                    prevLivePreview = this_2._document.livePreview;
                                 }
                                 catch (e) {
                                     prevLivePreview = null;
                                 }
                                 try {
-                                    this_1._document.livePreview = true;
+                                    this_2._document.livePreview = true;
                                 }
                                 catch (e) { }
                             }
@@ -1358,7 +1408,7 @@ var Converter = /** @class */ (function () {
                                 // Bake the entire span once to avoid per-frame convertToKeyframes() calls.
                                 var spanStart = frame.startFrame;
                                 var spanEndExclusive = frame.startFrame + frame.duration;
-                                this_1.bakeSpanToKeyframes(timeline, layerIdx, spanStart, spanEndExclusive, false, '');
+                                this_2.bakeSpanToKeyframes(timeline, layerIdx, spanStart, spanEndExclusive, false, '');
                                 var freshLayer = timeline.layers[layerIdx];
                                 var freshFrame = freshLayer.frames[i];
                                 if (freshFrame.elements.length > 0) {
@@ -1398,16 +1448,16 @@ var Converter = /** @class */ (function () {
                             finally {
                                 if (hadLivePreview) {
                                     try {
-                                        this_1._document.livePreview = prevLivePreview;
+                                        this_2._document.livePreview = prevLivePreview;
                                     }
                                     catch (e) { }
                                 }
                             }
                             if (!bakedData) {
-                                this_1._document.selectNone();
+                                this_2._document.selectNone();
                                 el.selected = true;
-                                if (this_1._document.selection.length > 0) {
-                                    var proxy = this_1._document.selection[0];
+                                if (this_2._document.selection.length > 0) {
+                                    var proxy = this_2._document.selection[0];
                                     bakedData = {
                                         matrix: proxy.matrix,
                                         transformX: proxy.transformX,
@@ -1424,7 +1474,7 @@ var Converter = /** @class */ (function () {
                 }
                 else {
                     if (allowBaking) {
-                        this_1._document.getTimeline().currentFrame = i;
+                        this_2._document.getTimeline().currentFrame = i;
                     }
                 }
                 var finalMatrixOverride = null;
@@ -1451,7 +1501,7 @@ var Converter = /** @class */ (function () {
                     // For now, mapping alpha is the critical part for the reported bug.
                 }
                 if (parentMat) {
-                    finalMatrixOverride = this_1.concatMatrix(sourceMatrix, parentMat);
+                    finalMatrixOverride = this_2.concatMatrix(sourceMatrix, parentMat);
                     finalPositionOverride = {
                         x: sourceTransX * parentMat.a + sourceTransY * parentMat.c + parentMat.tx,
                         y: sourceTransX * parentMat.b + sourceTransY * parentMat.d + parentMat.ty
@@ -1494,7 +1544,7 @@ var Converter = /** @class */ (function () {
                     activeSlots.push(frameSlot);
                 if (context.element && context.element.libraryItem && allowBaking) {
                     var targetName = context.element.libraryItem.name;
-                    var dom = this_1._document;
+                    var dom = this_2._document;
                     var currentTl = dom.getTimeline();
                     if (currentTl.name !== targetName) {
                         if (dom.library.itemExists(targetName)) {
@@ -1502,13 +1552,13 @@ var Converter = /** @class */ (function () {
                         }
                     }
                 }
-                if (allowBaking && this_1._document.getTimeline().currentFrame !== i) {
-                    this_1._document.getTimeline().currentFrame = i;
+                if (allowBaking && this_2._document.getTimeline().currentFrame !== i) {
+                    this_2._document.getTimeline().currentFrame = i;
                 }
             };
-            var this_1 = this;
+            var this_2 = this;
             for (var eIdx = 0; eIdx < frame.elements.length; eIdx++) {
-                _loop_1(eIdx);
+                _loop_2(eIdx);
             }
             // VISIBILITY FIX: Hide inactive slots on this layer
             if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
@@ -2397,10 +2447,14 @@ var SpineAnimationHelper = /** @class */ (function () {
         bone.shearY = transform.shearY;
     };
     SpineAnimationHelper.applySlotAttachment = function (animation, slot, context, attachment, time) {
-        var _a, _b;
         var timeline = animation.createSlotTimeline(slot);
         var curve = SpineAnimationHelper.obtainFrameCurve(context);
         var attachmentTimeline = timeline.createTimeline("attachment" /* SpineTimelineType.ATTACHMENT */);
+        var frameStart = context && context.frame ? context.frame.startFrame : -1;
+        var previousTail = attachmentTimeline.frames.length > 0 ? attachmentTimeline.frames[attachmentTimeline.frames.length - 1] : null;
+        if (previousTail != null && time < previousTail.time && previousTail.time !== time) {
+            Logger_1.Logger.warning("[VISIBILITY_ORDER] Slot '".concat(slot.name, "' out-of-order key: new=").concat(time.toFixed(3), " prevTail=").concat(previousTail.time.toFixed(3), " frame.start=").concat(frameStart, " ctx.time=").concat(context.time.toFixed(3), " ctx.offset=").concat(context.timeOffset.toFixed(3), " path='").concat(context.symbolPath, "'"));
+        }
         // VISIBILITY FIX: Start of Animation
         if (attachmentTimeline.frames.length === 0 && time > 0) {
             Logger_1.Logger.debug("[VISIBILITY] Auto-hiding slot '".concat(slot.name, "' at frame 0 (First key is at ").concat(time.toFixed(3), ")"));
@@ -2409,10 +2463,19 @@ var SpineAnimationHelper = /** @class */ (function () {
         }
         var attachmentFrame = attachmentTimeline.createFrame(time, curve);
         attachmentFrame.name = (attachment != null) ? attachment.name : null;
-        Logger_1.Logger.debug("[VISIBILITY] Slot '".concat(slot.name, "' -> ").concat(attachmentFrame.name ? attachmentFrame.name : 'HIDDEN', " at Time ").concat(time.toFixed(3), " (Frame: ").concat((_a = context.frame) === null || _a === void 0 ? void 0 : _a.startFrame, ")"));
+        var prevSummary = '<none>';
+        if (attachmentTimeline.frames.length > 1) {
+            var prevFrame = attachmentTimeline.frames[attachmentTimeline.frames.length - 2];
+            prevSummary = "t=".concat(prevFrame.time.toFixed(3), " name=").concat(prevFrame.name ? prevFrame.name : 'HIDDEN');
+        }
+        Logger_1.Logger.debug("[VISIBILITY] Slot '".concat(slot.name, "' -> ").concat(attachmentFrame.name ? attachmentFrame.name : 'HIDDEN', " at Time ").concat(time.toFixed(3), " (Frame: ").concat(frameStart, ") Keys=").concat(attachmentTimeline.frames.length, " Prev=").concat(prevSummary));
+        if (Logger_1.Logger.isTraceEnabled()) {
+            var parentBoneName = (context.parent && context.parent.bone) ? context.parent.bone.name : '<none>';
+            Logger_1.Logger.trace("[VISIBILITY_TL] slot='".concat(slot.name, "' keyTime=").concat(time.toFixed(3), " frame.start=").concat(frameStart, " keys=").concat(attachmentTimeline.frames.length, " ctx.time=").concat(context.time.toFixed(3), " ctx.offset=").concat(context.timeOffset.toFixed(3), " parentBone='").concat(parentBoneName, "' path='").concat(context.symbolPath, "'"));
+        }
         if (SpineAnimationHelper.isDebugName(slot.name) || SpineAnimationHelper.isDebugName(attachmentFrame.name || '')) {
             var color = context && context.color ? context.color.merge() : '<no-color>';
-            Logger_1.Logger.debug("[VIS_DBG] Slot '".concat(slot.name, "' T=").concat(time.toFixed(3), " frame.start=").concat((_b = context.frame) === null || _b === void 0 ? void 0 : _b.startFrame, " attachment='").concat(attachmentFrame.name ? attachmentFrame.name : 'HIDDEN', "' color=").concat(color, " blend=").concat(context.blendMode));
+            Logger_1.Logger.debug("[VIS_DBG] Slot '".concat(slot.name, "' T=").concat(time.toFixed(3), " frame.start=").concat(frameStart, " attachment='").concat(attachmentFrame.name ? attachmentFrame.name : 'HIDDEN', "' color=").concat(color, " blend=").concat(context.blendMode));
         }
         if (context.frame != null && context.frame.startFrame === 0) {
             slot.attachment = attachment;

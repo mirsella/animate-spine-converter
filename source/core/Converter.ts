@@ -1018,9 +1018,16 @@ export class Converter {
         }
     }
 
-    private hideLayerSlots(context: ConverterContext, layer: FlashLayer, time: number): void {
+    private hideLayerSlots(context: ConverterContext, layer: FlashLayer, time: number, reason: string = 'unspecified'): void {
         const slots = context.global.layersCache.get(layer);
+        const bones = context.global.layerBonesCache.get(layer);
         const indent = this.getIndent(context.recursionDepth);
+
+        if (Logger.isTraceEnabled()) {
+            const frameStart = context.frame ? context.frame.startFrame : -1;
+            Logger.trace(`${indent}    [Visibility] hideLayerSlots reason='${reason}' layer='${layer.name}' time=${time.toFixed(3)} ctx.time=${context.time.toFixed(3)} ctx.offset=${context.timeOffset.toFixed(3)} frame.start=${frameStart} slots=${slots ? slots.length : 0} bones=${bones ? bones.length : 0} path='${context.symbolPath}'`);
+        }
+
         if (slots && slots.length > 0) {
             for (const s of slots) {
                 if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Hiding slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
@@ -1032,7 +1039,6 @@ export class Converter {
         }
 
         // Fix: Also hide slots associated with bones on this layer (for nested symbols)
-        const bones = context.global.layerBonesCache.get(layer);
         if (bones && bones.length > 0) {
             for (const b of bones) {
                 if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Hiding children of bone '${b.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
@@ -1116,20 +1122,32 @@ export class Converter {
                 }
             } catch (e) {}
         }
+
+        if (Logger.isTraceEnabled()) {
+            const frameStart = context.frame ? context.frame.startFrame : -1;
+            const parentName = layer.parentLayer ? layer.parentLayer.name : '<none>';
+            const labelName = label ? label.name : '<none>';
+            Logger.trace(`${indent}  [LAYER_CTX] Stage=${stageType} Layer='${layer.name}' Type=${layer.layerType} Parent='${parentName}' Label='${labelName}' Range=${start}-${end} Nested=${isNestedFlattening} CtxTime=${context.time.toFixed(3)} CtxOffset=${context.timeOffset.toFixed(3)} Internal=${context.internalFrame} Frame.start=${frameStart} Path='${context.symbolPath}'`);
+        }
         
         if (isNestedFlattening) {
             const frame = layer.frames[start];
             if (!frame) return;
 
-            const time = context.timeOffset;
-            Logger.trace(`${indent}  [FLATTEN] ${layer.name} Frame: ${start} (Time: ${time.toFixed(3)}) (context.time: ${context.time.toFixed(3)})`);
+            const time = context.time;
+            Logger.trace(`${indent}  [FLATTEN] ${layer.name} Frame: ${start} (AbsTime: ${time.toFixed(3)}) (context.timeOffset: ${context.timeOffset.toFixed(3)})`);
+            const flattenDelta = time - context.timeOffset;
+            if (Logger.isTraceEnabled() && Math.abs(flattenDelta) > 0.0001) {
+                Logger.trace(`${indent}    [FLATTEN_TIME] Layer='${layer.name}' using absolute context.time=${time.toFixed(3)} instead of context.timeOffset=${context.timeOffset.toFixed(3)} (delta=${flattenDelta.toFixed(3)}) frame=${start} path='${context.symbolPath}'`);
+            }
             if (frame.elements.length === 0) {
                 if (stageType === ConverterStageType.ANIMATION) {
-                    this.hideLayerSlots(context, layer, time);
+                    this.hideLayerSlots(context, layer, time, `flatten-empty-frame(target=${start})`);
                 }
                 return; 
             }
 
+            const activeSlots: any[] = [];
             for (let eIdx = 0; eIdx < frame.elements.length; eIdx++) {
                 let el = frame.elements[eIdx];
                 
@@ -1192,8 +1210,41 @@ export class Converter {
                     // timeOffset must be set relative to the new sub-context's absolute time
                     sub.timeOffset = sub.time - firstFrameOffset;
                 }
+
+                let frameSlot: any = null;
+                const originalCreateSlot = sub.createSlot;
+                sub.createSlot = (element: FlashElement) => {
+                    const res = originalCreateSlot.call(sub, element);
+                    frameSlot = res.slot;
+                    return res;
+                };
+
                 factory(sub);
+                if (frameSlot) activeSlots.push(frameSlot);
             }
+
+            if (stageType === ConverterStageType.ANIMATION) {
+                const allLayerSlots = context.global.layersCache.get(layer);
+                if (allLayerSlots) {
+                    for (let sIdx = 0; sIdx < allLayerSlots.length; sIdx++) {
+                        const s = allLayerSlots[sIdx];
+                        let isActive = false;
+                        for (let aIdx = 0; aIdx < activeSlots.length; aIdx++) {
+                            if (activeSlots[aIdx] === s) {
+                                isActive = true;
+                                break;
+                            }
+                        }
+
+                        if (!isActive) {
+                            if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Flatten auto-hiding inactive slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
+                            SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
+                            this.hideChildSlots(context, s.bone, time);
+                        }
+                    }
+                }
+            }
+
             return;
         }
 
@@ -1204,7 +1255,7 @@ export class Converter {
 
             if (i < 0 || i >= layer.frames.length || !layer.frames[i]) {
                 if (stageType === ConverterStageType.ANIMATION) {
-                    this.hideLayerSlots(context, layer, time);
+                    this.hideLayerSlots(context, layer, time, `loop-missing-frame(i=${i})`);
                 }
                 continue;
             }
@@ -1285,7 +1336,7 @@ export class Converter {
             
             if (frame.elements.length === 0) {
                 if (stageType === ConverterStageType.ANIMATION) {
-                    this.hideLayerSlots(context, layer, time);
+                    this.hideLayerSlots(context, layer, time, `loop-empty-frame(i=${i})`);
                 }
                 continue;
             }
