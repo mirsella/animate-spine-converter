@@ -1021,6 +1021,7 @@ export class Converter {
     private hideLayerSlots(context: ConverterContext, layer: FlashLayer, time: number, reason: string = 'unspecified'): void {
         const slots = context.global.layersCache.get(layer);
         const bones = context.global.layerBonesCache.get(layer);
+        const scopeBone = context.bone;
         const indent = this.getIndent(context.recursionDepth);
 
         if (Logger.isTraceEnabled()) {
@@ -1030,6 +1031,10 @@ export class Converter {
 
         if (slots && slots.length > 0) {
             for (const s of slots) {
+                if (scopeBone && !this.isBoneDescendant(s.bone, scopeBone)) {
+                    if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Skipping slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name}) because it is outside scope bone '${scopeBone.name}'`);
+                    continue;
+                }
                 if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Hiding slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
                 SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
                 
@@ -1041,10 +1046,24 @@ export class Converter {
         // Fix: Also hide slots associated with bones on this layer (for nested symbols)
         if (bones && bones.length > 0) {
             for (const b of bones) {
+                if (scopeBone && !this.isBoneDescendant(b, scopeBone)) {
+                    if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Skipping bone '${b.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name}) because it is outside scope bone '${scopeBone.name}'`);
+                    continue;
+                }
                 if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Hiding children of bone '${b.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name})`);
                 this.hideChildSlots(context, b, time);
             }
         }
+    }
+
+    private isBoneDescendant(candidateBone: any, ancestorBone: any): boolean {
+        if (!candidateBone || !ancestorBone) return false;
+        let curr = candidateBone;
+        while (curr) {
+            if (curr === ancestorBone) return true;
+            curr = curr.parent;
+        }
+        return false;
     }
 
     private hideChildSlots(context: ConverterContext, parentBone: any, time: number): void {
@@ -1057,13 +1076,8 @@ export class Converter {
             // would also work if we used naming conventions strictly.
             // But checking the actual parent reference is safer.
             
-            let curr = slot.bone;
-            while (curr) {
-                if (curr === parentBone) {
-                    SpineAnimationHelper.applySlotAttachment(animation, slot, context, null, time);
-                    break;
-                }
-                curr = curr.parent;
+            if (this.isBoneDescendant(slot.bone, parentBone)) {
+                SpineAnimationHelper.applySlotAttachment(animation, slot, context, null, time);
             }
         }
     }
@@ -1228,6 +1242,11 @@ export class Converter {
                 if (allLayerSlots) {
                     for (let sIdx = 0; sIdx < allLayerSlots.length; sIdx++) {
                         const s = allLayerSlots[sIdx];
+                        if (context.bone && !this.isBoneDescendant(s.bone, context.bone)) {
+                            if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Flatten skipping slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name}) because it is outside scope bone '${context.bone.name}'`);
+                            continue;
+                        }
+
                         let isActive = false;
                         for (let aIdx = 0; aIdx < activeSlots.length; aIdx++) {
                             if (activeSlots[aIdx] === s) {
@@ -1643,6 +1662,11 @@ export class Converter {
                 if (allLayerSlots) {
                     for (let sIdx = 0; sIdx < allLayerSlots.length; sIdx++) {
                         const s = allLayerSlots[sIdx];
+                        if (context.bone && !this.isBoneDescendant(s.bone, context.bone)) {
+                            if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [Visibility] Skipping slot '${s.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name}) because it is outside scope bone '${context.bone.name}'`);
+                            continue;
+                        }
+
                         let isActive = false;
                         for (let aIdx = 0; aIdx < activeSlots.length; aIdx++) {
                             if (activeSlots[aIdx] === s) { isActive = true; break; }

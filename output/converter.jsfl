@@ -968,6 +968,7 @@ var Converter = /** @class */ (function () {
         if (reason === void 0) { reason = 'unspecified'; }
         var slots = context.global.layersCache.get(layer);
         var bones = context.global.layerBonesCache.get(layer);
+        var scopeBone = context.bone;
         var indent = this.getIndent(context.recursionDepth);
         if (Logger_1.Logger.isTraceEnabled()) {
             var frameStart = context.frame ? context.frame.startFrame : -1;
@@ -976,6 +977,11 @@ var Converter = /** @class */ (function () {
         if (slots && slots.length > 0) {
             for (var _i = 0, slots_1 = slots; _i < slots_1.length; _i++) {
                 var s = slots_1[_i];
+                if (scopeBone && !this.isBoneDescendant(s.bone, scopeBone)) {
+                    if (Logger_1.Logger.isTraceEnabled())
+                        Logger_1.Logger.trace("".concat(indent, "    [Visibility] Skipping slot '").concat(s.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ") because it is outside scope bone '").concat(scopeBone.name, "'"));
+                    continue;
+                }
                 if (Logger_1.Logger.isTraceEnabled())
                     Logger_1.Logger.trace("".concat(indent, "    [Visibility] Hiding slot '").concat(s.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
                 SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, s, context, null, time);
@@ -987,11 +993,27 @@ var Converter = /** @class */ (function () {
         if (bones && bones.length > 0) {
             for (var _a = 0, bones_1 = bones; _a < bones_1.length; _a++) {
                 var b = bones_1[_a];
+                if (scopeBone && !this.isBoneDescendant(b, scopeBone)) {
+                    if (Logger_1.Logger.isTraceEnabled())
+                        Logger_1.Logger.trace("".concat(indent, "    [Visibility] Skipping bone '").concat(b.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ") because it is outside scope bone '").concat(scopeBone.name, "'"));
+                    continue;
+                }
                 if (Logger_1.Logger.isTraceEnabled())
                     Logger_1.Logger.trace("".concat(indent, "    [Visibility] Hiding children of bone '").concat(b.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ")"));
                 this.hideChildSlots(context, b, time);
             }
         }
+    };
+    Converter.prototype.isBoneDescendant = function (candidateBone, ancestorBone) {
+        if (!candidateBone || !ancestorBone)
+            return false;
+        var curr = candidateBone;
+        while (curr) {
+            if (curr === ancestorBone)
+                return true;
+            curr = curr.parent;
+        }
+        return false;
     };
     Converter.prototype.hideChildSlots = function (context, parentBone, time) {
         var skeleton = context.global.skeleton;
@@ -1001,13 +1023,8 @@ var Converter = /** @class */ (function () {
             // Optimization: slot.bone.name.indexOf(parentBone.name + "/") === 0 
             // would also work if we used naming conventions strictly.
             // But checking the actual parent reference is safer.
-            var curr = slot.bone;
-            while (curr) {
-                if (curr === parentBone) {
-                    SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(animation, slot, context, null, time);
-                    break;
-                }
-                curr = curr.parent;
+            if (this.isBoneDescendant(slot.bone, parentBone)) {
+                SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(animation, slot, context, null, time);
             }
         }
     };
@@ -1162,6 +1179,11 @@ var Converter = /** @class */ (function () {
                 if (allLayerSlots) {
                     for (var sIdx = 0; sIdx < allLayerSlots.length; sIdx++) {
                         var s = allLayerSlots[sIdx];
+                        if (context.bone && !this.isBoneDescendant(s.bone, context.bone)) {
+                            if (Logger_1.Logger.isTraceEnabled())
+                                Logger_1.Logger.trace("".concat(indent, "    [Visibility] Flatten skipping slot '").concat(s.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ") because it is outside scope bone '").concat(context.bone.name, "'"));
+                            continue;
+                        }
                         var isActive = false;
                         for (var aIdx = 0; aIdx < activeSlots.length; aIdx++) {
                             if (activeSlots[aIdx] === s) {
@@ -1566,6 +1588,11 @@ var Converter = /** @class */ (function () {
                 if (allLayerSlots) {
                     for (var sIdx = 0; sIdx < allLayerSlots.length; sIdx++) {
                         var s = allLayerSlots[sIdx];
+                        if (context.bone && !this.isBoneDescendant(s.bone, context.bone)) {
+                            if (Logger_1.Logger.isTraceEnabled())
+                                Logger_1.Logger.trace("".concat(indent, "    [Visibility] Skipping slot '").concat(s.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ") because it is outside scope bone '").concat(context.bone.name, "'"));
+                            continue;
+                        }
                         var isActive = false;
                         for (var aIdx = 0; aIdx < activeSlots.length; aIdx++) {
                             if (activeSlots[aIdx] === s) {
