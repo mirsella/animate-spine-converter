@@ -1134,7 +1134,9 @@ export class Converter {
                         return;
                     }
                 }
-            } catch (e) {}
+            } catch (e) {
+                Logger.warning(`${indent}[NESTED] Failed frame resolution for layer '${layer.name}' path='${context.symbolPath}': ${e}`);
+            }
         }
 
         if (Logger.isTraceEnabled()) {
@@ -1777,39 +1779,40 @@ export class Converter {
         parentLayer.locked = false;
         parentLayer.visible = true;
 
-        const el = parentFrame.elements[0];
-        const elName = el.name || el.libraryItem?.name || '<anon>';
-        
-        let layerIdx = -1;
-        const layers = this._document.getTimeline().layers;
-        for (let k = 0; k < layers.length; k++) {
-            if (layers[k] === parentLayer) {
-                layerIdx = k;
-                break;
+        try {
+            const el = parentFrame.elements[0];
+            const elName = el.name || el.libraryItem?.name || '<anon>';
+
+            let layerIdx = -1;
+            const layers = this._document.getTimeline().layers;
+            for (let k = 0; k < layers.length; k++) {
+                if (layers[k] === parentLayer) {
+                    layerIdx = k;
+                    break;
+                }
             }
-        }
-        
+
             if (layerIdx !== -1) {
                 this._document.getTimeline().setSelectedLayers(layerIdx);
                 this._document.getTimeline().setSelectedFrames(frameIndex, frameIndex + 1);
                 this._document.selectNone();
                 el.selected = true;
-                
+
                 let finalMat = el.matrix;
                 if (this._document.selection.length > 0) {
                     finalMat = this._document.selection[0].matrix;
                 }
-                
+
                 Logger.trace(`    [PARENTING] Resolved parent '${parentLayer.name}' (${elName}) at frame ${frameIndex}. Raw Child Mat: a=${el.matrix.a.toFixed(2)} tx=${el.matrix.tx.toFixed(2)}. Final Mat: a=${finalMat.a.toFixed(2)} tx=${finalMat.tx.toFixed(2)} ty=${finalMat.ty.toFixed(2)}`);
+                return this.concatMatrix(finalMat, parentGlobal);
+            }
 
-                parentLayer.locked = wasLocked;
-
+            Logger.trace(`    [PARENTING] Failed to find parent layer index for '${parentLayer.name}' at frame ${frameIndex}. Using global parent matrix only.`);
+            return parentGlobal;
+        } finally {
+            parentLayer.locked = wasLocked;
             parentLayer.visible = wasVisible;
-            
-            return this.concatMatrix(finalMat, parentGlobal);
         }
-
-        return parentGlobal;
     }
 
     public convertSelection():SpineSkeleton[] {

@@ -1080,7 +1080,9 @@ var Converter = /** @class */ (function () {
                     }
                 }
             }
-            catch (e) { }
+            catch (e) {
+                Logger_1.Logger.warning("".concat(indent, "[NESTED] Failed frame resolution for layer '").concat(layer.name, "' path='").concat(context.symbolPath, "': ").concat(e));
+            }
         }
         if (Logger_1.Logger.isTraceEnabled()) {
             var frameStart = context.frame ? context.frame.startFrame : -1;
@@ -1700,31 +1702,36 @@ var Converter = /** @class */ (function () {
         var wasVisible = parentLayer.visible;
         parentLayer.locked = false;
         parentLayer.visible = true;
-        var el = parentFrame.elements[0];
-        var elName = el.name || ((_a = el.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
-        var layerIdx = -1;
-        var layers = this._document.getTimeline().layers;
-        for (var k = 0; k < layers.length; k++) {
-            if (layers[k] === parentLayer) {
-                layerIdx = k;
-                break;
+        try {
+            var el = parentFrame.elements[0];
+            var elName = el.name || ((_a = el.libraryItem) === null || _a === void 0 ? void 0 : _a.name) || '<anon>';
+            var layerIdx = -1;
+            var layers = this._document.getTimeline().layers;
+            for (var k = 0; k < layers.length; k++) {
+                if (layers[k] === parentLayer) {
+                    layerIdx = k;
+                    break;
+                }
             }
+            if (layerIdx !== -1) {
+                this._document.getTimeline().setSelectedLayers(layerIdx);
+                this._document.getTimeline().setSelectedFrames(frameIndex, frameIndex + 1);
+                this._document.selectNone();
+                el.selected = true;
+                var finalMat = el.matrix;
+                if (this._document.selection.length > 0) {
+                    finalMat = this._document.selection[0].matrix;
+                }
+                Logger_1.Logger.trace("    [PARENTING] Resolved parent '".concat(parentLayer.name, "' (").concat(elName, ") at frame ").concat(frameIndex, ". Raw Child Mat: a=").concat(el.matrix.a.toFixed(2), " tx=").concat(el.matrix.tx.toFixed(2), ". Final Mat: a=").concat(finalMat.a.toFixed(2), " tx=").concat(finalMat.tx.toFixed(2), " ty=").concat(finalMat.ty.toFixed(2)));
+                return this.concatMatrix(finalMat, parentGlobal);
+            }
+            Logger_1.Logger.trace("    [PARENTING] Failed to find parent layer index for '".concat(parentLayer.name, "' at frame ").concat(frameIndex, ". Using global parent matrix only."));
+            return parentGlobal;
         }
-        if (layerIdx !== -1) {
-            this._document.getTimeline().setSelectedLayers(layerIdx);
-            this._document.getTimeline().setSelectedFrames(frameIndex, frameIndex + 1);
-            this._document.selectNone();
-            el.selected = true;
-            var finalMat = el.matrix;
-            if (this._document.selection.length > 0) {
-                finalMat = this._document.selection[0].matrix;
-            }
-            Logger_1.Logger.trace("    [PARENTING] Resolved parent '".concat(parentLayer.name, "' (").concat(elName, ") at frame ").concat(frameIndex, ". Raw Child Mat: a=").concat(el.matrix.a.toFixed(2), " tx=").concat(el.matrix.tx.toFixed(2), ". Final Mat: a=").concat(finalMat.a.toFixed(2), " tx=").concat(finalMat.tx.toFixed(2), " ty=").concat(finalMat.ty.toFixed(2)));
+        finally {
             parentLayer.locked = wasLocked;
             parentLayer.visible = wasVisible;
-            return this.concatMatrix(finalMat, parentGlobal);
         }
-        return parentGlobal;
     };
     Converter.prototype.convertSelection = function () {
         var skeleton = (this._config.mergeSkeletons ? new SpineSkeleton_1.SpineSkeleton() : null);
