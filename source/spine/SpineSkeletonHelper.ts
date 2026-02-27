@@ -1,5 +1,6 @@
 import { SpineBone } from './SpineBone';
 import { SpineSkeleton } from './SpineSkeleton';
+import { SPINE_NAME_PATH_SEPARATOR } from '../utils/ConvertUtil';
 
 export class SpineSkeletonHelper {
     public static simplifySkeletonNames(skeleton:SpineSkeleton):void {
@@ -16,11 +17,11 @@ export class SpineSkeletonHelper {
             //-----------------------------------
 
             for (const bone of skeleton.bones) {
-                const path = bone.name.split('/');
+                const path = bone.name.split(SPINE_NAME_PATH_SEPARATOR);
                 let name = bone.name;
 
                 if (path.length > 1) {
-                    name = path.slice(1).join('/');
+                    name = path.slice(1).join(SPINE_NAME_PATH_SEPARATOR);
                     isSimplified = false;
                 }
 

@@ -5,6 +5,16 @@ import { SpineBlendMode } from '../spine/types/SpineBlendMode';
 import { JsonUtil } from './JsonUtil';
 import { StringUtil } from './StringUtil';
 
+// Avoid emitting '/' in exported bone/slot names.
+//
+// Some Spine runtimes treat '/' as a slot path separator and will not resolve
+// skin attachment keys correctly if they use the full path.
+//
+// We use a separator that cannot be produced by `StringUtil.simplify(...)`
+// (which collapses multiple '_' into a single '_'), so hierarchy names remain
+// deterministic and unambiguous.
+export const SPINE_NAME_PATH_SEPARATOR = '___';
+
 export class ConvertUtil {
     public static createElementName(element:FlashElement, context:ConverterContext):string {
         let result = element.layer.name;
@@ -139,7 +149,7 @@ export class ConvertUtil {
     public static createBoneName(element:FlashElement, context:ConverterContext):string {
         const baseLocalName = ConvertUtil.createElementName(element, context);
         const parentName = (context != null && context.bone != null && context.bone.name !== 'root') ? context.bone.name : '';
-        const baseFullName = parentName ? (parentName + '/' + baseLocalName) : baseLocalName;
+        const baseFullName = parentName ? (parentName + SPINE_NAME_PATH_SEPARATOR + baseLocalName) : baseLocalName;
 
         // If global cache isn't available, keep the original behavior.
         if (!context || !context.global || !context.global.skeleton || !context.global.boneNameBySignature) {

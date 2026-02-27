@@ -2801,11 +2801,12 @@ exports.SpineSkeleton = SpineSkeleton;
 /*!*********************************************!*\
   !*** ./source/spine/SpineSkeletonHelper.ts ***!
   \*********************************************/
-/***/ (function(__unused_webpack_module, exports) {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
 
 exports.SpineSkeletonHelper = void 0;
+var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
 var SpineSkeletonHelper = /** @class */ (function () {
     function SpineSkeletonHelper() {
     }
@@ -2820,10 +2821,10 @@ var SpineSkeletonHelper = /** @class */ (function () {
             //-----------------------------------
             for (var _i = 0, _a = skeleton.bones; _i < _a.length; _i++) {
                 var bone = _a[_i];
-                var path = bone.name.split('/');
+                var path = bone.name.split(ConvertUtil_1.SPINE_NAME_PATH_SEPARATOR);
                 var name = bone.name;
                 if (path.length > 1) {
-                    name = path.slice(1).join('/');
+                    name = path.slice(1).join(ConvertUtil_1.SPINE_NAME_PATH_SEPARATOR);
                     isSimplified = false;
                 }
                 if (repeats[name] == null) {
@@ -3943,10 +3944,19 @@ exports.SpineTransformMatrix = SpineTransformMatrix;
 
 
 
-exports.ConvertUtil = void 0;
+exports.ConvertUtil = exports.SPINE_NAME_PATH_SEPARATOR = void 0;
 var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
 var JsonUtil_1 = __webpack_require__(/*! ./JsonUtil */ "./source/utils/JsonUtil.ts");
 var StringUtil_1 = __webpack_require__(/*! ./StringUtil */ "./source/utils/StringUtil.ts");
+// Avoid emitting '/' in exported bone/slot names.
+//
+// Some Spine runtimes treat '/' as a slot path separator and will not resolve
+// skin attachment keys correctly if they use the full path.
+//
+// We use a separator that cannot be produced by `StringUtil.simplify(...)`
+// (which collapses multiple '_' into a single '_'), so hierarchy names remain
+// deterministic and unambiguous.
+exports.SPINE_NAME_PATH_SEPARATOR = '___';
 var ConvertUtil = /** @class */ (function () {
     function ConvertUtil() {
     }
@@ -4080,7 +4090,7 @@ var ConvertUtil = /** @class */ (function () {
     ConvertUtil.createBoneName = function (element, context) {
         var baseLocalName = ConvertUtil.createElementName(element, context);
         var parentName = (context != null && context.bone != null && context.bone.name !== 'root') ? context.bone.name : '';
-        var baseFullName = parentName ? (parentName + '/' + baseLocalName) : baseLocalName;
+        var baseFullName = parentName ? (parentName + exports.SPINE_NAME_PATH_SEPARATOR + baseLocalName) : baseLocalName;
         // If global cache isn't available, keep the original behavior.
         if (!context || !context.global || !context.global.skeleton || !context.global.boneNameBySignature) {
             return baseFullName;
