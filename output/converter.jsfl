@@ -3150,6 +3150,7 @@ var __assign = (this && this.__assign) || function () {
 
 exports.SpineFormatV3_8_99 = void 0;
 var JsonFormatUtil_1 = __webpack_require__(/*! ../../utils/JsonFormatUtil */ "./source/utils/JsonFormatUtil.ts");
+var Logger_1 = __webpack_require__(/*! ../../logger/Logger */ "./source/logger/Logger.ts");
 var SpineFormatOptimizer_1 = __webpack_require__(/*! ./SpineFormatOptimizer */ "./source/spine/formats/SpineFormatOptimizer.ts");
 var SpineFormatV3_8_99 = /** @class */ (function () {
     function SpineFormatV3_8_99() {
@@ -3158,11 +3159,232 @@ var SpineFormatV3_8_99 = /** @class */ (function () {
     }
     //-----------------------------------
     SpineFormatV3_8_99.prototype.convertSkeleton = function (skeleton) {
+        var bounds = this.calculateSkeletonBounds(skeleton);
+        if (bounds == null) {
+            Logger_1.Logger.warning('Skeleton metadata bounds could not be calculated. Using 0-sized bounds for skeleton:', skeleton.name);
+        }
         return {
             spine: this.version,
             images: skeleton.imagesPath,
-            hash: 'unknown'
+            hash: 'unknown',
+            x: bounds != null ? bounds.x : 0,
+            y: bounds != null ? bounds.y : 0,
+            width: bounds != null ? bounds.width : 0,
+            height: bounds != null ? bounds.height : 0
         };
+    };
+    SpineFormatV3_8_99.prototype.calculateSkeletonBounds = function (skeleton) {
+        var worldTransformsByBoneName = {};
+        var visitingByBoneName = {};
+        for (var _i = 0, _a = skeleton.bones; _i < _a.length; _i++) {
+            var bone = _a[_i];
+            this.resolveBoneWorldTransform(bone, worldTransformsByBoneName, visitingByBoneName);
+        }
+        var setupBounds = this.createEmptyBoundsAccumulator();
+        for (var _b = 0, _c = skeleton.slots; _b < _c.length; _b++) {
+            var slot = _c[_b];
+            var attachment = slot.attachment;
+            if (attachment == null || attachment.type !== "region" /* SpineAttachmentType.REGION */) {
+                continue;
+            }
+            this.expandBoundsWithRegionAttachment(setupBounds, slot, attachment, worldTransformsByBoneName, skeleton.name);
+        }
+        if (setupBounds.initialized) {
+            return this.toSpineBounds(setupBounds, skeleton.name);
+        }
+        Logger_1.Logger.warning('No setup pose region attachments found while calculating skeleton bounds for skeleton:', skeleton.name, 'Falling back to all region attachments in slots.');
+        var fallbackBounds = this.createEmptyBoundsAccumulator();
+        for (var _d = 0, _e = skeleton.slots; _d < _e.length; _d++) {
+            var slot = _e[_d];
+            for (var _f = 0, _g = slot.attachments; _f < _g.length; _f++) {
+                var attachment = _g[_f];
+                if (attachment.type !== "region" /* SpineAttachmentType.REGION */) {
+                    continue;
+                }
+                this.expandBoundsWithRegionAttachment(fallbackBounds, slot, attachment, worldTransformsByBoneName, skeleton.name);
+            }
+        }
+        if (!fallbackBounds.initialized) {
+            Logger_1.Logger.warning('No valid region attachments found for skeleton bounds metadata in skeleton:', skeleton.name);
+            return null;
+        }
+        return this.toSpineBounds(fallbackBounds, skeleton.name);
+    };
+    SpineFormatV3_8_99.prototype.resolveBoneWorldTransform = function (bone, worldTransformsByBoneName, visitingByBoneName) {
+        var boneName = this.requireName(bone.name, 'bone');
+        var cached = worldTransformsByBoneName[boneName];
+        if (cached != null) {
+            return cached;
+        }
+        if (visitingByBoneName[boneName] === true) {
+            Logger_1.Logger.warning('Bone hierarchy cycle detected while calculating skeleton bounds at bone:', boneName);
+            throw new Error('Bone hierarchy cycle detected while calculating skeleton bounds at bone: ' + boneName);
+        }
+        visitingByBoneName[boneName] = true;
+        var localX = this.numberOrDefault(bone.x, 0);
+        var localY = this.numberOrDefault(bone.y, 0) * SpineFormatV3_8_99.Y_FLIP;
+        var localRotation = this.numberOrDefault(bone.rotation, 0);
+        var localShearX = this.numberOrDefault(bone.shearX, 0);
+        var localShearY = this.numberOrDefault(bone.shearY, 0);
+        var localScaleX = this.numberOrDefault(bone.scaleX, 1);
+        var localScaleY = this.numberOrDefault(bone.scaleY, 1);
+        var rotationX = (localRotation + localShearX) * SpineFormatV3_8_99.DEG_TO_RAD;
+        var rotationY = (localRotation + 90 + localShearY) * SpineFormatV3_8_99.DEG_TO_RAD;
+        var localA = Math.cos(rotationX) * localScaleX;
+        var localB = Math.cos(rotationY) * localScaleY;
+        var localC = Math.sin(rotationX) * localScaleX;
+        var localD = Math.sin(rotationY) * localScaleY;
+        var worldTransform;
+        if (bone.parent == null) {
+            worldTransform = {
+                a: localA,
+                b: localB,
+                c: localC,
+                d: localD,
+                worldX: localX,
+                worldY: localY
+            };
+        }
+        else {
+            var parentName = this.requireName(bone.parent.name, 'parent bone');
+            var parentWorldTransform = this.resolveBoneWorldTransform(bone.parent, worldTransformsByBoneName, visitingByBoneName);
+            worldTransform = {
+                a: parentWorldTransform.a * localA + parentWorldTransform.b * localC,
+                b: parentWorldTransform.a * localB + parentWorldTransform.b * localD,
+                c: parentWorldTransform.c * localA + parentWorldTransform.d * localC,
+                d: parentWorldTransform.c * localB + parentWorldTransform.d * localD,
+                worldX: parentWorldTransform.a * localX + parentWorldTransform.b * localY + parentWorldTransform.worldX,
+                worldY: parentWorldTransform.c * localX + parentWorldTransform.d * localY + parentWorldTransform.worldY
+            };
+            if (parentName === boneName) {
+                Logger_1.Logger.warning('Bone has itself as parent while calculating bounds:', boneName);
+                throw new Error('Invalid bone parent relation for bone: ' + boneName);
+            }
+        }
+        this.validateFiniteBoneWorldTransform(worldTransform, boneName);
+        visitingByBoneName[boneName] = false;
+        worldTransformsByBoneName[boneName] = worldTransform;
+        return worldTransform;
+    };
+    SpineFormatV3_8_99.prototype.expandBoundsWithRegionAttachment = function (bounds, slot, attachment, worldTransformsByBoneName, skeletonName) {
+        if (slot.bone == null) {
+            Logger_1.Logger.warning('Slot has no parent bone while calculating skeleton bounds:', slot.name, 'in skeleton:', skeletonName);
+            throw new Error('Slot has no parent bone while calculating bounds: ' + slot.name);
+        }
+        var boneName = this.requireName(slot.bone.name, 'slot bone');
+        var worldTransform = worldTransformsByBoneName[boneName];
+        if (worldTransform == null) {
+            Logger_1.Logger.warning('Missing bone world transform while calculating skeleton bounds. Skeleton:', skeletonName, 'slot:', slot.name, 'bone:', boneName);
+            throw new Error('Missing bone world transform for bone: ' + boneName);
+        }
+        var width = this.numberOrDefault(attachment.width, 0);
+        var height = this.numberOrDefault(attachment.height, 0);
+        if (width <= 0 || height <= 0) {
+            Logger_1.Logger.warning('Skipping region attachment with non-positive size while calculating skeleton bounds. Skeleton:', skeletonName, 'slot:', slot.name, 'attachment:', attachment.name, 'width:', width, 'height:', height);
+            return;
+        }
+        var attachmentX = this.numberOrDefault(attachment.x, 0);
+        var attachmentY = this.numberOrDefault(attachment.y, 0) * SpineFormatV3_8_99.Y_FLIP;
+        var attachmentRotation = this.numberOrDefault(attachment.rotation, 0) * SpineFormatV3_8_99.DEG_TO_RAD;
+        var attachmentScaleX = this.numberOrDefault(attachment.scaleX, 1);
+        var attachmentScaleY = this.numberOrDefault(attachment.scaleY, 1);
+        var halfWidth = width / 2;
+        var halfHeight = height / 2;
+        var localCornerX = [-halfWidth, halfWidth, halfWidth, -halfWidth];
+        var localCornerY = [-halfHeight, -halfHeight, halfHeight, halfHeight];
+        var cos = Math.cos(attachmentRotation);
+        var sin = Math.sin(attachmentRotation);
+        for (var index = 0; index < 4; index++) {
+            var scaledX = localCornerX[index] * attachmentScaleX;
+            var scaledY = localCornerY[index] * attachmentScaleY;
+            var rotatedX = scaledX * cos - scaledY * sin + attachmentX;
+            var rotatedY = scaledX * sin + scaledY * cos + attachmentY;
+            var worldX = worldTransform.a * rotatedX + worldTransform.b * rotatedY + worldTransform.worldX;
+            var worldY = worldTransform.c * rotatedX + worldTransform.d * rotatedY + worldTransform.worldY;
+            this.expandBoundsWithPoint(bounds, worldX, worldY);
+        }
+    };
+    SpineFormatV3_8_99.prototype.expandBoundsWithPoint = function (bounds, x, y) {
+        if (!this.isFiniteNumber(x) || !this.isFiniteNumber(y)) {
+            Logger_1.Logger.warning('Non-finite region vertex detected while calculating skeleton bounds. x:', x, 'y:', y);
+            throw new Error('Invalid region vertex while calculating skeleton bounds.');
+        }
+        if (!bounds.initialized) {
+            bounds.initialized = true;
+            bounds.minX = x;
+            bounds.maxX = x;
+            bounds.minY = y;
+            bounds.maxY = y;
+            return;
+        }
+        if (x < bounds.minX) {
+            bounds.minX = x;
+        }
+        if (x > bounds.maxX) {
+            bounds.maxX = x;
+        }
+        if (y < bounds.minY) {
+            bounds.minY = y;
+        }
+        if (y > bounds.maxY) {
+            bounds.maxY = y;
+        }
+    };
+    SpineFormatV3_8_99.prototype.createEmptyBoundsAccumulator = function () {
+        return {
+            initialized: false,
+            minX: 0,
+            maxX: 0,
+            minY: 0,
+            maxY: 0
+        };
+    };
+    SpineFormatV3_8_99.prototype.toSpineBounds = function (bounds, skeletonName) {
+        if (!bounds.initialized) {
+            return null;
+        }
+        var width = bounds.maxX - bounds.minX;
+        var height = bounds.maxY - bounds.minY;
+        if (width <= 0 || height <= 0) {
+            Logger_1.Logger.warning('Calculated skeleton bounds are non-positive. Skeleton:', skeletonName, 'x:', bounds.minX, 'y:', bounds.minY, 'width:', width, 'height:', height);
+            return null;
+        }
+        return {
+            x: this.roundBound(bounds.minX),
+            y: this.roundBound(bounds.minY),
+            width: this.roundBound(width),
+            height: this.roundBound(height)
+        };
+    };
+    SpineFormatV3_8_99.prototype.validateFiniteBoneWorldTransform = function (transform, boneName) {
+        if (!this.isFiniteNumber(transform.a)
+            || !this.isFiniteNumber(transform.b)
+            || !this.isFiniteNumber(transform.c)
+            || !this.isFiniteNumber(transform.d)
+            || !this.isFiniteNumber(transform.worldX)
+            || !this.isFiniteNumber(transform.worldY)) {
+            Logger_1.Logger.warning('Non-finite bone world transform detected while calculating bounds. Bone:', boneName);
+            throw new Error('Invalid bone world transform while calculating bounds. Bone: ' + boneName);
+        }
+    };
+    SpineFormatV3_8_99.prototype.requireName = function (name, label) {
+        if (name == null || name === '') {
+            Logger_1.Logger.warning('Encountered', label, 'with empty name while calculating skeleton bounds metadata.');
+            throw new Error('Encountered ' + label + ' with empty name while calculating skeleton bounds metadata.');
+        }
+        return name;
+    };
+    SpineFormatV3_8_99.prototype.numberOrDefault = function (value, defaultValue) {
+        if (this.isFiniteNumber(value)) {
+            return value;
+        }
+        return defaultValue;
+    };
+    SpineFormatV3_8_99.prototype.isFiniteNumber = function (value) {
+        return typeof value === 'number' && !isNaN(value) && isFinite(value);
+    };
+    SpineFormatV3_8_99.prototype.roundBound = function (value) {
+        return Math.round(value * 10000) / 10000;
     };
     SpineFormatV3_8_99.prototype.convertBone = function (bone) {
         return JsonFormatUtil_1.JsonFormatUtil.cleanObject({
@@ -3385,6 +3607,7 @@ var SpineFormatV3_8_99 = /** @class */ (function () {
     };
     // Y-axis direction: Animate uses Y-down, Spine uses Y-up
     SpineFormatV3_8_99.Y_FLIP = -1;
+    SpineFormatV3_8_99.DEG_TO_RAD = Math.PI / 180;
     return SpineFormatV3_8_99;
 }());
 exports.SpineFormatV3_8_99 = SpineFormatV3_8_99;
