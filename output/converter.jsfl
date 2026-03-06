@@ -1043,6 +1043,7 @@ var Converter = /** @class */ (function () {
         var indent = this.getIndent(context.recursionDepth);
         var isNestedFlattening = false;
         var targetFrame = 0;
+        var nestedHideReason = null;
         if (context.parent == null && label != null && stageType === "animation" /* ConverterStageType.ANIMATION */) {
             start = label.startFrameIdx;
             end = label.endFrameIdx;
@@ -1063,26 +1064,43 @@ var Converter = /** @class */ (function () {
                     var firstFrame = (instance.firstFrame !== undefined) ? instance.firstFrame : 0;
                     var loopMode = (instance.loop !== undefined) ? instance.loop : 'loop';
                     var tlFrameCount = tl.frameCount;
-                    if (tlFrameCount <= 0)
+                    if (tlFrameCount <= 0) {
+                        Logger_1.Logger.warning("".concat(indent, "[NESTED] Instance '").concat(instance.name || instance.libraryItem.name, "' has no timeline frames. Hiding layer '").concat(layer.name, "' path='").concat(context.symbolPath, "'."));
+                        if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
+                            this.hideLayerSlots(context, layer, context.time, 'flatten-empty-nested-timeline');
+                        }
                         return;
+                    }
                     if (loopMode === 'single frame') {
                         targetFrame = firstFrame;
                     }
                     else if (loopMode === 'play once') {
                         targetFrame = firstFrame + frameOffset;
-                        if (targetFrame >= tlFrameCount)
-                            targetFrame = tlFrameCount - 1;
+                        if (targetFrame >= tlFrameCount) {
+                            nestedHideReason = "flatten-play-once-finished(requested=".concat(targetFrame, ", total=").concat(tlFrameCount, ")");
+                        }
                     }
                     else { // loop
                         targetFrame = (firstFrame + frameOffset) % tlFrameCount;
                     }
                     Logger_1.Logger.trace("".concat(indent, "    [NESTED] Instance: ").concat(instance.name || instance.libraryItem.name, " Loop: ").concat(loopMode, " FirstFrame: ").concat(firstFrame, " ParentFrame: ").concat(parentInternalFrame, " Offset: ").concat(frameOffset, " Target: ").concat(targetFrame, "/").concat(tlFrameCount));
+                    if (nestedHideReason != null) {
+                        Logger_1.Logger.trace("".concat(indent, "    [NESTED] Hiding exhausted play-once instance '").concat(instance.name || instance.libraryItem.name, "' on layer '").concat(layer.name, "' reason='").concat(nestedHideReason, "' path='").concat(context.symbolPath, "'"));
+                        if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
+                            this.hideLayerSlots(context, layer, context.time, nestedHideReason);
+                        }
+                        return;
+                    }
                     if (targetFrame >= 0 && targetFrame < layer.frames.length) {
                         isNestedFlattening = true;
                         start = targetFrame;
                         end = targetFrame;
                     }
                     else {
+                        Logger_1.Logger.warning("".concat(indent, "[NESTED] Resolved frame ").concat(targetFrame, " is outside layer '").concat(layer.name, "' (").concat(layer.frames.length, " frames) for instance '").concat(instance.name || instance.libraryItem.name, "'. Hiding layer. Path='").concat(context.symbolPath, "'"));
+                        if (stageType === "animation" /* ConverterStageType.ANIMATION */) {
+                            this.hideLayerSlots(context, layer, context.time, "flatten-invalid-target-frame(".concat(targetFrame, ")"));
+                        }
                         return;
                     }
                 }

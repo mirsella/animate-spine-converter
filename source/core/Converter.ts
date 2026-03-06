@@ -1097,6 +1097,7 @@ export class Converter {
 
         let isNestedFlattening = false;
         let targetFrame = 0;
+        let nestedHideReason:string = null;
 
         if (context.parent == null && label != null && stageType === ConverterStageType.ANIMATION) {
             start = label.startFrameIdx;
@@ -1120,24 +1121,44 @@ export class Converter {
                     const loopMode = (instance.loop !== undefined) ? instance.loop : 'loop'; 
                     const tlFrameCount = tl.frameCount;
                     
-                    if (tlFrameCount <= 0) return;
+                    if (tlFrameCount <= 0) {
+                        Logger.warning(`${indent}[NESTED] Instance '${instance.name || instance.libraryItem.name}' has no timeline frames. Hiding layer '${layer.name}' path='${context.symbolPath}'.`);
+                        if (stageType === ConverterStageType.ANIMATION) {
+                            this.hideLayerSlots(context, layer, context.time, 'flatten-empty-nested-timeline');
+                        }
+                        return;
+                    }
                     
                     if (loopMode === 'single frame') {
                         targetFrame = firstFrame;
                     } else if (loopMode === 'play once') {
                         targetFrame = firstFrame + frameOffset;
-                        if (targetFrame >= tlFrameCount) targetFrame = tlFrameCount - 1;
+                        if (targetFrame >= tlFrameCount) {
+                            nestedHideReason = `flatten-play-once-finished(requested=${targetFrame}, total=${tlFrameCount})`;
+                        }
                     } else { // loop
                         targetFrame = (firstFrame + frameOffset) % tlFrameCount;
                     }
                     
                     Logger.trace(`${indent}    [NESTED] Instance: ${instance.name || instance.libraryItem.name} Loop: ${loopMode} FirstFrame: ${firstFrame} ParentFrame: ${parentInternalFrame} Offset: ${frameOffset} Target: ${targetFrame}/${tlFrameCount}`);
 
+                    if (nestedHideReason != null) {
+                        Logger.trace(`${indent}    [NESTED] Hiding exhausted play-once instance '${instance.name || instance.libraryItem.name}' on layer '${layer.name}' reason='${nestedHideReason}' path='${context.symbolPath}'`);
+                        if (stageType === ConverterStageType.ANIMATION) {
+                            this.hideLayerSlots(context, layer, context.time, nestedHideReason);
+                        }
+                        return;
+                    }
+
                     if (targetFrame >= 0 && targetFrame < layer.frames.length) {
                         isNestedFlattening = true;
                         start = targetFrame;
                         end = targetFrame;
                     } else {
+                        Logger.warning(`${indent}[NESTED] Resolved frame ${targetFrame} is outside layer '${layer.name}' (${layer.frames.length} frames) for instance '${instance.name || instance.libraryItem.name}'. Hiding layer. Path='${context.symbolPath}'`);
+                        if (stageType === ConverterStageType.ANIMATION) {
+                            this.hideLayerSlots(context, layer, context.time, `flatten-invalid-target-frame(${targetFrame})`);
+                        }
                         return;
                     }
                 }
