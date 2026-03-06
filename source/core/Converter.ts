@@ -285,6 +285,7 @@ export class Converter {
 
         const baseImagePath = this.prepareImagesExportPath(context, baseImageName);
         let spineImage = context.global.imagesCache.get(baseImagePath);
+        let didExportImage = false;
         if (spineImage == null) {
             try {
                 Logger.status(`[IMAGE] Exporting '${baseImageName}'`);
@@ -292,10 +293,12 @@ export class Converter {
                     Logger.status(`[IMAGE] imageExportFactory '${baseImageName}'`);
                     return imageExportFactory(context, baseImagePath);
                 });
+                didExportImage = true;
                 Logger.status(`[IMAGE] Exported '${baseImageName}'`);
             } catch (e) {
                 Logger.error(`[Converter] Image export error for '${baseImageName}': ${e}. Using placeholder.`);
                 spineImage = new SpineImage(baseImagePath, 1, 1, 1, 0, 0, 0, 0);
+                didExportImage = true;
                 Logger.status(`[IMAGE] Placeholder for '${baseImageName}'`);
             }
             context.global.imagesCache.set(baseImagePath, spineImage);
@@ -303,20 +306,24 @@ export class Converter {
             // Logger.trace(`[IMAGE] Cache hit for: ${baseImageName}`);
         }
 
-        // Image export may change edit mode / invalidate JSFL object references.
-        // Refresh element/layer/frame handles before continuing.
-        let refreshed = this.refreshContextFromHints(context, preHints);
-        if (!refreshed) {
-            const resolved = this.resolveElementFallback(preHints, beforeLayerName, beforeElementName, beforeLibraryItemName);
-            if (resolved) {
-                context.layer = resolved.layer;
-                context.frame = resolved.frame;
-                context.element = resolved.element;
-                refreshed = true;
+        // Only refresh after a real export. Cache hits do not switch edit mode and can
+        // legitimately run on in-between animation frames where hint-based re-resolution
+        // is unreliable.
+        let refreshed = true;
+        if (didExportImage) {
+            refreshed = this.refreshContextFromHints(context, preHints);
+            if (!refreshed) {
+                const resolved = this.resolveElementFallback(preHints, beforeLayerName, beforeElementName, beforeLibraryItemName);
+                if (resolved) {
+                    context.layer = resolved.layer;
+                    context.frame = resolved.frame;
+                    context.element = resolved.element;
+                    refreshed = true;
+                }
             }
         }
-        Logger.status(`[Slot] refresh ${refreshed ? 'ok' : 'fail'} element='${beforeElementName}'`);
-        if (!refreshed) {
+        Logger.status(`[Slot] refresh ${didExportImage ? (refreshed ? 'ok' : 'fail') : 'skip'} element='${beforeElementName}'`);
+        if (didExportImage && !refreshed) {
             Logger.error(`[Converter] Failed to refresh element after image export. Skipping slot for '${beforeElementName}'.`);
             return;
         }

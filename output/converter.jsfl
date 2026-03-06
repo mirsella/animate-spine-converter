@@ -295,6 +295,7 @@ var Converter = /** @class */ (function () {
         Logger_1.Logger.status("[Slot] start element='".concat(beforeElementName, "' image='").concat(baseImageName, "' stage=").concat(context.global.stageType, " depth=").concat(context.recursionDepth));
         var baseImagePath = this.prepareImagesExportPath(context, baseImageName);
         var spineImage = context.global.imagesCache.get(baseImagePath);
+        var didExportImage = false;
         if (spineImage == null) {
             try {
                 Logger_1.Logger.status("[IMAGE] Exporting '".concat(baseImageName, "'"));
@@ -302,11 +303,13 @@ var Converter = /** @class */ (function () {
                     Logger_1.Logger.status("[IMAGE] imageExportFactory '".concat(baseImageName, "'"));
                     return imageExportFactory(context, baseImagePath);
                 });
+                didExportImage = true;
                 Logger_1.Logger.status("[IMAGE] Exported '".concat(baseImageName, "'"));
             }
             catch (e) {
                 Logger_1.Logger.error("[Converter] Image export error for '".concat(baseImageName, "': ").concat(e, ". Using placeholder."));
                 spineImage = new SpineImage_1.SpineImage(baseImagePath, 1, 1, 1, 0, 0, 0, 0);
+                didExportImage = true;
                 Logger_1.Logger.status("[IMAGE] Placeholder for '".concat(baseImageName, "'"));
             }
             context.global.imagesCache.set(baseImagePath, spineImage);
@@ -314,20 +317,24 @@ var Converter = /** @class */ (function () {
         else {
             // Logger.trace(`[IMAGE] Cache hit for: ${baseImageName}`);
         }
-        // Image export may change edit mode / invalidate JSFL object references.
-        // Refresh element/layer/frame handles before continuing.
-        var refreshed = this.refreshContextFromHints(context, preHints);
-        if (!refreshed) {
-            var resolved = this.resolveElementFallback(preHints, beforeLayerName, beforeElementName, beforeLibraryItemName);
-            if (resolved) {
-                context.layer = resolved.layer;
-                context.frame = resolved.frame;
-                context.element = resolved.element;
-                refreshed = true;
+        // Only refresh after a real export. Cache hits do not switch edit mode and can
+        // legitimately run on in-between animation frames where hint-based re-resolution
+        // is unreliable.
+        var refreshed = true;
+        if (didExportImage) {
+            refreshed = this.refreshContextFromHints(context, preHints);
+            if (!refreshed) {
+                var resolved = this.resolveElementFallback(preHints, beforeLayerName, beforeElementName, beforeLibraryItemName);
+                if (resolved) {
+                    context.layer = resolved.layer;
+                    context.frame = resolved.frame;
+                    context.element = resolved.element;
+                    refreshed = true;
+                }
             }
         }
-        Logger_1.Logger.status("[Slot] refresh ".concat(refreshed ? 'ok' : 'fail', " element='").concat(beforeElementName, "'"));
-        if (!refreshed) {
+        Logger_1.Logger.status("[Slot] refresh ".concat(didExportImage ? (refreshed ? 'ok' : 'fail') : 'skip', " element='").concat(beforeElementName, "'"));
+        if (didExportImage && !refreshed) {
             Logger_1.Logger.error("[Converter] Failed to refresh element after image export. Skipping slot for '".concat(beforeElementName, "'."));
             return;
         }
