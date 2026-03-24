@@ -3,6 +3,7 @@ import { Logger } from '../logger/Logger';
 export class StringUtil {
     public static simplify(value:string):string {
         if (!value) return 'unnamed';
+        const ordSentinel = '_opencode_ord_marker_';
         
         // Lowercase first
         let result = value.toLowerCase();
@@ -36,9 +37,18 @@ export class StringUtil {
         }
         result = cleaned;
 
+        // Preserve the explicit order marker used by the pipeline.
+        while (result.indexOf('__ord__') !== -1) {
+            result = result.replace('__ord__', ordSentinel);
+        }
+
         // Collapse multiple underscores
         while (result.indexOf("__") !== -1) {
             result = result.replace("__", "_");
+        }
+
+        while (result.indexOf(ordSentinel) !== -1) {
+            result = result.replace(ordSentinel, '__ord__');
         }
 
         // Trim leading/trailing underscores

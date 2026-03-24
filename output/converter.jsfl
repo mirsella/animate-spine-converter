@@ -6000,6 +6000,7 @@ var StringUtil = /** @class */ (function () {
     StringUtil.simplify = function (value) {
         if (!value)
             return 'unnamed';
+        var ordSentinel = '_opencode_ord_marker_';
         // Lowercase first
         var result = value.toLowerCase();
         var original = result;
@@ -6029,9 +6030,16 @@ var StringUtil = /** @class */ (function () {
             }
         }
         result = cleaned;
+        // Preserve the explicit order marker used by the pipeline.
+        while (result.indexOf('__ord__') !== -1) {
+            result = result.replace('__ord__', ordSentinel);
+        }
         // Collapse multiple underscores
         while (result.indexOf("__") !== -1) {
             result = result.replace("__", "_");
+        }
+        while (result.indexOf(ordSentinel) !== -1) {
+            result = result.replace(ordSentinel, '__ord__');
         }
         // Trim leading/trailing underscores
         if (result.charAt(0) === "_")
