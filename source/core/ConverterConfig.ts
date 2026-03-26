@@ -3,7 +3,8 @@ import { SpineFormat } from '../spine/formats/SpineFormat';
 export interface ConverterConfig {
     outputFormat:SpineFormat;
     imagesExportPath?:string;
-    imageExportScale?:number;
+    rasterExportScale?:number;
+    rootScaleMultiplier?:number;
     appendSkeletonToImagesPath?:boolean;
     mergeSkeletons?:boolean;
     mergeSkeletonsRootBone?:boolean;
@@ -12,7 +13,6 @@ export interface ConverterConfig {
     exportFrameCommentsAsEvents?:boolean;
     exportShapes?:boolean;
     exportTextAsShapes?:boolean;
-    shapeExportScale?:number;
     mergeShapes?:boolean;
     exportImages?:boolean;
     mergeImages?:boolean;

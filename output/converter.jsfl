@@ -565,7 +565,7 @@ var Converter = /** @class */ (function () {
         var _this = this;
         this.convertElementSlot(context, context.element.libraryItem, function (context, imagePath) {
             var _a;
-            return ImageUtil_1.ImageUtil.exportBitmap(imagePath, context.element, _this._document, (_a = _this._config.imageExportScale) !== null && _a !== void 0 ? _a : 1, _this._config.exportImages);
+            return ImageUtil_1.ImageUtil.exportBitmap(imagePath, context.element, _this._document, (_a = _this._config.rasterExportScale) !== null && _a !== void 0 ? _a : 1, _this._config.exportImages);
         });
     };
     Converter.prototype.convertShapeMaskElementSlot = function (context, matrix, controlOffset) {
@@ -596,8 +596,9 @@ var Converter = /** @class */ (function () {
     Converter.prototype.convertShapeElementSlot = function (context) {
         var _this = this;
         this.convertElementSlot(context, context.element, function (context, imagePath) {
+            var _a;
             var hints = _this.createSelectionHints(context);
-            return ImageUtil_1.ImageUtil.exportShape(imagePath, context.element, _this._document, _this._config.shapeExportScale, _this._config.exportShapes, hints);
+            return ImageUtil_1.ImageUtil.exportShape(imagePath, context.element, _this._document, (_a = _this._config.rasterExportScale) !== null && _a !== void 0 ? _a : 1, _this._config.exportShapes, hints);
         });
     };
     Converter.prototype.composeElementMaskLayer = function (context, convertLayer, allowBaking) {
@@ -662,7 +663,7 @@ var Converter = /** @class */ (function () {
         var _this = this;
         this.convertElementSlot(context, context.element.libraryItem, function (context, imagePath) {
             var _a;
-            return ImageUtil_1.ImageUtil.exportLibraryItem(imagePath, context.element, (_a = _this._config.imageExportScale) !== null && _a !== void 0 ? _a : 1, _this._config.exportShapes);
+            return ImageUtil_1.ImageUtil.exportLibraryItem(imagePath, context.element, (_a = _this._config.rasterExportScale) !== null && _a !== void 0 ? _a : 1, _this._config.exportShapes);
         });
     };
     Converter.prototype.convertCompositeElementLayer = function (context, convertLayer, allowBaking) {
@@ -2055,11 +2056,25 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
     function ConverterContextGlobal() {
         return _super.call(this) || this;
     }
+    ConverterContextGlobal.getScaleMultiplier = function (config) {
+        var value = config.rootScaleMultiplier;
+        return typeof value === 'number' && isFinite(value) && value > 0 ? value : 1;
+    };
+    ConverterContextGlobal.applyRootScaleMultiplier = function (bone, multiplier) {
+        if (multiplier === 1) {
+            return;
+        }
+        var baseScaleX = typeof bone.scaleX === 'number' && isFinite(bone.scaleX) ? bone.scaleX : 1;
+        var baseScaleY = typeof bone.scaleY === 'number' && isFinite(bone.scaleY) ? bone.scaleY : 1;
+        bone.scaleX = baseScaleX * multiplier;
+        bone.scaleY = baseScaleY * multiplier;
+    };
     ConverterContextGlobal.initializeGlobal = function (element, config, frameRate, skeleton, cache) {
         var _a;
         if (skeleton === void 0) { skeleton = null; }
         if (cache === void 0) { cache = null; }
         var transform = new SpineTransformMatrix_1.SpineTransformMatrix(element);
+        var rootScaleMultiplier = ConverterContextGlobal.getScaleMultiplier(config);
         var libraryItem = element.libraryItem;
         Logger_1.Logger.assert(libraryItem || element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name), "Root element must have a libraryItem, name, or layer name. Got elementType=".concat(element.elementType));
         var name = libraryItem ? StringUtil_1.StringUtil.simplify(libraryItem.name) : (element.name ? StringUtil_1.StringUtil.simplify(element.name) : StringUtil_1.StringUtil.simplify(element.layer.name));
@@ -2110,6 +2125,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
                 y: 0,
             });
         }
+        ConverterContextGlobal.applyRootScaleMultiplier(context.bone, rootScaleMultiplier);
         return context;
     };
     ConverterContextGlobal.initializeCache = function () {
@@ -6158,7 +6174,8 @@ var OUTPUT_PANEL_MAX_LINES = 200;
 var config = {
     outputFormat: new SpineFormatV4_2_00_1.SpineFormatV4_2_00(),
     imagesExportPath: './images/',
-    imageExportScale: 1,
+    rasterExportScale: 1,
+    rootScaleMultiplier: 1,
     appendSkeletonToImagesPath: false,
     mergeSkeletons: false,
     mergeSkeletonsRootBone: false,
@@ -6167,28 +6184,78 @@ var config = {
     exportFrameCommentsAsEvents: true,
     exportShapes: true,
     exportTextAsShapes: true,
-    shapeExportScale: 2,
     mergeShapes: true,
     exportImages: true,
     mergeImages: true,
     maskTolerance: 0.5
 };
 var NUMBER_SETTINGS = [
-    { key: 'imageExportScale', label: 'Image export scale', defaultValue: 1 },
-    { key: 'shapeExportScale', label: 'Shape export scale', defaultValue: 2 }
+    {
+        key: 'rasterExportScale',
+        label: 'Raster export scale',
+        defaultValue: 1,
+        description: 'PNG density for bitmap and shape/symbol exports. 2 gives 2x sharper exported images without changing Spine world size.'
+    },
+    {
+        key: 'rootScaleMultiplier',
+        label: 'Root/world scale multiplier',
+        defaultValue: 1,
+        description: 'Final skeleton size multiplier. This scales the exported root bone after any preserved Animate root scale.'
+    }
 ];
 var BOOLEAN_SETTING_GROUPS = [
-    [
-        { key: 'exportImages', label: 'Export bitmap/images', defaultValue: true },
-        { key: 'exportShapes', label: 'Export vector shapes', defaultValue: true },
-        { key: 'mergeImages', label: 'Merge duplicate images', defaultValue: true },
-        { key: 'mergeShapes', label: 'Merge duplicate shapes', defaultValue: true }
-    ],
-    [
-        { key: 'transformRootBone', label: 'Apply full root transform', defaultValue: false },
-        { key: 'mergeSkeletons', label: 'Merge selected skeletons', defaultValue: false },
-        { key: 'mergeSkeletonsRootBone', label: 'Keep root bone when merging skeletons', defaultValue: false }
-    ]
+    {
+        title: 'Export content',
+        settings: [
+            {
+                key: 'exportImages',
+                label: 'Export bitmap/images',
+                defaultValue: true,
+                description: 'Write PNG files for bitmap attachments.'
+            },
+            {
+                key: 'exportShapes',
+                label: 'Export vector shapes',
+                defaultValue: true,
+                description: 'Rasterize shapes/symbol content into PNG attachments.'
+            },
+            {
+                key: 'mergeImages',
+                label: 'Merge duplicate images',
+                defaultValue: true,
+                description: 'Reuse identical bitmap exports when possible.'
+            },
+            {
+                key: 'mergeShapes',
+                label: 'Merge duplicate shapes',
+                defaultValue: true,
+                description: 'Reuse identical rasterized shape exports when possible.'
+            }
+        ]
+    },
+    {
+        title: 'Structure and transforms',
+        settings: [
+            {
+                key: 'transformRootBone',
+                label: 'Apply full root transform',
+                defaultValue: false,
+                description: 'Bake root position/rotation/scale from Animate. When off, only root scale preservation and the world multiplier affect size.'
+            },
+            {
+                key: 'mergeSkeletons',
+                label: 'Merge selected skeletons',
+                defaultValue: false,
+                description: 'Combine multiple selected roots into one exported skeleton.'
+            },
+            {
+                key: 'mergeSkeletonsRootBone',
+                label: 'Keep root bone when merging skeletons',
+                defaultValue: false,
+                description: 'Preserve an extra root bone per merged skeleton instead of collapsing directly under the shared root.'
+            }
+        ]
+    }
 ];
 var getNumberSettingValue = function (setting) {
     var value = config[setting.key];
@@ -6204,21 +6271,29 @@ var buildExportSettingsPanelXml = function () {
         '<dialog title="Spine Export Settings" buttons="accept,cancel">',
         '  <vbox>',
         '    <label value="Adjust export settings for this export run." />',
+        '    <label value="Raster export scale changes PNG density. Root/world scale changes final skeleton size." />',
         '    <separator />'
     ];
     for (var i = 0; i < NUMBER_SETTINGS.length; i++) {
         var setting = NUMBER_SETTINGS[i];
+        lines.push('    <vbox>');
         lines.push('    <hbox>');
         lines.push("      <label value=\"".concat(setting.label, "\" width=\"140\" />"));
         lines.push("      <textbox id=\"".concat(setting.key, "\" value=\"").concat(getNumberSettingValue(setting), "\" size=\"8\" />"));
         lines.push('    </hbox>');
+        lines.push("      <label value=\"".concat(setting.description, "\" width=\"360\" />"));
+        lines.push('    </vbox>');
     }
     for (var groupIndex = 0; groupIndex < BOOLEAN_SETTING_GROUPS.length; groupIndex++) {
         lines.push('    <separator />');
         var group = BOOLEAN_SETTING_GROUPS[groupIndex];
-        for (var i = 0; i < group.length; i++) {
-            var setting = group[i];
+        lines.push("    <label value=\"".concat(group.title, "\" />"));
+        for (var i = 0; i < group.settings.length; i++) {
+            var setting = group.settings[i];
+            lines.push('    <vbox>');
             lines.push("    <checkbox id=\"".concat(setting.key, "\" label=\"").concat(setting.label, "\" checked=\"").concat(getBooleanSettingValue(setting) ? 'true' : 'false', "\" />"));
+            lines.push("      <label value=\"".concat(setting.description, "\" width=\"360\" />"));
+            lines.push('    </vbox>');
         }
     }
     lines.push('  </vbox>');
@@ -6252,8 +6327,8 @@ var applyExportSettingsDialog = function (dialog) {
     }
     for (var groupIndex = 0; groupIndex < BOOLEAN_SETTING_GROUPS.length; groupIndex++) {
         var group = BOOLEAN_SETTING_GROUPS[groupIndex];
-        for (var i = 0; i < group.length; i++) {
-            var setting = group[i];
+        for (var i = 0; i < group.settings.length; i++) {
+            var setting = group.settings[i];
             config[setting.key] = parsePanelBoolean(dialog[setting.key], getBooleanSettingValue(setting));
         }
     }

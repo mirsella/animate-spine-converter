@@ -599,7 +599,7 @@ export class Converter {
                     imagePath,
                     context.element,
                     this._document,
-                    this._config.imageExportScale ?? 1,
+                    this._config.rasterExportScale ?? 1,
                     this._config.exportImages
                 );
             }
@@ -646,7 +646,7 @@ export class Converter {
             context, context.element,
             (context, imagePath) => {
                 const hints = this.createSelectionHints(context);
-                return ImageUtil.exportShape(imagePath, context.element, this._document, this._config.shapeExportScale, this._config.exportShapes, hints);
+                return ImageUtil.exportShape(imagePath, context.element, this._document, this._config.rasterExportScale ?? 1, this._config.exportShapes, hints);
             }
         );
     }
@@ -715,7 +715,7 @@ export class Converter {
                 return ImageUtil.exportLibraryItem(
                     imagePath,
                     context.element,
-                    this._config.imageExportScale ?? 1,
+                    this._config.rasterExportScale ?? 1,
                     this._config.exportShapes
                 );
             }

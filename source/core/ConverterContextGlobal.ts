@@ -1,6 +1,7 @@
 import { SpineAnimation } from '../spine/SpineAnimation';
 import { Logger } from '../logger/Logger';
 import { SpineAnimationHelper } from '../spine/SpineAnimationHelper';
+import { SpineBone } from '../spine/SpineBone';
 import { SpineImage } from '../spine/SpineImage';
 import { SpineSkeleton } from '../spine/SpineSkeleton';
 import { SpineSlot } from '../spine/SpineSlot';
@@ -40,8 +41,25 @@ export class ConverterContextGlobal extends ConverterContext {
     public frameRate:number;
     public config:ConverterConfig;
 
+    private static getScaleMultiplier(config:ConverterConfig):number {
+        const value = config.rootScaleMultiplier;
+        return typeof value === 'number' && isFinite(value) && value > 0 ? value : 1;
+    }
+
+    private static applyRootScaleMultiplier(bone:SpineBone, multiplier:number):void {
+        if (multiplier === 1) {
+            return;
+        }
+
+        const baseScaleX = typeof bone.scaleX === 'number' && isFinite(bone.scaleX) ? bone.scaleX : 1;
+        const baseScaleY = typeof bone.scaleY === 'number' && isFinite(bone.scaleY) ? bone.scaleY : 1;
+        bone.scaleX = baseScaleX * multiplier;
+        bone.scaleY = baseScaleY * multiplier;
+    }
+
     public static initializeGlobal(element:FlashElement, config:ConverterConfig, frameRate:number, skeleton:SpineSkeleton = null, cache:ConverterContextGlobal = null):ConverterContextGlobal {
         const transform = new SpineTransformMatrix(element);
+        const rootScaleMultiplier = ConverterContextGlobal.getScaleMultiplier(config);
         const libraryItem = (element as any).libraryItem;
         Logger.assert(libraryItem || element.name || element.layer?.name, 
             `Root element must have a libraryItem, name, or layer name. Got elementType=${element.elementType}`);
@@ -101,6 +119,8 @@ export class ConverterContextGlobal extends ConverterContext {
                 y: 0,
             });
         }
+
+        ConverterContextGlobal.applyRootScaleMultiplier(context.bone, rootScaleMultiplier);
 
         return context;
     }
