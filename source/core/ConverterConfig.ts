@@ -3,6 +3,7 @@ import { SpineFormat } from '../spine/formats/SpineFormat';
 export interface ConverterConfig {
     outputFormat:SpineFormat;
     imagesExportPath?:string;
+    imageExportScale?:number;
     appendSkeletonToImagesPath?:boolean;
     mergeSkeletons?:boolean;
     mergeSkeletonsRootBone?:boolean;

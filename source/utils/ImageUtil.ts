@@ -4,8 +4,12 @@ import { SpineTransformMatrix } from '../spine/transform/SpineTransformMatrix';
 import { PathUtil } from './PathUtil'; // Assuming PathUtil is available or can be imported
 
 export class ImageUtil {
-    public static exportBitmap(imagePath:string, element:FlashElement, exportImages:boolean):SpineImage {
+    public static exportBitmap(imagePath:string, element:FlashElement, document:FlashDocument, scale:number, exportImages:boolean):SpineImage {
         Logger.assert(element.libraryItem != null, `exportBitmap: element has no libraryItem (element: ${element.name || element.layer?.name || 'unknown'})`);
+
+        if (scale !== 1) {
+            return ImageUtil.exportInstanceFromStage(imagePath, element, document, scale, exportImages);
+        }
 
         const elName = element.name || element.libraryItem?.name || '<anon>';
         Logger.status(`[ImageUtil] exportBitmap start '${elName}' -> ${imagePath}`);

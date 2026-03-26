@@ -25,6 +25,7 @@ const OUTPUT_PANEL_MAX_LINES = 200;
 const config:ConverterConfig = {
     outputFormat: new SpineFormatV4_2_00(),
     imagesExportPath: './images/',
+    imageExportScale: 2,
     appendSkeletonToImagesPath: false,
     mergeSkeletons: false,
     mergeSkeletonsRootBone: false,

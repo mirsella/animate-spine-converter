@@ -595,7 +595,13 @@ export class Converter {
         this.convertElementSlot(
             context, context.element.libraryItem,
             (context, imagePath) => {
-                return ImageUtil.exportBitmap(imagePath, context.element, this._config.exportImages);
+                return ImageUtil.exportBitmap(
+                    imagePath,
+                    context.element,
+                    this._document,
+                    this._config.imageExportScale ?? 1,
+                    this._config.exportImages
+                );
             }
         );
     }
@@ -706,7 +712,12 @@ export class Converter {
         this.convertElementSlot(
             context, context.element.libraryItem,
             (context, imagePath) => {
-                return ImageUtil.exportLibraryItem(imagePath, context.element, this._config.shapeExportScale, this._config.exportShapes);
+                return ImageUtil.exportLibraryItem(
+                    imagePath,
+                    context.element,
+                    this._config.imageExportScale ?? 1,
+                    this._config.exportShapes
+                );
             }
         );
     }
