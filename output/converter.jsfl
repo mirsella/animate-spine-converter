@@ -564,7 +564,8 @@ var Converter = /** @class */ (function () {
     Converter.prototype.convertBitmapElementSlot = function (context) {
         var _this = this;
         this.convertElementSlot(context, context.element.libraryItem, function (context, imagePath) {
-            return ImageUtil_1.ImageUtil.exportBitmap(imagePath, context.element, _this._config.exportImages);
+            var _a;
+            return ImageUtil_1.ImageUtil.exportBitmap(imagePath, context.element, _this._document, (_a = _this._config.imageExportScale) !== null && _a !== void 0 ? _a : 1, _this._config.exportImages);
         });
     };
     Converter.prototype.convertShapeMaskElementSlot = function (context, matrix, controlOffset) {
@@ -660,7 +661,8 @@ var Converter = /** @class */ (function () {
     Converter.prototype.convertPrimitiveElement = function (context) {
         var _this = this;
         this.convertElementSlot(context, context.element.libraryItem, function (context, imagePath) {
-            return ImageUtil_1.ImageUtil.exportLibraryItem(imagePath, context.element, _this._config.shapeExportScale, _this._config.exportShapes);
+            var _a;
+            return ImageUtil_1.ImageUtil.exportLibraryItem(imagePath, context.element, (_a = _this._config.imageExportScale) !== null && _a !== void 0 ? _a : 1, _this._config.exportShapes);
         });
     };
     Converter.prototype.convertCompositeElementLayer = function (context, convertLayer, allowBaking) {
@@ -2096,6 +2098,17 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         }
         if (config.transformRootBone) {
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, transform);
+        }
+        else if (transform.scaleX !== 1 || transform.scaleY !== 1) {
+            SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, {
+                rotation: 0,
+                scaleX: transform.scaleX,
+                scaleY: transform.scaleY,
+                shearX: 0,
+                shearY: 0,
+                x: 0,
+                y: 0,
+            });
         }
         return context;
     };
@@ -4412,9 +4425,12 @@ var SpineImage_1 = __webpack_require__(/*! ../spine/SpineImage */ "./source/spin
 var ImageUtil = /** @class */ (function () {
     function ImageUtil() {
     }
-    ImageUtil.exportBitmap = function (imagePath, element, exportImages) {
+    ImageUtil.exportBitmap = function (imagePath, element, document, scale, exportImages) {
         var _a, _b, _c;
         Logger_1.Logger.assert(element.libraryItem != null, "exportBitmap: element has no libraryItem (element: ".concat(element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ")"));
+        if (scale !== 1) {
+            return ImageUtil.exportInstanceFromStage(imagePath, element, document, scale, exportImages);
+        }
         var elName = element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '<anon>';
         Logger_1.Logger.status("[ImageUtil] exportBitmap start '".concat(elName, "' -> ").concat(imagePath));
         // Capture geometric properties immediately
@@ -6122,6 +6138,7 @@ var OUTPUT_PANEL_MAX_LINES = 200;
 var config = {
     outputFormat: new SpineFormatV4_2_00_1.SpineFormatV4_2_00(),
     imagesExportPath: './images/',
+    imageExportScale: 1,
     appendSkeletonToImagesPath: false,
     mergeSkeletons: false,
     mergeSkeletonsRootBone: false,

@@ -90,6 +90,16 @@ export class ConverterContextGlobal extends ConverterContext {
 
         if (config.transformRootBone) {
             SpineAnimationHelper.applyBoneTransform(context.bone, transform);
+        } else if (transform.scaleX !== 1 || transform.scaleY !== 1) {
+            SpineAnimationHelper.applyBoneTransform(context.bone, {
+                rotation: 0,
+                scaleX: transform.scaleX,
+                scaleY: transform.scaleY,
+                shearX: 0,
+                shearY: 0,
+                x: 0,
+                y: 0,
+            });
         }
 
         return context;
