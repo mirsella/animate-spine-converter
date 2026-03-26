@@ -437,6 +437,16 @@ var Converter = /** @class */ (function () {
         attachment.scaleY = 1 / spineImage.scale;
         attachment.x = spineOffsetX;
         attachment.y = spineOffsetY;
+        var renderedWidth = attachment.width * attachment.scaleX;
+        var renderedHeight = attachment.height * attachment.scaleY;
+        var rasterVs144Dpi = spineImage.scale / 2;
+        Logger_1.Logger.status("[AttachmentMetrics] slot='".concat(slot.name, "' name='").concat(attachmentName, "'") +
+            " raster=".concat(spineImage.width.toFixed(2), "x").concat(spineImage.height.toFixed(2)) +
+            " attachmentScale=(".concat(attachment.scaleX.toFixed(4), ", ").concat(attachment.scaleY.toFixed(4), ")") +
+            " renderedWorld=".concat(renderedWidth.toFixed(2), "x").concat(renderedHeight.toFixed(2)) +
+            " rasterVs144dpi=".concat(rasterVs144Dpi.toFixed(2)) +
+            " imageExportScale=".concat(spineImage.scale.toFixed(2)) +
+            " offset=(".concat(attachment.x.toFixed(2), ", ").concat(attachment.y.toFixed(2), ")"));
         SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(context.global.animation, slot, context, attachment, context.time);
         Logger_1.Logger.status("[Slot] applied '".concat(slot.name, "' t=").concat(context.time.toFixed(3)));
     };
@@ -2055,6 +2065,9 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
     function ConverterContextGlobal() {
         return _super.call(this) || this;
     }
+    ConverterContextGlobal.formatLogNumber = function (value) {
+        return typeof value === 'number' && isFinite(value) ? value.toFixed(2) : 'n/a';
+    };
     ConverterContextGlobal.initializeGlobal = function (element, config, frameRate, skeleton, cache) {
         var _a;
         if (skeleton === void 0) { skeleton = null; }
@@ -2096,6 +2109,22 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         if (Logger_1.Logger.isTraceEnabled()) {
             Logger_1.Logger.trace("[Global] Root: ".concat(context.skeleton.name, " anchor=(").concat(element.transformationPoint.x.toFixed(2), ", ").concat(element.transformationPoint.y.toFixed(2), ")"));
         }
+        var preserveRootScale = !config.transformRootBone && (transform.scaleX !== 1 || transform.scaleY !== 1);
+        var timeline = libraryItem && libraryItem.timeline;
+        var timelineLayers = timeline && timeline.layers ? timeline.layers.length : 0;
+        var timelineFrames = timeline && typeof timeline.frameCount === 'number' ? timeline.frameCount : 0;
+        var matrix = element.matrix;
+        var instanceType = element.instanceType || '<none>';
+        Logger_1.Logger.status("[RootExport] skeleton='".concat(context.skeleton.name, "' source='").concat(libraryItem ? libraryItem.name : (element.name || '<anon>'), "'") +
+            " type=".concat(element.elementType, "/").concat(instanceType) +
+            " anchor=(".concat(ConverterContextGlobal.formatLogNumber(element.transformationPoint.x), ", ").concat(ConverterContextGlobal.formatLogNumber(element.transformationPoint.y), ")") +
+            " transform=(".concat(ConverterContextGlobal.formatLogNumber(element.transformX), ", ").concat(ConverterContextGlobal.formatLogNumber(element.transformY), ")") +
+            " reg=(".concat(ConverterContextGlobal.formatLogNumber(element.x), ", ").concat(ConverterContextGlobal.formatLogNumber(element.y), ")") +
+            " matrix=[a=".concat(ConverterContextGlobal.formatLogNumber(matrix.a), ", b=").concat(ConverterContextGlobal.formatLogNumber(matrix.b), ", c=").concat(ConverterContextGlobal.formatLogNumber(matrix.c), ", d=").concat(ConverterContextGlobal.formatLogNumber(matrix.d), ", tx=").concat(ConverterContextGlobal.formatLogNumber(matrix.tx), ", ty=").concat(ConverterContextGlobal.formatLogNumber(matrix.ty), "]") +
+            " decomposed=(rot=".concat(ConverterContextGlobal.formatLogNumber(transform.rotation), ", sx=").concat(ConverterContextGlobal.formatLogNumber(transform.scaleX), ", sy=").concat(ConverterContextGlobal.formatLogNumber(transform.scaleY), ", shY=").concat(ConverterContextGlobal.formatLogNumber(transform.shearY), ")") +
+            " parentOffset=(".concat(ConverterContextGlobal.formatLogNumber(context.parentOffset.x), ", ").concat(ConverterContextGlobal.formatLogNumber(context.parentOffset.y), ")") +
+            " transformRootBone=".concat(!!config.transformRootBone, " preserveRootScale=").concat(preserveRootScale) +
+            " timelineLayers=".concat(timelineLayers, " timelineFrames=").concat(timelineFrames));
         if (config.transformRootBone) {
             SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, transform);
         }
@@ -2109,6 +2138,8 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
                 x: 0,
                 y: 0,
             });
+            Logger_1.Logger.status("[RootExport] preservedScale skeleton='".concat(context.skeleton.name, "'") +
+                " scale=(".concat(ConverterContextGlobal.formatLogNumber(transform.scaleX), ", ").concat(ConverterContextGlobal.formatLogNumber(transform.scaleY), ")"));
         }
         return context;
     };
@@ -4425,6 +4456,39 @@ var SpineImage_1 = __webpack_require__(/*! ../spine/SpineImage */ "./source/spin
 var ImageUtil = /** @class */ (function () {
     function ImageUtil() {
     }
+    ImageUtil.formatLogNumber = function (value) {
+        return typeof value === 'number' && isFinite(value) ? value.toFixed(2) : 'n/a';
+    };
+    ImageUtil.describeElement = function (element) {
+        var libraryItem = element.libraryItem;
+        var instanceType = element.instanceType || '<none>';
+        var itemType = libraryItem && libraryItem.itemType ? libraryItem.itemType : '<none>';
+        return "element='".concat(element.name || (libraryItem === null || libraryItem === void 0 ? void 0 : libraryItem.name) || '<anon>', "' type=").concat(element.elementType, "/").concat(instanceType, " library='").concat(libraryItem ? libraryItem.name : '<none>', "' itemType=").concat(itemType);
+    };
+    ImageUtil.logExportMetrics = function (mode, imagePath, element, scale, sourceWidth, sourceHeight, outputWidth, outputHeight, localCenterX, localCenterY, offset) {
+        var safeScale = scale === 0 ? 1 : scale;
+        var effectiveWidth = outputWidth / safeScale;
+        var effectiveHeight = outputHeight / safeScale;
+        var sprite144DpiWidth = sourceWidth * 2;
+        var sprite144DpiHeight = sourceHeight * 2;
+        var pngVs144DpiX = sprite144DpiWidth === 0 ? 0 : outputWidth / sprite144DpiWidth;
+        var pngVs144DpiY = sprite144DpiHeight === 0 ? 0 : outputHeight / sprite144DpiHeight;
+        var worldVsSourceX = sourceWidth === 0 ? 0 : effectiveWidth / sourceWidth;
+        var worldVsSourceY = sourceHeight === 0 ? 0 : effectiveHeight / sourceHeight;
+        Logger_1.Logger.status("[ImageMetrics] mode=".concat(mode, " ").concat(ImageUtil.describeElement(element)) +
+            " exportScale=".concat(ImageUtil.formatLogNumber(scale)) +
+            " dpiEquivalent=".concat(ImageUtil.formatLogNumber(72 * safeScale)) +
+            " sourceRect=".concat(ImageUtil.formatLogNumber(sourceWidth), "x").concat(ImageUtil.formatLogNumber(sourceHeight)) +
+            " png=".concat(ImageUtil.formatLogNumber(outputWidth), "x").concat(ImageUtil.formatLogNumber(outputHeight)) +
+            " sprite144dpi=".concat(ImageUtil.formatLogNumber(sprite144DpiWidth), "x").concat(ImageUtil.formatLogNumber(sprite144DpiHeight)) +
+            " pngVs144dpi=(".concat(ImageUtil.formatLogNumber(pngVs144DpiX), ", ").concat(ImageUtil.formatLogNumber(pngVs144DpiY), ")") +
+            " effectiveWorld=".concat(ImageUtil.formatLogNumber(effectiveWidth), "x").concat(ImageUtil.formatLogNumber(effectiveHeight)) +
+            " worldVsSource=(".concat(ImageUtil.formatLogNumber(worldVsSourceX), ", ").concat(ImageUtil.formatLogNumber(worldVsSourceY), ")") +
+            " attachmentScale=".concat(ImageUtil.formatLogNumber(1 / safeScale)) +
+            " center=(".concat(ImageUtil.formatLogNumber(localCenterX), ", ").concat(ImageUtil.formatLogNumber(localCenterY), ")") +
+            " offset=(".concat(ImageUtil.formatLogNumber(offset.x), ", ").concat(ImageUtil.formatLogNumber(offset.y), ")") +
+            " path='".concat(imagePath, "'"));
+    };
     ImageUtil.exportBitmap = function (imagePath, element, document, scale, exportImages) {
         var _a, _b, _c;
         Logger_1.Logger.assert(element.libraryItem != null, "exportBitmap: element has no libraryItem (element: ".concat(element.name || ((_a = element.layer) === null || _a === void 0 ? void 0 : _a.name) || 'unknown', ")"));
@@ -4451,6 +4515,7 @@ var ImageUtil = /** @class */ (function () {
         var localCenterX = w / 2;
         var localCenterY = h / 2;
         var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_c = element.libraryItem) === null || _c === void 0 ? void 0 : _c.name));
+        ImageUtil.logExportMetrics('bitmap', imagePath, element, 1, w, h, w, h, localCenterX, localCenterY, offset);
         return new SpineImage_1.SpineImage(imagePath, w, h, 1, offset.x, offset.y, localCenterX, localCenterY);
     };
     ImageUtil.exportLibraryItem = function (imagePath, element, scale, exportImages) {
@@ -4632,6 +4697,8 @@ var ImageUtil = /** @class */ (function () {
                 Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage clipPaste ok '".concat(elName, "'"));
                 var w = 1;
                 var h = 1;
+                var sourceWidth = 0;
+                var sourceHeight = 0;
                 var localCenterX = 0;
                 var localCenterY = 0;
                 if (tempDoc.selection.length > 0) {
@@ -4707,6 +4774,8 @@ var ImageUtil = /** @class */ (function () {
                         var rect = tempDoc.getSelectionRect();
                         var width = rect.right - rect.left;
                         var height = rect.bottom - rect.top;
+                        sourceWidth = width;
+                        sourceHeight = height;
                         w = Math.max(1, Math.ceil(width * scale));
                         h = Math.max(1, Math.ceil(height * scale));
                         localCenterX = rect.left + width / 2;
@@ -4732,6 +4801,7 @@ var ImageUtil = /** @class */ (function () {
                     }
                 }
                 var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name));
+                ImageUtil.logExportMetrics('stage-instance', imagePath, element, scale, sourceWidth, sourceHeight, w, h, localCenterX, localCenterY, offset);
                 return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
             }
             finally {
@@ -4895,6 +4965,8 @@ var ImageUtil = /** @class */ (function () {
             Logger_1.Logger.status("[ImageUtil] exportShape clipPaste ok '".concat(elName, "'"));
             var w = 1;
             var h = 1;
+            var sourceWidth = 0;
+            var sourceHeight = 0;
             var localCenterX = 0;
             var localCenterY = 0;
             if (tempDoc.selection.length > 0) {
@@ -4905,6 +4977,8 @@ var ImageUtil = /** @class */ (function () {
                 var rect = tempDoc.getSelectionRect();
                 var width = rect.right - rect.left;
                 var height = rect.bottom - rect.top;
+                sourceWidth = width;
+                sourceHeight = height;
                 w = Math.max(1, Math.ceil(width * scale));
                 h = Math.max(1, Math.ceil(height * scale));
                 localCenterX = rect.left + width / 2;
@@ -4931,6 +5005,7 @@ var ImageUtil = /** @class */ (function () {
                 }
             }
             var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
+            ImageUtil.logExportMetrics('shape', imagePath, element, scale, sourceWidth, sourceHeight, w, h, localCenterX, localCenterY, offset);
             return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
         }
         finally {
@@ -5017,6 +5092,7 @@ var ImageUtil = /** @class */ (function () {
         var localCenterX = rect.left + width / 2;
         var localCenterY = rect.top + height / 2;
         var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
+        ImageUtil.logExportMetrics('symbol', imagePath, element, scale, width, height, w, h, localCenterX, localCenterY, offset);
         if (exportImages && dom.selection.length > 0) {
             var copySuccess = false;
             // Retry loop
@@ -6153,6 +6229,40 @@ var config = {
     mergeImages: true,
     maskTolerance: 0.5
 };
+var formatLogNumber = function (value) {
+    return typeof value === 'number' && isFinite(value) ? value.toFixed(2) : 'n/a';
+};
+var logExportSummary = function (doc, data) {
+    var timeline = doc.getTimeline();
+    var layers = timeline && timeline.layers ? timeline.layers.length : 0;
+    var frameRate = doc.frameRate;
+    Logger_1.Logger.status("[Config] imageExportScale=".concat(config.imageExportScale || 1, " shapeExportScale=").concat(config.shapeExportScale || 1) +
+        " transformRootBone=".concat(!!config.transformRootBone, " mergeSkeletons=").concat(!!config.mergeSkeletons) +
+        " mergeSkeletonsRootBone=".concat(!!config.mergeSkeletonsRootBone, " exportImages=").concat(!!config.exportImages) +
+        " exportShapes=".concat(!!config.exportShapes, " mergeImages=").concat(!!config.mergeImages, " mergeShapes=").concat(!!config.mergeShapes));
+    Logger_1.Logger.status("[Document] name='".concat(doc.name, "' size=").concat(formatLogNumber(doc.width), "x").concat(formatLogNumber(doc.height)) +
+        " frameRate=".concat(formatLogNumber(frameRate), " currentFrame=").concat(data.currentFrame, " layers=").concat(layers, " selection=").concat(data.paths.length));
+    for (var i = 0; i < data.paths.length; i++) {
+        var path = data.paths[i];
+        var layer = timeline.layers[path.layerIndex];
+        var frame = layer && layer.frames ? layer.frames[path.frameIndex] : null;
+        var element = frame && frame.elements ? frame.elements[path.elementIndex] : null;
+        if (!element)
+            continue;
+        var libraryItem = element.libraryItem;
+        var instanceType = element.instanceType || '<none>';
+        var matrix = element.matrix;
+        Logger_1.Logger.status("[RootSelection] idx=".concat(i) +
+            " layer='".concat(layer ? layer.name : '<none>', "' frame=").concat(path.frameIndex) +
+            " element='".concat(element.name || (libraryItem === null || libraryItem === void 0 ? void 0 : libraryItem.name) || '<anon>', "'") +
+            " type=".concat(element.elementType, "/").concat(instanceType) +
+            " library='".concat(libraryItem ? libraryItem.name : '<none>', "'") +
+            " pivot=(".concat(formatLogNumber(element.transformationPoint.x), ", ").concat(formatLogNumber(element.transformationPoint.y), ")") +
+            " transform=(".concat(formatLogNumber(element.transformX), ", ").concat(formatLogNumber(element.transformY), ")") +
+            " reg=(".concat(formatLogNumber(element.x), ", ").concat(formatLogNumber(element.y), ")") +
+            " matrix=[a=".concat(formatLogNumber(matrix.a), ", b=").concat(formatLogNumber(matrix.b), ", c=").concat(formatLogNumber(matrix.c), ", d=").concat(formatLogNumber(matrix.d), ", tx=").concat(formatLogNumber(matrix.tx), ", ty=").concat(formatLogNumber(matrix.ty), "]"));
+    }
+};
 var getSelectionPaths = function (doc) {
     var paths = [];
     var timeline = doc.getTimeline();
@@ -6246,6 +6356,7 @@ var run = function () {
         Logger_1.Logger.setStatusFile(statusPath, true);
         Logger_1.Logger.warning("Export status: ".concat(statusPath));
         Logger_1.Logger.status("Original: ".concat(originalPath));
+        logExportSummary(originalDoc, selectionData);
     }
     catch (e) {
         // ignore logger init errors

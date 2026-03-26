@@ -454,6 +454,19 @@ export class Converter {
         attachment.x = spineOffsetX;
         attachment.y = spineOffsetY;
 
+        const renderedWidth = attachment.width * attachment.scaleX;
+        const renderedHeight = attachment.height * attachment.scaleY;
+        const rasterVs144Dpi = spineImage.scale / 2;
+        Logger.status(
+            `[AttachmentMetrics] slot='${slot.name}' name='${attachmentName}'` +
+            ` raster=${spineImage.width.toFixed(2)}x${spineImage.height.toFixed(2)}` +
+            ` attachmentScale=(${attachment.scaleX.toFixed(4)}, ${attachment.scaleY.toFixed(4)})` +
+            ` renderedWorld=${renderedWidth.toFixed(2)}x${renderedHeight.toFixed(2)}` +
+            ` rasterVs144dpi=${rasterVs144Dpi.toFixed(2)}` +
+            ` imageExportScale=${spineImage.scale.toFixed(2)}` +
+            ` offset=(${attachment.x.toFixed(2)}, ${attachment.y.toFixed(2)})`
+        );
+
         SpineAnimationHelper.applySlotAttachment(
             context.global.animation,
             slot,

@@ -41,6 +41,49 @@ const config:ConverterConfig = {
     maskTolerance: 0.5
 };
 
+const formatLogNumber = (value:any):string => {
+    return typeof value === 'number' && isFinite(value) ? value.toFixed(2) : 'n/a';
+};
+
+const logExportSummary = (doc:FlashDocument, data: { paths: SelectionPath[], currentFrame: number }) => {
+    const timeline = doc.getTimeline();
+    const layers = timeline && timeline.layers ? timeline.layers.length : 0;
+    const frameRate = (doc as any).frameRate;
+    Logger.status(
+        `[Config] imageExportScale=${config.imageExportScale || 1} shapeExportScale=${config.shapeExportScale || 1}` +
+        ` transformRootBone=${!!config.transformRootBone} mergeSkeletons=${!!config.mergeSkeletons}` +
+        ` mergeSkeletonsRootBone=${!!config.mergeSkeletonsRootBone} exportImages=${!!config.exportImages}` +
+        ` exportShapes=${!!config.exportShapes} mergeImages=${!!config.mergeImages} mergeShapes=${!!config.mergeShapes}`
+    );
+    Logger.status(
+        `[Document] name='${doc.name}' size=${formatLogNumber((doc as any).width)}x${formatLogNumber((doc as any).height)}` +
+        ` frameRate=${formatLogNumber(frameRate)} currentFrame=${data.currentFrame} layers=${layers} selection=${data.paths.length}`
+    );
+
+    for (let i = 0; i < data.paths.length; i++) {
+        const path = data.paths[i];
+        const layer = timeline.layers[path.layerIndex];
+        const frame = layer && layer.frames ? layer.frames[path.frameIndex] : null;
+        const element = frame && frame.elements ? frame.elements[path.elementIndex] : null;
+        if (!element) continue;
+
+        const libraryItem = (element as any).libraryItem;
+        const instanceType = (element as any).instanceType || '<none>';
+        const matrix = element.matrix;
+        Logger.status(
+            `[RootSelection] idx=${i}` +
+            ` layer='${layer ? layer.name : '<none>'}' frame=${path.frameIndex}` +
+            ` element='${element.name || libraryItem?.name || '<anon>'}'` +
+            ` type=${element.elementType}/${instanceType}` +
+            ` library='${libraryItem ? libraryItem.name : '<none>'}'` +
+            ` pivot=(${formatLogNumber(element.transformationPoint.x)}, ${formatLogNumber(element.transformationPoint.y)})` +
+            ` transform=(${formatLogNumber(element.transformX)}, ${formatLogNumber(element.transformY)})` +
+            ` reg=(${formatLogNumber(element.x)}, ${formatLogNumber(element.y)})` +
+            ` matrix=[a=${formatLogNumber(matrix.a)}, b=${formatLogNumber(matrix.b)}, c=${formatLogNumber(matrix.c)}, d=${formatLogNumber(matrix.d)}, tx=${formatLogNumber(matrix.tx)}, ty=${formatLogNumber(matrix.ty)}]`
+        );
+    }
+};
+
 //-----------------------------------
 
 interface SelectionPath {
@@ -160,6 +203,7 @@ const run = () => {
         Logger.setStatusFile(statusPath, true);
         Logger.warning(`Export status: ${statusPath}`);
         Logger.status(`Original: ${originalPath}`);
+        logExportSummary(originalDoc, selectionData);
     } catch (e) {
         // ignore logger init errors
     }
