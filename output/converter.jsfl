@@ -4632,6 +4632,8 @@ var ImageUtil = /** @class */ (function () {
                 Logger_1.Logger.status("[ImageUtil] exportInstanceFromStage clipPaste ok '".concat(elName, "'"));
                 var w = 1;
                 var h = 1;
+                var worldWidth = 1;
+                var worldHeight = 1;
                 var localCenterX = 0;
                 var localCenterY = 0;
                 if (tempDoc.selection.length > 0) {
@@ -4707,6 +4709,8 @@ var ImageUtil = /** @class */ (function () {
                         var rect = tempDoc.getSelectionRect();
                         var width = rect.right - rect.left;
                         var height = rect.bottom - rect.top;
+                        worldWidth = Math.max(1, width);
+                        worldHeight = Math.max(1, height);
                         w = Math.max(1, Math.ceil(width * scale));
                         h = Math.max(1, Math.ceil(height * scale));
                         localCenterX = rect.left + width / 2;
@@ -4732,7 +4736,7 @@ var ImageUtil = /** @class */ (function () {
                     }
                 }
                 var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY, element.name || ((_b = element.libraryItem) === null || _b === void 0 ? void 0 : _b.name));
-                return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
+                return new SpineImage_1.SpineImage(imagePath, worldWidth, worldHeight, 1, offset.x, offset.y, localCenterX, localCenterY);
             }
             finally {
                 try {
@@ -4895,6 +4899,8 @@ var ImageUtil = /** @class */ (function () {
             Logger_1.Logger.status("[ImageUtil] exportShape clipPaste ok '".concat(elName, "'"));
             var w = 1;
             var h = 1;
+            var worldWidth = 1;
+            var worldHeight = 1;
             var localCenterX = 0;
             var localCenterY = 0;
             if (tempDoc.selection.length > 0) {
@@ -4905,6 +4911,8 @@ var ImageUtil = /** @class */ (function () {
                 var rect = tempDoc.getSelectionRect();
                 var width = rect.right - rect.left;
                 var height = rect.bottom - rect.top;
+                worldWidth = Math.max(1, width);
+                worldHeight = Math.max(1, height);
                 w = Math.max(1, Math.ceil(width * scale));
                 h = Math.max(1, Math.ceil(height * scale));
                 localCenterX = rect.left + width / 2;
@@ -4931,7 +4939,7 @@ var ImageUtil = /** @class */ (function () {
                 }
             }
             var offset = ImageUtil.calculateAttachmentOffset(matrix, regPointX, regPointY, transPointX, transPointY, localCenterX, localCenterY);
-            return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
+            return new SpineImage_1.SpineImage(imagePath, worldWidth, worldHeight, 1, offset.x, offset.y, localCenterX, localCenterY);
         }
         finally {
             try {
@@ -5012,6 +5020,8 @@ var ImageUtil = /** @class */ (function () {
         }
         var width = rect.right - rect.left;
         var height = rect.bottom - rect.top;
+        var worldWidth = Math.max(1, width);
+        var worldHeight = Math.max(1, height);
         var w = Math.max(1, Math.ceil(width * scale));
         var h = Math.max(1, Math.ceil(height * scale));
         var localCenterX = rect.left + width / 2;
@@ -5081,7 +5091,7 @@ var ImageUtil = /** @class */ (function () {
         // This exporter runs on a temporary .fla anyway, so leaving duplicates is safe.
         Logger_1.Logger.status("[ImageUtil] exportSymbol keep duplicate '".concat(tempSymbolName, "'"));
         Logger_1.Logger.status("[ImageUtil] exportSymbol done '".concat(elName, "'"));
-        return new SpineImage_1.SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
+        return new SpineImage_1.SpineImage(imagePath, worldWidth, worldHeight, 1, offset.x, offset.y, localCenterX, localCenterY);
     };
     /**
      * Calculates the Attachment Offset using the "Smart Pivot" algorithm.
