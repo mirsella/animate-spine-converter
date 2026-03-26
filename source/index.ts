@@ -41,6 +41,81 @@ const config:ConverterConfig = {
     maskTolerance: 0.5
 };
 
+const buildExportSettingsPanelXml = ():string => {
+    const checked = (value:boolean):string => value ? 'true' : 'false';
+    return [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<dialog title="Spine Export Settings" buttons="accept,cancel">',
+        '  <vbox>',
+        '    <label value="Adjust export settings for this export run." />',
+        '    <separator />',
+        '    <hbox>',
+        '      <label value="Image export scale" width="140" />',
+        `      <textbox id="imageExportScale" value="${config.imageExportScale || 1}" size="8" />`,
+        '    </hbox>',
+        '    <hbox>',
+        '      <label value="Shape export scale" width="140" />',
+        `      <textbox id="shapeExportScale" value="${config.shapeExportScale || 1}" size="8" />`,
+        '    </hbox>',
+        '    <separator />',
+        `    <checkbox id="exportImages" label="Export bitmap/images" checked="${checked(!!config.exportImages)}" />`,
+        `    <checkbox id="exportShapes" label="Export vector shapes" checked="${checked(!!config.exportShapes)}" />`,
+        `    <checkbox id="mergeImages" label="Merge duplicate images" checked="${checked(!!config.mergeImages)}" />`,
+        `    <checkbox id="mergeShapes" label="Merge duplicate shapes" checked="${checked(!!config.mergeShapes)}" />`,
+        '    <separator />',
+        `    <checkbox id="transformRootBone" label="Apply full root transform" checked="${checked(!!config.transformRootBone)}" />`,
+        `    <checkbox id="mergeSkeletons" label="Merge selected skeletons" checked="${checked(!!config.mergeSkeletons)}" />`,
+        `    <checkbox id="mergeSkeletonsRootBone" label="Keep root bone when merging skeletons" checked="${checked(!!config.mergeSkeletonsRootBone)}" />`,
+        '  </vbox>',
+        '</dialog>'
+    ].join('');
+};
+
+const parsePanelNumber = (value:any, fallback:number, label:string):number => {
+    const parsed = parseFloat(value);
+    if (!isFinite(parsed) || parsed <= 0) {
+        Logger.warning(`[Config] Invalid ${label}='${value}', keeping ${fallback}`);
+        return fallback;
+    }
+    return parsed;
+};
+
+const parsePanelBoolean = (value:any, fallback:boolean):boolean => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+        const normalized = value.toLowerCase();
+        if (normalized === 'true') return true;
+        if (normalized === 'false') return false;
+    }
+    return fallback;
+};
+
+const promptExportSettings = ():boolean => {
+    const flashHost = fl as any;
+    if (!flashHost.xmlPanelFromString) {
+        Logger.error('This Animate version does not support xmlPanelFromString.');
+        return false;
+    }
+
+    const dialog = flashHost.xmlPanelFromString(buildExportSettingsPanelXml());
+
+    if (!dialog || dialog.dismiss !== 'accept') {
+        Logger.warning('Export cancelled from settings dialog.');
+        return false;
+    }
+
+    config.imageExportScale = parsePanelNumber(dialog.imageExportScale, config.imageExportScale || 1, 'imageExportScale');
+    config.shapeExportScale = parsePanelNumber(dialog.shapeExportScale, config.shapeExportScale || 1, 'shapeExportScale');
+    config.exportImages = parsePanelBoolean(dialog.exportImages, !!config.exportImages);
+    config.exportShapes = parsePanelBoolean(dialog.exportShapes, !!config.exportShapes);
+    config.mergeImages = parsePanelBoolean(dialog.mergeImages, !!config.mergeImages);
+    config.mergeShapes = parsePanelBoolean(dialog.mergeShapes, !!config.mergeShapes);
+    config.transformRootBone = parsePanelBoolean(dialog.transformRootBone, !!config.transformRootBone);
+    config.mergeSkeletons = parsePanelBoolean(dialog.mergeSkeletons, !!config.mergeSkeletons);
+    config.mergeSkeletonsRootBone = parsePanelBoolean(dialog.mergeSkeletonsRootBone, !!config.mergeSkeletonsRootBone);
+    return true;
+};
+
 const formatLogNumber = (value:any):string => {
     return typeof value === 'number' && isFinite(value) ? value.toFixed(2) : 'n/a';
 };
@@ -166,6 +241,10 @@ const run = () => {
 
     if (!originalDoc.pathURI) {
         Logger.error("Please save the document before exporting.");
+        return;
+    }
+
+    if (!promptExportSettings()) {
         return;
     }
 

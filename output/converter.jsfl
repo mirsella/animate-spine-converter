@@ -6229,6 +6229,77 @@ var config = {
     mergeImages: true,
     maskTolerance: 0.5
 };
+var buildExportSettingsPanelXml = function () {
+    var checked = function (value) { return value ? 'true' : 'false'; };
+    return [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<dialog title="Spine Export Settings" buttons="accept,cancel">',
+        '  <vbox>',
+        '    <label value="Adjust export settings for this export run." />',
+        '    <separator />',
+        '    <hbox>',
+        '      <label value="Image export scale" width="140" />',
+        "      <textbox id=\"imageExportScale\" value=\"".concat(config.imageExportScale || 1, "\" size=\"8\" />"),
+        '    </hbox>',
+        '    <hbox>',
+        '      <label value="Shape export scale" width="140" />',
+        "      <textbox id=\"shapeExportScale\" value=\"".concat(config.shapeExportScale || 1, "\" size=\"8\" />"),
+        '    </hbox>',
+        '    <separator />',
+        "    <checkbox id=\"exportImages\" label=\"Export bitmap/images\" checked=\"".concat(checked(!!config.exportImages), "\" />"),
+        "    <checkbox id=\"exportShapes\" label=\"Export vector shapes\" checked=\"".concat(checked(!!config.exportShapes), "\" />"),
+        "    <checkbox id=\"mergeImages\" label=\"Merge duplicate images\" checked=\"".concat(checked(!!config.mergeImages), "\" />"),
+        "    <checkbox id=\"mergeShapes\" label=\"Merge duplicate shapes\" checked=\"".concat(checked(!!config.mergeShapes), "\" />"),
+        '    <separator />',
+        "    <checkbox id=\"transformRootBone\" label=\"Apply full root transform\" checked=\"".concat(checked(!!config.transformRootBone), "\" />"),
+        "    <checkbox id=\"mergeSkeletons\" label=\"Merge selected skeletons\" checked=\"".concat(checked(!!config.mergeSkeletons), "\" />"),
+        "    <checkbox id=\"mergeSkeletonsRootBone\" label=\"Keep root bone when merging skeletons\" checked=\"".concat(checked(!!config.mergeSkeletonsRootBone), "\" />"),
+        '  </vbox>',
+        '</dialog>'
+    ].join('');
+};
+var parsePanelNumber = function (value, fallback, label) {
+    var parsed = parseFloat(value);
+    if (!isFinite(parsed) || parsed <= 0) {
+        Logger_1.Logger.warning("[Config] Invalid ".concat(label, "='").concat(value, "', keeping ").concat(fallback));
+        return fallback;
+    }
+    return parsed;
+};
+var parsePanelBoolean = function (value, fallback) {
+    if (typeof value === 'boolean')
+        return value;
+    if (typeof value === 'string') {
+        var normalized = value.toLowerCase();
+        if (normalized === 'true')
+            return true;
+        if (normalized === 'false')
+            return false;
+    }
+    return fallback;
+};
+var promptExportSettings = function () {
+    var flashHost = fl;
+    if (!flashHost.xmlPanelFromString) {
+        Logger_1.Logger.error('This Animate version does not support xmlPanelFromString.');
+        return false;
+    }
+    var dialog = flashHost.xmlPanelFromString(buildExportSettingsPanelXml());
+    if (!dialog || dialog.dismiss !== 'accept') {
+        Logger_1.Logger.warning('Export cancelled from settings dialog.');
+        return false;
+    }
+    config.imageExportScale = parsePanelNumber(dialog.imageExportScale, config.imageExportScale || 1, 'imageExportScale');
+    config.shapeExportScale = parsePanelNumber(dialog.shapeExportScale, config.shapeExportScale || 1, 'shapeExportScale');
+    config.exportImages = parsePanelBoolean(dialog.exportImages, !!config.exportImages);
+    config.exportShapes = parsePanelBoolean(dialog.exportShapes, !!config.exportShapes);
+    config.mergeImages = parsePanelBoolean(dialog.mergeImages, !!config.mergeImages);
+    config.mergeShapes = parsePanelBoolean(dialog.mergeShapes, !!config.mergeShapes);
+    config.transformRootBone = parsePanelBoolean(dialog.transformRootBone, !!config.transformRootBone);
+    config.mergeSkeletons = parsePanelBoolean(dialog.mergeSkeletons, !!config.mergeSkeletons);
+    config.mergeSkeletonsRootBone = parsePanelBoolean(dialog.mergeSkeletonsRootBone, !!config.mergeSkeletonsRootBone);
+    return true;
+};
 var formatLogNumber = function (value) {
     return typeof value === 'number' && isFinite(value) ? value.toFixed(2) : 'n/a';
 };
@@ -6326,6 +6397,9 @@ var run = function () {
     }
     if (!originalDoc.pathURI) {
         Logger_1.Logger.error("Please save the document before exporting.");
+        return;
+    }
+    if (!promptExportSettings()) {
         return;
     }
     // --- CAPTURE STATE FROM ORIGINAL DOC ---
