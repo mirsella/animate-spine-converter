@@ -6193,14 +6193,12 @@ var NUMBER_SETTINGS = [
     {
         key: 'rasterExportScale',
         label: 'Raster export scale',
-        defaultValue: 1,
-        description: 'PNG density for bitmap and shape/symbol exports. 2 gives 2x sharper exported images without changing Spine world size.'
+        defaultValue: 1
     },
     {
         key: 'rootScaleMultiplier',
         label: 'Root/world scale multiplier',
-        defaultValue: 1,
-        description: 'Final skeleton size multiplier. This scales the exported root bone after any preserved Animate root scale.'
+        defaultValue: 1
     }
 ];
 var BOOLEAN_SETTING_GROUPS = [
@@ -6210,26 +6208,22 @@ var BOOLEAN_SETTING_GROUPS = [
             {
                 key: 'exportImages',
                 label: 'Export bitmap/images',
-                defaultValue: true,
-                description: 'Write PNG files for bitmap attachments.'
+                defaultValue: true
             },
             {
                 key: 'exportShapes',
                 label: 'Export vector shapes',
-                defaultValue: true,
-                description: 'Rasterize shapes/symbol content into PNG attachments.'
+                defaultValue: true
             },
             {
                 key: 'mergeImages',
                 label: 'Merge duplicate images',
-                defaultValue: true,
-                description: 'Reuse identical bitmap exports when possible.'
+                defaultValue: true
             },
             {
                 key: 'mergeShapes',
                 label: 'Merge duplicate shapes',
-                defaultValue: true,
-                description: 'Reuse identical rasterized shape exports when possible.'
+                defaultValue: true
             }
         ]
     },
@@ -6239,20 +6233,17 @@ var BOOLEAN_SETTING_GROUPS = [
             {
                 key: 'transformRootBone',
                 label: 'Apply full root transform',
-                defaultValue: false,
-                description: 'Bake root position/rotation/scale from Animate. When off, only root scale preservation and the world multiplier affect size.'
+                defaultValue: false
             },
             {
                 key: 'mergeSkeletons',
                 label: 'Merge selected skeletons',
-                defaultValue: false,
-                description: 'Combine multiple selected roots into one exported skeleton.'
+                defaultValue: false
             },
             {
                 key: 'mergeSkeletonsRootBone',
                 label: 'Keep root bone when merging skeletons',
-                defaultValue: false,
-                description: 'Preserve an extra root bone per merged skeleton instead of collapsing directly under the shared root.'
+                defaultValue: false
             }
         ]
     }
@@ -6271,18 +6262,16 @@ var buildExportSettingsPanelXml = function () {
         '<dialog title="Spine Export Settings" buttons="accept,cancel">',
         '  <vbox>',
         '    <label value="Adjust export settings for this export run." />',
-        '    <label value="Raster export scale changes PNG density. Root/world scale changes final skeleton size." />',
+        '    <label value="Raster export scale changes PNG density only." />',
+        '    <label value="Root/world scale multiplier changes final skeleton size." />',
         '    <separator />'
     ];
     for (var i = 0; i < NUMBER_SETTINGS.length; i++) {
         var setting = NUMBER_SETTINGS[i];
-        lines.push('    <vbox>');
         lines.push('    <hbox>');
-        lines.push("      <label value=\"".concat(setting.label, "\" width=\"140\" />"));
+        lines.push("      <label value=\"".concat(setting.label, "\" width=\"180\" />"));
         lines.push("      <textbox id=\"".concat(setting.key, "\" value=\"").concat(getNumberSettingValue(setting), "\" size=\"8\" />"));
         lines.push('    </hbox>');
-        lines.push("      <label value=\"".concat(setting.description, "\" width=\"360\" />"));
-        lines.push('    </vbox>');
     }
     for (var groupIndex = 0; groupIndex < BOOLEAN_SETTING_GROUPS.length; groupIndex++) {
         lines.push('    <separator />');
@@ -6290,10 +6279,7 @@ var buildExportSettingsPanelXml = function () {
         lines.push("    <label value=\"".concat(group.title, "\" />"));
         for (var i = 0; i < group.settings.length; i++) {
             var setting = group.settings[i];
-            lines.push('    <vbox>');
             lines.push("    <checkbox id=\"".concat(setting.key, "\" label=\"").concat(setting.label, "\" checked=\"").concat(getBooleanSettingValue(setting) ? 'true' : 'false', "\" />"));
-            lines.push("      <label value=\"".concat(setting.description, "\" width=\"360\" />"));
-            lines.push('    </vbox>');
         }
     }
     lines.push('  </vbox>');
