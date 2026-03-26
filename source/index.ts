@@ -41,34 +41,86 @@ const config:ConverterConfig = {
     maskTolerance: 0.5
 };
 
+type NumberSettingKey = 'imageExportScale' | 'shapeExportScale';
+type BooleanSettingKey =
+    | 'exportImages'
+    | 'exportShapes'
+    | 'mergeImages'
+    | 'mergeShapes'
+    | 'transformRootBone'
+    | 'mergeSkeletons'
+    | 'mergeSkeletonsRootBone';
+
+interface NumberSettingDefinition {
+    key:NumberSettingKey;
+    label:string;
+    defaultValue:number;
+}
+
+interface BooleanSettingDefinition {
+    key:BooleanSettingKey;
+    label:string;
+    defaultValue:boolean;
+}
+
+const NUMBER_SETTINGS:NumberSettingDefinition[] = [
+    { key: 'imageExportScale', label: 'Image export scale', defaultValue: 1 },
+    { key: 'shapeExportScale', label: 'Shape export scale', defaultValue: 2 }
+];
+
+const BOOLEAN_SETTING_GROUPS:BooleanSettingDefinition[][] = [
+    [
+        { key: 'exportImages', label: 'Export bitmap/images', defaultValue: true },
+        { key: 'exportShapes', label: 'Export vector shapes', defaultValue: true },
+        { key: 'mergeImages', label: 'Merge duplicate images', defaultValue: true },
+        { key: 'mergeShapes', label: 'Merge duplicate shapes', defaultValue: true }
+    ],
+    [
+        { key: 'transformRootBone', label: 'Apply full root transform', defaultValue: false },
+        { key: 'mergeSkeletons', label: 'Merge selected skeletons', defaultValue: false },
+        { key: 'mergeSkeletonsRootBone', label: 'Keep root bone when merging skeletons', defaultValue: false }
+    ]
+];
+
+const getNumberSettingValue = (setting:NumberSettingDefinition):number => {
+    const value = config[setting.key];
+    return typeof value === 'number' && isFinite(value) && value > 0 ? value : setting.defaultValue;
+};
+
+const getBooleanSettingValue = (setting:BooleanSettingDefinition):boolean => {
+    const value = config[setting.key];
+    return typeof value === 'boolean' ? value : setting.defaultValue;
+};
+
 const buildExportSettingsPanelXml = ():string => {
-    const checked = (value:boolean):string => value ? 'true' : 'false';
-    return [
+    const lines:string[] = [
         '<?xml version="1.0" encoding="utf-8"?>',
         '<dialog title="Spine Export Settings" buttons="accept,cancel">',
         '  <vbox>',
         '    <label value="Adjust export settings for this export run." />',
-        '    <separator />',
-        '    <hbox>',
-        '      <label value="Image export scale" width="140" />',
-        `      <textbox id="imageExportScale" value="${config.imageExportScale || 1}" size="8" />`,
-        '    </hbox>',
-        '    <hbox>',
-        '      <label value="Shape export scale" width="140" />',
-        `      <textbox id="shapeExportScale" value="${config.shapeExportScale || 1}" size="8" />`,
-        '    </hbox>',
-        '    <separator />',
-        `    <checkbox id="exportImages" label="Export bitmap/images" checked="${checked(!!config.exportImages)}" />`,
-        `    <checkbox id="exportShapes" label="Export vector shapes" checked="${checked(!!config.exportShapes)}" />`,
-        `    <checkbox id="mergeImages" label="Merge duplicate images" checked="${checked(!!config.mergeImages)}" />`,
-        `    <checkbox id="mergeShapes" label="Merge duplicate shapes" checked="${checked(!!config.mergeShapes)}" />`,
-        '    <separator />',
-        `    <checkbox id="transformRootBone" label="Apply full root transform" checked="${checked(!!config.transformRootBone)}" />`,
-        `    <checkbox id="mergeSkeletons" label="Merge selected skeletons" checked="${checked(!!config.mergeSkeletons)}" />`,
-        `    <checkbox id="mergeSkeletonsRootBone" label="Keep root bone when merging skeletons" checked="${checked(!!config.mergeSkeletonsRootBone)}" />`,
-        '  </vbox>',
-        '</dialog>'
-    ].join('');
+        '    <separator />'
+    ];
+
+    for (let i = 0; i < NUMBER_SETTINGS.length; i++) {
+        const setting = NUMBER_SETTINGS[i];
+        lines.push('    <hbox>');
+        lines.push(`      <label value="${setting.label}" width="140" />`);
+        lines.push(`      <textbox id="${setting.key}" value="${getNumberSettingValue(setting)}" size="8" />`);
+        lines.push('    </hbox>');
+    }
+
+    for (let groupIndex = 0; groupIndex < BOOLEAN_SETTING_GROUPS.length; groupIndex++) {
+        lines.push('    <separator />');
+        const group = BOOLEAN_SETTING_GROUPS[groupIndex];
+        for (let i = 0; i < group.length; i++) {
+            const setting = group[i];
+            lines.push(`    <checkbox id="${setting.key}" label="${setting.label}" checked="${getBooleanSettingValue(setting) ? 'true' : 'false'}" />`);
+        }
+    }
+
+    lines.push('  </vbox>');
+    lines.push('</dialog>');
+    return lines.join('');
 };
 
 const parsePanelNumber = (value:any, fallback:number, label:string):number => {
@@ -90,6 +142,21 @@ const parsePanelBoolean = (value:any, fallback:boolean):boolean => {
     return fallback;
 };
 
+const applyExportSettingsDialog = (dialog:any):void => {
+    for (let i = 0; i < NUMBER_SETTINGS.length; i++) {
+        const setting = NUMBER_SETTINGS[i];
+        config[setting.key] = parsePanelNumber(dialog[setting.key], getNumberSettingValue(setting), setting.key);
+    }
+
+    for (let groupIndex = 0; groupIndex < BOOLEAN_SETTING_GROUPS.length; groupIndex++) {
+        const group = BOOLEAN_SETTING_GROUPS[groupIndex];
+        for (let i = 0; i < group.length; i++) {
+            const setting = group[i];
+            config[setting.key] = parsePanelBoolean(dialog[setting.key], getBooleanSettingValue(setting));
+        }
+    }
+};
+
 const promptExportSettings = ():boolean => {
     const flashHost = fl as any;
     if (!flashHost.xmlPanelFromString) {
@@ -100,63 +167,11 @@ const promptExportSettings = ():boolean => {
     const dialog = flashHost.xmlPanelFromString(buildExportSettingsPanelXml());
 
     if (!dialog || dialog.dismiss !== 'accept') {
-        Logger.warning('Export cancelled from settings dialog.');
         return false;
     }
 
-    config.imageExportScale = parsePanelNumber(dialog.imageExportScale, config.imageExportScale || 1, 'imageExportScale');
-    config.shapeExportScale = parsePanelNumber(dialog.shapeExportScale, config.shapeExportScale || 1, 'shapeExportScale');
-    config.exportImages = parsePanelBoolean(dialog.exportImages, !!config.exportImages);
-    config.exportShapes = parsePanelBoolean(dialog.exportShapes, !!config.exportShapes);
-    config.mergeImages = parsePanelBoolean(dialog.mergeImages, !!config.mergeImages);
-    config.mergeShapes = parsePanelBoolean(dialog.mergeShapes, !!config.mergeShapes);
-    config.transformRootBone = parsePanelBoolean(dialog.transformRootBone, !!config.transformRootBone);
-    config.mergeSkeletons = parsePanelBoolean(dialog.mergeSkeletons, !!config.mergeSkeletons);
-    config.mergeSkeletonsRootBone = parsePanelBoolean(dialog.mergeSkeletonsRootBone, !!config.mergeSkeletonsRootBone);
+    applyExportSettingsDialog(dialog);
     return true;
-};
-
-const formatLogNumber = (value:any):string => {
-    return typeof value === 'number' && isFinite(value) ? value.toFixed(2) : 'n/a';
-};
-
-const logExportSummary = (doc:FlashDocument, data: { paths: SelectionPath[], currentFrame: number }) => {
-    const timeline = doc.getTimeline();
-    const layers = timeline && timeline.layers ? timeline.layers.length : 0;
-    const frameRate = (doc as any).frameRate;
-    Logger.status(
-        `[Config] imageExportScale=${config.imageExportScale || 1} shapeExportScale=${config.shapeExportScale || 1}` +
-        ` transformRootBone=${!!config.transformRootBone} mergeSkeletons=${!!config.mergeSkeletons}` +
-        ` mergeSkeletonsRootBone=${!!config.mergeSkeletonsRootBone} exportImages=${!!config.exportImages}` +
-        ` exportShapes=${!!config.exportShapes} mergeImages=${!!config.mergeImages} mergeShapes=${!!config.mergeShapes}`
-    );
-    Logger.status(
-        `[Document] name='${doc.name}' size=${formatLogNumber((doc as any).width)}x${formatLogNumber((doc as any).height)}` +
-        ` frameRate=${formatLogNumber(frameRate)} currentFrame=${data.currentFrame} layers=${layers} selection=${data.paths.length}`
-    );
-
-    for (let i = 0; i < data.paths.length; i++) {
-        const path = data.paths[i];
-        const layer = timeline.layers[path.layerIndex];
-        const frame = layer && layer.frames ? layer.frames[path.frameIndex] : null;
-        const element = frame && frame.elements ? frame.elements[path.elementIndex] : null;
-        if (!element) continue;
-
-        const libraryItem = (element as any).libraryItem;
-        const instanceType = (element as any).instanceType || '<none>';
-        const matrix = element.matrix;
-        Logger.status(
-            `[RootSelection] idx=${i}` +
-            ` layer='${layer ? layer.name : '<none>'}' frame=${path.frameIndex}` +
-            ` element='${element.name || libraryItem?.name || '<anon>'}'` +
-            ` type=${element.elementType}/${instanceType}` +
-            ` library='${libraryItem ? libraryItem.name : '<none>'}'` +
-            ` pivot=(${formatLogNumber(element.transformationPoint.x)}, ${formatLogNumber(element.transformationPoint.y)})` +
-            ` transform=(${formatLogNumber(element.transformX)}, ${formatLogNumber(element.transformY)})` +
-            ` reg=(${formatLogNumber(element.x)}, ${formatLogNumber(element.y)})` +
-            ` matrix=[a=${formatLogNumber(matrix.a)}, b=${formatLogNumber(matrix.b)}, c=${formatLogNumber(matrix.c)}, d=${formatLogNumber(matrix.d)}, tx=${formatLogNumber(matrix.tx)}, ty=${formatLogNumber(matrix.ty)}]`
-        );
-    }
 };
 
 //-----------------------------------
@@ -282,7 +297,6 @@ const run = () => {
         Logger.setStatusFile(statusPath, true);
         Logger.warning(`Export status: ${statusPath}`);
         Logger.status(`Original: ${originalPath}`);
-        logExportSummary(originalDoc, selectionData);
     } catch (e) {
         // ignore logger init errors
     }

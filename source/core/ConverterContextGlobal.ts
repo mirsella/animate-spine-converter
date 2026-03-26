@@ -40,10 +40,6 @@ export class ConverterContextGlobal extends ConverterContext {
     public frameRate:number;
     public config:ConverterConfig;
 
-    private static formatLogNumber(value:any):string {
-        return typeof value === 'number' && isFinite(value) ? value.toFixed(2) : 'n/a';
-    }
-
     public static initializeGlobal(element:FlashElement, config:ConverterConfig, frameRate:number, skeleton:SpineSkeleton = null, cache:ConverterContextGlobal = null):ConverterContextGlobal {
         const transform = new SpineTransformMatrix(element);
         const libraryItem = (element as any).libraryItem;
@@ -92,25 +88,6 @@ export class ConverterContextGlobal extends ConverterContext {
             Logger.trace(`[Global] Root: ${context.skeleton.name} anchor=(${element.transformationPoint.x.toFixed(2)}, ${element.transformationPoint.y.toFixed(2)})`);
         }
 
-        const preserveRootScale = !config.transformRootBone && (transform.scaleX !== 1 || transform.scaleY !== 1);
-        const timeline = libraryItem && (libraryItem as any).timeline;
-        const timelineLayers = timeline && timeline.layers ? timeline.layers.length : 0;
-        const timelineFrames = timeline && typeof (timeline as any).frameCount === 'number' ? (timeline as any).frameCount : 0;
-        const matrix = element.matrix;
-        const instanceType = (element as any).instanceType || '<none>';
-        Logger.status(
-            `[RootExport] skeleton='${context.skeleton.name}' source='${libraryItem ? libraryItem.name : (element.name || '<anon>')}'` +
-            ` type=${element.elementType}/${instanceType}` +
-            ` anchor=(${ConverterContextGlobal.formatLogNumber(element.transformationPoint.x)}, ${ConverterContextGlobal.formatLogNumber(element.transformationPoint.y)})` +
-            ` transform=(${ConverterContextGlobal.formatLogNumber(element.transformX)}, ${ConverterContextGlobal.formatLogNumber(element.transformY)})` +
-            ` reg=(${ConverterContextGlobal.formatLogNumber(element.x)}, ${ConverterContextGlobal.formatLogNumber(element.y)})` +
-            ` matrix=[a=${ConverterContextGlobal.formatLogNumber(matrix.a)}, b=${ConverterContextGlobal.formatLogNumber(matrix.b)}, c=${ConverterContextGlobal.formatLogNumber(matrix.c)}, d=${ConverterContextGlobal.formatLogNumber(matrix.d)}, tx=${ConverterContextGlobal.formatLogNumber(matrix.tx)}, ty=${ConverterContextGlobal.formatLogNumber(matrix.ty)}]` +
-            ` decomposed=(rot=${ConverterContextGlobal.formatLogNumber(transform.rotation)}, sx=${ConverterContextGlobal.formatLogNumber(transform.scaleX)}, sy=${ConverterContextGlobal.formatLogNumber(transform.scaleY)}, shY=${ConverterContextGlobal.formatLogNumber(transform.shearY)})` +
-            ` parentOffset=(${ConverterContextGlobal.formatLogNumber(context.parentOffset.x)}, ${ConverterContextGlobal.formatLogNumber(context.parentOffset.y)})` +
-            ` transformRootBone=${!!config.transformRootBone} preserveRootScale=${preserveRootScale}` +
-            ` timelineLayers=${timelineLayers} timelineFrames=${timelineFrames}`
-        );
-
         if (config.transformRootBone) {
             SpineAnimationHelper.applyBoneTransform(context.bone, transform);
         } else if (transform.scaleX !== 1 || transform.scaleY !== 1) {
@@ -123,10 +100,6 @@ export class ConverterContextGlobal extends ConverterContext {
                 x: 0,
                 y: 0,
             });
-            Logger.status(
-                `[RootExport] preservedScale skeleton='${context.skeleton.name}'` +
-                ` scale=(${ConverterContextGlobal.formatLogNumber(transform.scaleX)}, ${ConverterContextGlobal.formatLogNumber(transform.scaleY)})`
-            );
         }
 
         return context;

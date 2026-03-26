@@ -4,56 +4,6 @@ import { SpineTransformMatrix } from '../spine/transform/SpineTransformMatrix';
 import { PathUtil } from './PathUtil'; // Assuming PathUtil is available or can be imported
 
 export class ImageUtil {
-    private static formatLogNumber(value:any):string {
-        return typeof value === 'number' && isFinite(value) ? value.toFixed(2) : 'n/a';
-    }
-
-    private static describeElement(element:FlashElement):string {
-        const libraryItem = (element as any).libraryItem;
-        const instanceType = (element as any).instanceType || '<none>';
-        const itemType = libraryItem && (libraryItem as any).itemType ? (libraryItem as any).itemType : '<none>';
-        return `element='${element.name || libraryItem?.name || '<anon>'}' type=${element.elementType}/${instanceType} library='${libraryItem ? libraryItem.name : '<none>'}' itemType=${itemType}`;
-    }
-
-    private static logExportMetrics(
-        mode:string,
-        imagePath:string,
-        element:FlashElement,
-        scale:number,
-        sourceWidth:number,
-        sourceHeight:number,
-        outputWidth:number,
-        outputHeight:number,
-        localCenterX:number,
-        localCenterY:number,
-        offset:{x:number, y:number}
-    ):void {
-        const safeScale = scale === 0 ? 1 : scale;
-        const effectiveWidth = outputWidth / safeScale;
-        const effectiveHeight = outputHeight / safeScale;
-        const sprite144DpiWidth = sourceWidth * 2;
-        const sprite144DpiHeight = sourceHeight * 2;
-        const pngVs144DpiX = sprite144DpiWidth === 0 ? 0 : outputWidth / sprite144DpiWidth;
-        const pngVs144DpiY = sprite144DpiHeight === 0 ? 0 : outputHeight / sprite144DpiHeight;
-        const worldVsSourceX = sourceWidth === 0 ? 0 : effectiveWidth / sourceWidth;
-        const worldVsSourceY = sourceHeight === 0 ? 0 : effectiveHeight / sourceHeight;
-        Logger.status(
-            `[ImageMetrics] mode=${mode} ${ImageUtil.describeElement(element)}` +
-            ` exportScale=${ImageUtil.formatLogNumber(scale)}` +
-            ` dpiEquivalent=${ImageUtil.formatLogNumber(72 * safeScale)}` +
-            ` sourceRect=${ImageUtil.formatLogNumber(sourceWidth)}x${ImageUtil.formatLogNumber(sourceHeight)}` +
-            ` png=${ImageUtil.formatLogNumber(outputWidth)}x${ImageUtil.formatLogNumber(outputHeight)}` +
-            ` sprite144dpi=${ImageUtil.formatLogNumber(sprite144DpiWidth)}x${ImageUtil.formatLogNumber(sprite144DpiHeight)}` +
-            ` pngVs144dpi=(${ImageUtil.formatLogNumber(pngVs144DpiX)}, ${ImageUtil.formatLogNumber(pngVs144DpiY)})` +
-            ` effectiveWorld=${ImageUtil.formatLogNumber(effectiveWidth)}x${ImageUtil.formatLogNumber(effectiveHeight)}` +
-            ` worldVsSource=(${ImageUtil.formatLogNumber(worldVsSourceX)}, ${ImageUtil.formatLogNumber(worldVsSourceY)})` +
-            ` attachmentScale=${ImageUtil.formatLogNumber(1 / safeScale)}` +
-            ` center=(${ImageUtil.formatLogNumber(localCenterX)}, ${ImageUtil.formatLogNumber(localCenterY)})` +
-            ` offset=(${ImageUtil.formatLogNumber(offset.x)}, ${ImageUtil.formatLogNumber(offset.y)})` +
-            ` path='${imagePath}'`
-        );
-    }
-
     public static exportBitmap(imagePath:string, element:FlashElement, document:FlashDocument, scale:number, exportImages:boolean):SpineImage {
         Logger.assert(element.libraryItem != null, `exportBitmap: element has no libraryItem (element: ${element.name || element.layer?.name || 'unknown'})`);
 
@@ -92,8 +42,6 @@ export class ImageUtil {
             localCenterX, localCenterY,
             element.name || element.libraryItem?.name
         );
-
-        ImageUtil.logExportMetrics('bitmap', imagePath, element, 1, w, h, w, h, localCenterX, localCenterY, offset);
 
         return new SpineImage(imagePath, w, h, 1, offset.x, offset.y, localCenterX, localCenterY);
     }
@@ -277,8 +225,6 @@ export class ImageUtil {
                 
                 let w = 1;
                 let h = 1;
-                let sourceWidth = 0;
-                let sourceHeight = 0;
                 let localCenterX = 0;
                 let localCenterY = 0;
 
@@ -357,9 +303,7 @@ export class ImageUtil {
                         const rect = tempDoc.getSelectionRect();
                         const width = rect.right - rect.left;
                         const height = rect.bottom - rect.top;
-                        sourceWidth = width;
-                        sourceHeight = height;
-                        
+                         
                         w = Math.max(1, Math.ceil(width * scale));
                         h = Math.max(1, Math.ceil(height * scale));
                         
@@ -398,8 +342,6 @@ export class ImageUtil {
                     localCenterX, localCenterY,
                     element.name || element.libraryItem?.name
                 );
-
-                ImageUtil.logExportMetrics('stage-instance', imagePath, element, scale, sourceWidth, sourceHeight, w, h, localCenterX, localCenterY, offset);
 
                 return new SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
 
@@ -563,8 +505,6 @@ export class ImageUtil {
             
             let w = 1;
             let h = 1;
-            let sourceWidth = 0;
-            let sourceHeight = 0;
             let localCenterX = 0;
             let localCenterY = 0;
 
@@ -578,8 +518,6 @@ export class ImageUtil {
                 const rect = tempDoc.getSelectionRect();
                 const width = rect.right - rect.left;
                 const height = rect.bottom - rect.top;
-                sourceWidth = width;
-                sourceHeight = height;
                 
                 w = Math.max(1, Math.ceil(width * scale));
                 h = Math.max(1, Math.ceil(height * scale));
@@ -619,8 +557,6 @@ export class ImageUtil {
                 transPointX, transPointY, 
                 localCenterX, localCenterY
             );
-
-            ImageUtil.logExportMetrics('shape', imagePath, element, scale, sourceWidth, sourceHeight, w, h, localCenterX, localCenterY, offset);
 
             return new SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
         } finally {
@@ -724,8 +660,6 @@ export class ImageUtil {
             transPointX, transPointY, 
             localCenterX, localCenterY
         );
-
-        ImageUtil.logExportMetrics('symbol', imagePath, element, scale, width, height, w, h, localCenterX, localCenterY, offset);
 
         if (exportImages && dom.selection.length > 0) {
             let copySuccess = false;
