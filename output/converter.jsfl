@@ -23,12 +23,14 @@ var LibraryUtil_1 = __webpack_require__(/*! ../utils/LibraryUtil */ "./source/ut
 var PathUtil_1 = __webpack_require__(/*! ../utils/PathUtil */ "./source/utils/PathUtil.ts");
 var ShapeUtil_1 = __webpack_require__(/*! ../utils/ShapeUtil */ "./source/utils/ShapeUtil.ts");
 var StringUtil_1 = __webpack_require__(/*! ../utils/StringUtil */ "./source/utils/StringUtil.ts");
+var ConverterMap_1 = __webpack_require__(/*! ./ConverterMap */ "./source/core/ConverterMap.ts");
 var ConverterContextGlobal_1 = __webpack_require__(/*! ./ConverterContextGlobal */ "./source/core/ConverterContextGlobal.ts");
 var Converter = /** @class */ (function () {
     function Converter(document, config) {
         // Cache of spans already baked with convertToKeyframes().
         // Keyed by timeline.name|layerIndex|spanStart -> spanEndExclusive.
         this._bakedSpanEndByKey = {};
+        this._canonicalBoneTransformsByFamily = new ConverterMap_1.ConverterMap();
         this._document = document;
         this._workingPath = PathUtil_1.PathUtil.parentPath(document.pathURI);
         this._config = config;
@@ -218,6 +220,35 @@ var Converter = /** @class */ (function () {
         var n = el.name;
         var lib = el.libraryItem ? el.libraryItem.name : '';
         return (n && n.length) ? n : (lib && lib.length ? lib : '<anon>');
+    };
+    Converter.prototype.getRootExportName = function (element) {
+        var libraryItem = element.libraryItem;
+        return libraryItem ? StringUtil_1.StringUtil.simplify(libraryItem.name) : (element.name ? StringUtil_1.StringUtil.simplify(element.name) : StringUtil_1.StringUtil.simplify(element.layer.name));
+    };
+    Converter.prototype.getSetupPoseFamily = function (name) {
+        var parts = name.split('_');
+        var skinIndex = -1;
+        for (var i = 0; i < parts.length; i++) {
+            if (parts[i] === 'blue' || parts[i] === 'red') {
+                skinIndex = i;
+                break;
+            }
+        }
+        if (skinIndex > 0 && skinIndex + 1 < parts.length) {
+            return parts.slice(0, skinIndex).join('_');
+        }
+        return name;
+    };
+    Converter.prototype.getSetupPosePriority = function (name) {
+        if (name.indexOf('_idle') !== -1)
+            return 0;
+        if (name.indexOf('_spawn') !== -1)
+            return 1;
+        if (name.indexOf('_run') !== -1)
+            return 2;
+        if (name.indexOf('_attack') !== -1)
+            return 3;
+        return 10;
     };
     Converter.prototype.shouldDebugElement = function (context, el, baseImageName) {
         var _a;
@@ -1762,12 +1793,28 @@ var Converter = /** @class */ (function () {
         }
     };
     Converter.prototype.convertSelection = function () {
+        var _this = this;
+        this._canonicalBoneTransformsByFamily.clear();
         var skeleton = (this._config.mergeSkeletons ? new SpineSkeleton_1.SpineSkeleton() : null);
         var cache = (this._config.mergeSkeletons && this._config.mergeSkeletonsRootBone) ? ConverterContextGlobal_1.ConverterContextGlobal.initializeCache() : null;
         var output = [];
-        for (var _i = 0, _a = this._document.selection; _i < _a.length; _i++) {
-            var el = _a[_i];
+        var selection = this._document.selection.slice();
+        selection.sort(function (left, right) {
+            var leftName = _this.getRootExportName(left);
+            var rightName = _this.getRootExportName(right);
+            var familyCompare = _this.getSetupPoseFamily(leftName).localeCompare(_this.getSetupPoseFamily(rightName));
+            if (familyCompare !== 0)
+                return familyCompare;
+            var priorityCompare = _this.getSetupPosePriority(leftName) - _this.getSetupPosePriority(rightName);
+            if (priorityCompare !== 0)
+                return priorityCompare;
+            return leftName.localeCompare(rightName);
+        });
+        for (var _i = 0, selection_1 = selection; _i < selection_1.length; _i++) {
+            var el = selection_1[_i];
             var context = ConverterContextGlobal_1.ConverterContextGlobal.initializeGlobal(el, this._config, this._document.frameRate, skeleton, cache);
+            context.global.setupPoseFamilyKey = this.getSetupPoseFamily(context.skeleton.name);
+            context.global.canonicalBoneTransformsByFamily = this._canonicalBoneTransformsByFamily;
             if (this.convertSymbolInstance(el, context) && skeleton == null)
                 output.push(context.skeleton);
         }
@@ -1868,6 +1915,7 @@ var SpineAnimationHelper_1 = __webpack_require__(/*! ../spine/SpineAnimationHelp
 var SpineTransformMatrix_1 = __webpack_require__(/*! ../spine/transform/SpineTransformMatrix */ "./source/spine/transform/SpineTransformMatrix.ts");
 var ConvertUtil_1 = __webpack_require__(/*! ../utils/ConvertUtil */ "./source/utils/ConvertUtil.ts");
 var Logger_1 = __webpack_require__(/*! ../logger/Logger */ "./source/logger/Logger.ts");
+var ConverterMap_1 = __webpack_require__(/*! ./ConverterMap */ "./source/core/ConverterMap.ts");
 var ConverterContext = /** @class */ (function () {
     function ConverterContext() {
         this.timeOffset = 0;
@@ -1884,6 +1932,15 @@ var ConverterContext = /** @class */ (function () {
         this.parentOffset = { x: 0, y: 0 };
         // empty
     }
+    ConverterContext.prototype.getCanonicalBoneTransforms = function () {
+        var familyKey = this.global.setupPoseFamilyKey || this.global.skeleton.name;
+        var familyTransforms = this.global.canonicalBoneTransformsByFamily.get(familyKey);
+        if (familyTransforms == null) {
+            familyTransforms = new ConverterMap_1.ConverterMap();
+            this.global.canonicalBoneTransformsByFamily.set(familyKey, familyTransforms);
+        }
+        return familyTransforms;
+    };
     ConverterContext.prototype.switchContextFrame = function (frame) {
         this.frame = frame;
         return this;
@@ -1958,7 +2015,21 @@ var ConverterContext = /** @class */ (function () {
                 x: transform.x + this.parentOffset.x,
                 y: transform.y + this.parentOffset.y
             };
-            SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, boneTransform);
+            var canonicalTransforms = this.getCanonicalBoneTransforms();
+            var setupTransform = canonicalTransforms.get(boneName);
+            if (setupTransform == null) {
+                setupTransform = {
+                    rotation: boneTransform.rotation,
+                    scaleX: boneTransform.scaleX,
+                    scaleY: boneTransform.scaleY,
+                    shearX: boneTransform.shearX,
+                    shearY: boneTransform.shearY,
+                    x: boneTransform.x,
+                    y: boneTransform.y
+                };
+                canonicalTransforms.set(boneName, setupTransform);
+            }
+            SpineAnimationHelper_1.SpineAnimationHelper.applyBoneTransform(context.bone, setupTransform);
         }
         // Set parentOffset for children of this bone: shift from this bone's RP to this bone's Anchor
         // Both axes are negated symmetrically (Y flip happens at Spine output layer)
@@ -2139,6 +2210,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.processedSymbols = new ConverterMap_1.ConverterMap();
         context.boneNameBySignature = new ConverterMap_1.ConverterMap();
         context.boneNameSuffixCounter = new ConverterMap_1.ConverterMap();
+        context.canonicalBoneTransformsByFamily = new ConverterMap_1.ConverterMap();
         return context;
     };
     return ConverterContextGlobal;

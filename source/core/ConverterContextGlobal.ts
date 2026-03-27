@@ -17,6 +17,16 @@ import { ConverterFrameLabel } from './ConverterFrameLabel';
 import { ConverterMap } from './ConverterMap';
 import { ConverterStageType } from './ConverterStageType';
 
+export interface CanonicalBoneTransform {
+    rotation:number;
+    scaleX:number;
+    scaleY:number;
+    shearX:number;
+    shearY:number;
+    x:number;
+    y:number;
+}
+
 export class ConverterContextGlobal extends ConverterContext {
     public imagesCache:ConverterMap<string, SpineImage>;
     public shapesCache:ConverterMap<FlashElement | FlashItem, string>;
@@ -40,6 +50,8 @@ export class ConverterContextGlobal extends ConverterContext {
     public skeleton:SpineSkeleton;
     public frameRate:number;
     public config:ConverterConfig;
+    public setupPoseFamilyKey:string;
+    public canonicalBoneTransformsByFamily:ConverterMap<string, ConverterMap<string, CanonicalBoneTransform>>;
 
     private static getScaleMultiplier(config:ConverterConfig):number {
         const value = config.rootScaleMultiplier;
@@ -137,6 +149,7 @@ export class ConverterContextGlobal extends ConverterContext {
 
         context.boneNameBySignature = new ConverterMap<string, string>();
         context.boneNameSuffixCounter = new ConverterMap<string, number>();
+        context.canonicalBoneTransformsByFamily = new ConverterMap<string, ConverterMap<string, CanonicalBoneTransform>>();
         return context;
     }
 

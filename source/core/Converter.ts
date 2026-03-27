@@ -16,10 +16,11 @@ import { LibraryUtil } from '../utils/LibraryUtil';
 import { PathUtil } from '../utils/PathUtil';
 import { ShapeUtil } from '../utils/ShapeUtil';
 import { StringUtil } from '../utils/StringUtil';
+import { ConverterMap } from './ConverterMap';
 import { IColorData } from './ConverterColor';
 import { ConverterConfig } from './ConverterConfig';
 import { ConverterContext } from './ConverterContext';
-import { ConverterContextGlobal } from './ConverterContextGlobal';
+import { CanonicalBoneTransform, ConverterContextGlobal } from './ConverterContextGlobal';
 import { ConverterStageType } from './ConverterStageType';
 
 export class Converter {
@@ -30,6 +31,7 @@ export class Converter {
     // Cache of spans already baked with convertToKeyframes().
     // Keyed by timeline.name|layerIndex|spanStart -> spanEndExclusive.
     private readonly _bakedSpanEndByKey:Record<string, number> = {};
+    private readonly _canonicalBoneTransformsByFamily = new ConverterMap<string, ConverterMap<string, CanonicalBoneTransform>>();
 
     public constructor(document:FlashDocument, config:ConverterConfig) {
         this._document = document;
@@ -208,6 +210,34 @@ export class Converter {
         const n = (el as any).name;
         const lib = (el as any).libraryItem ? (el as any).libraryItem.name : '';
         return (n && n.length) ? n : (lib && lib.length ? lib : '<anon>');
+    }
+
+    private getRootExportName(element:FlashElement):string {
+        const libraryItem = (element as any).libraryItem;
+        return libraryItem ? StringUtil.simplify(libraryItem.name) : (element.name ? StringUtil.simplify(element.name) : StringUtil.simplify(element.layer.name));
+    }
+
+    private getSetupPoseFamily(name:string):string {
+        const parts = name.split('_');
+        let skinIndex = -1;
+        for (let i = 0; i < parts.length; i++) {
+            if (parts[i] === 'blue' || parts[i] === 'red') {
+                skinIndex = i;
+                break;
+            }
+        }
+        if (skinIndex > 0 && skinIndex + 1 < parts.length) {
+            return parts.slice(0, skinIndex).join('_');
+        }
+        return name;
+    }
+
+    private getSetupPosePriority(name:string):number {
+        if (name.indexOf('_idle') !== -1) return 0;
+        if (name.indexOf('_spawn') !== -1) return 1;
+        if (name.indexOf('_run') !== -1) return 2;
+        if (name.indexOf('_attack') !== -1) return 3;
+        return 10;
     }
 
     private shouldDebugElement(context: ConverterContext, el: FlashElement, baseImageName?: string): boolean {
@@ -1855,11 +1885,25 @@ export class Converter {
     }
 
     public convertSelection():SpineSkeleton[] {
+        this._canonicalBoneTransformsByFamily.clear();
         const skeleton = (this._config.mergeSkeletons ? new SpineSkeleton() : null);
         const cache = (this._config.mergeSkeletons && this._config.mergeSkeletonsRootBone) ? ConverterContextGlobal.initializeCache() : null;
         const output:SpineSkeleton[] = [];
-        for (const el of this._document.selection) {
+        const selection = this._document.selection.slice();
+        selection.sort((left:FlashElement, right:FlashElement) => {
+            const leftName = this.getRootExportName(left);
+            const rightName = this.getRootExportName(right);
+            const familyCompare = this.getSetupPoseFamily(leftName).localeCompare(this.getSetupPoseFamily(rightName));
+            if (familyCompare !== 0) return familyCompare;
+            const priorityCompare = this.getSetupPosePriority(leftName) - this.getSetupPosePriority(rightName);
+            if (priorityCompare !== 0) return priorityCompare;
+            return leftName.localeCompare(rightName);
+        });
+
+        for (const el of selection) {
             const context = ConverterContextGlobal.initializeGlobal(el, this._config, this._document.frameRate, skeleton, cache);
+            context.global.setupPoseFamilyKey = this.getSetupPoseFamily(context.skeleton.name);
+            context.global.canonicalBoneTransformsByFamily = this._canonicalBoneTransformsByFamily;
             if (this.convertSymbolInstance(el, context) && skeleton == null) output.push(context.skeleton);
         }
         if (skeleton) {

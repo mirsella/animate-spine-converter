@@ -7,7 +7,8 @@ import { SpineBlendMode } from '../spine/types/SpineBlendMode';
 import { ConvertUtil } from '../utils/ConvertUtil';
 import { Logger } from '../logger/Logger';
 import { ConverterColor, IColorData } from './ConverterColor';
-import { ConverterContextGlobal } from './ConverterContextGlobal';
+import { ConverterMap } from './ConverterMap';
+import { CanonicalBoneTransform, ConverterContextGlobal } from './ConverterContextGlobal';
 import { ConverterFrameLabel } from './ConverterFrameLabel';
 import { ConverterStageType } from './ConverterStageType';
 
@@ -41,6 +42,16 @@ export class ConverterContext {
 
     public constructor() {
         // empty
+    }
+
+    private getCanonicalBoneTransforms():ConverterMap<string, CanonicalBoneTransform> {
+        const familyKey = this.global.setupPoseFamilyKey || this.global.skeleton.name;
+        let familyTransforms = this.global.canonicalBoneTransformsByFamily.get(familyKey);
+        if (familyTransforms == null) {
+            familyTransforms = new ConverterMap<string, CanonicalBoneTransform>();
+            this.global.canonicalBoneTransformsByFamily.set(familyKey, familyTransforms);
+        }
+        return familyTransforms;
     }
 
     public switchContextFrame(frame:FlashFrame):ConverterContext {
@@ -131,7 +142,22 @@ export class ConverterContext {
                 y: transform.y + this.parentOffset.y
             };
 
-            SpineAnimationHelper.applyBoneTransform(context.bone, boneTransform);
+            const canonicalTransforms = this.getCanonicalBoneTransforms();
+            let setupTransform = canonicalTransforms.get(boneName);
+            if (setupTransform == null) {
+                setupTransform = {
+                    rotation: boneTransform.rotation,
+                    scaleX: boneTransform.scaleX,
+                    scaleY: boneTransform.scaleY,
+                    shearX: boneTransform.shearX,
+                    shearY: boneTransform.shearY,
+                    x: boneTransform.x,
+                    y: boneTransform.y
+                };
+                canonicalTransforms.set(boneName, setupTransform);
+            }
+
+            SpineAnimationHelper.applyBoneTransform(context.bone, setupTransform);
         }
 
         // Set parentOffset for children of this bone: shift from this bone's RP to this bone's Anchor
