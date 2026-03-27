@@ -225,8 +225,6 @@ export class ImageUtil {
                 
                 let w = 1;
                 let h = 1;
-                let worldWidth = 1;
-                let worldHeight = 1;
                 let localCenterX = 0;
                 let localCenterY = 0;
 
@@ -305,9 +303,6 @@ export class ImageUtil {
                         const rect = tempDoc.getSelectionRect();
                         const width = rect.right - rect.left;
                         const height = rect.bottom - rect.top;
-                        worldWidth = Math.max(1, width);
-                        worldHeight = Math.max(1, height);
-                         
                         w = Math.max(1, Math.ceil(width * scale));
                         h = Math.max(1, Math.ceil(height * scale));
                         
@@ -347,7 +342,7 @@ export class ImageUtil {
                     element.name || element.libraryItem?.name
                 );
 
-                return new SpineImage(imagePath, worldWidth, worldHeight, 1, offset.x, offset.y, localCenterX, localCenterY);
+                return new SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
 
             } finally {
                 try {
@@ -509,8 +504,6 @@ export class ImageUtil {
             
             let w = 1;
             let h = 1;
-            let worldWidth = 1;
-            let worldHeight = 1;
             let localCenterX = 0;
             let localCenterY = 0;
 
@@ -524,9 +517,6 @@ export class ImageUtil {
                 const rect = tempDoc.getSelectionRect();
                 const width = rect.right - rect.left;
                 const height = rect.bottom - rect.top;
-                worldWidth = Math.max(1, width);
-                worldHeight = Math.max(1, height);
-                
                 w = Math.max(1, Math.ceil(width * scale));
                 h = Math.max(1, Math.ceil(height * scale));
                 
@@ -566,7 +556,7 @@ export class ImageUtil {
                 localCenterX, localCenterY
             );
 
-            return new SpineImage(imagePath, worldWidth, worldHeight, 1, offset.x, offset.y, localCenterX, localCenterY);
+            return new SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
         } finally {
             try {
                 // Safety: ensure we exit any edit mode before closing tempDoc.
@@ -655,9 +645,6 @@ export class ImageUtil {
 
         const width = rect.right - rect.left;
         const height = rect.bottom - rect.top;
-        const worldWidth = Math.max(1, width);
-        const worldHeight = Math.max(1, height);
-        
         const w = Math.max(1, Math.ceil(width * scale));
         const h = Math.max(1, Math.ceil(height * scale));
         
@@ -734,7 +721,7 @@ export class ImageUtil {
 
         Logger.status(`[ImageUtil] exportSymbol done '${elName}'`);
         
-        return new SpineImage(imagePath, worldWidth, worldHeight, 1, offset.x, offset.y, localCenterX, localCenterY);
+        return new SpineImage(imagePath, w, h, scale, offset.x, offset.y, localCenterX, localCenterY);
     }
 
     /**
