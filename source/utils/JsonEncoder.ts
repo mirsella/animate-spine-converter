@@ -1,3 +1,5 @@
+import { NumberUtil } from './NumberUtil';
+
 export class JsonEncoder {
     public static stringifyArray(object:any, depth:number = 25):string {
         let result = '';
@@ -39,7 +41,7 @@ export class JsonEncoder {
         }
 
         if (typeof (object) === 'number') {
-            return object.toString();
+            return NumberUtil.normalizeJsonNumber(object).toString();
         }
 
         return 'null';

@@ -1,6 +1,14 @@
 export class NumberUtil {
+    public static readonly JSON_PRECISION:number = 6;
+
     public static equals(first:number, second:number, precision:number = 0.001):boolean {
         return Math.abs(first - second) < precision;
+    }
+
+    public static normalizeJsonNumber(value:number, precision:number = NumberUtil.JSON_PRECISION):number {
+        const factor = Math.pow(10, precision);
+        const normalized = Math.round(value * factor) / factor;
+        return (normalized === 0) ? 0 : normalized;
     }
 
     public static sign(value:number):number {

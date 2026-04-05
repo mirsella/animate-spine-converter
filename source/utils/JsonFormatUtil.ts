@@ -1,4 +1,5 @@
 import { JsonUtil } from './JsonUtil';
+import { NumberUtil } from './NumberUtil';
 
 export class JsonFormatUtil {
     public static cleanObject(source:any):any {
@@ -18,23 +19,25 @@ export class JsonFormatUtil {
             }
 
             if (JsonUtil.validNumber(value)) {
+                const normalizedValue = NumberUtil.normalizeJsonNumber(value);
+
                 if (key === 'shearX' || key === 'shearY' || key === 'rotation') {
-                    if (value !== 0) {
-                        result[key] = value;
+                    if (normalizedValue !== 0) {
+                        result[key] = normalizedValue;
                     }
 
                     continue;
                 }
 
                 if (key === 'scaleX' || key === 'scaleY') {
-                    if (value !== 1) {
-                        result[key] = value;
+                    if (normalizedValue !== 1) {
+                        result[key] = normalizedValue;
                     }
 
                     continue;
                 }
 
-                result[key] = value;
+                result[key] = normalizedValue;
             }
 
             if (JsonUtil.validArray(value)) {

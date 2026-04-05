@@ -5206,11 +5206,12 @@ exports.ImageUtil = ImageUtil;
 /*!*************************************!*\
   !*** ./source/utils/JsonEncoder.ts ***!
   \*************************************/
-/***/ (function(__unused_webpack_module, exports) {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 
 
 exports.JsonEncoder = void 0;
+var NumberUtil_1 = __webpack_require__(/*! ./NumberUtil */ "./source/utils/NumberUtil.ts");
 var JsonEncoder = /** @class */ (function () {
     function JsonEncoder() {
     }
@@ -5251,7 +5252,7 @@ var JsonEncoder = /** @class */ (function () {
             return '"' + object.replace('"', '\\"') + '"';
         }
         if (typeof (object) === 'number') {
-            return object.toString();
+            return NumberUtil_1.NumberUtil.normalizeJsonNumber(object).toString();
         }
         return 'null';
     };
@@ -5272,6 +5273,7 @@ exports.JsonEncoder = JsonEncoder;
 
 exports.JsonFormatUtil = void 0;
 var JsonUtil_1 = __webpack_require__(/*! ./JsonUtil */ "./source/utils/JsonUtil.ts");
+var NumberUtil_1 = __webpack_require__(/*! ./NumberUtil */ "./source/utils/NumberUtil.ts");
 var JsonFormatUtil = /** @class */ (function () {
     function JsonFormatUtil() {
     }
@@ -5288,19 +5290,20 @@ var JsonFormatUtil = /** @class */ (function () {
                 continue;
             }
             if (JsonUtil_1.JsonUtil.validNumber(value)) {
+                var normalizedValue = NumberUtil_1.NumberUtil.normalizeJsonNumber(value);
                 if (key === 'shearX' || key === 'shearY' || key === 'rotation') {
-                    if (value !== 0) {
-                        result[key] = value;
+                    if (normalizedValue !== 0) {
+                        result[key] = normalizedValue;
                     }
                     continue;
                 }
                 if (key === 'scaleX' || key === 'scaleY') {
-                    if (value !== 1) {
-                        result[key] = value;
+                    if (normalizedValue !== 1) {
+                        result[key] = normalizedValue;
                     }
                     continue;
                 }
-                result[key] = value;
+                result[key] = normalizedValue;
             }
             if (JsonUtil_1.JsonUtil.validArray(value)) {
                 if (JsonUtil_1.JsonUtil.nonEmptyArray(value)) {
@@ -5496,6 +5499,12 @@ var NumberUtil = /** @class */ (function () {
         if (precision === void 0) { precision = 0.001; }
         return Math.abs(first - second) < precision;
     };
+    NumberUtil.normalizeJsonNumber = function (value, precision) {
+        if (precision === void 0) { precision = NumberUtil.JSON_PRECISION; }
+        var factor = Math.pow(10, precision);
+        var normalized = Math.round(value * factor) / factor;
+        return (normalized === 0) ? 0 : normalized;
+    };
     NumberUtil.sign = function (value) {
         if (value > 0)
             return 1;
@@ -5524,6 +5533,7 @@ var NumberUtil = /** @class */ (function () {
             delta -= 360;
         return delta;
     };
+    NumberUtil.JSON_PRECISION = 6;
     return NumberUtil;
 }());
 exports.NumberUtil = NumberUtil;
