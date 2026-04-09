@@ -217,7 +217,12 @@ export class ConverterContext {
             context.slot.blend = context.blendMode;
 
             if (context.layer != null) {
-                const layerSlots = context.global.layersCache.get(context.layer);
+                let layerSlots = context.global.layersCache.get(context.layer);
+                if (layerSlots == null) {
+                    Logger.warning(`[ConverterContext] Missing layersCache entry for layer '${context.layer.name}' while creating slot '${context.slot.name}'. Initializing late.`);
+                    layerSlots = [];
+                    context.global.layersCache.set(context.layer, layerSlots);
+                }
                 layerSlots.push(context.slot);
             }
         }

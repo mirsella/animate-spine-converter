@@ -56,7 +56,7 @@ export class Converter {
             const el = frame.elements && frame.elements[hints.elementIndex];
             if (!el) return false;
 
-            context.layer = layer;
+            context.switchContextLayer(layer);
             context.frame = frame;
             context.element = el;
             return true;
@@ -112,10 +112,54 @@ export class Converter {
         }
     }
 
+    private isTimelineNameMatchItemName(timelineName: string, itemName: string): boolean {
+        if (!timelineName || !itemName) return false;
+        return timelineName === itemName || timelineName === PathUtil.fileName(itemName);
+    }
+
+    private isTimelineForLibraryItem(timelineName: string, item: FlashItem | null | undefined): boolean {
+        if (!item || !(item as any).name) return false;
+        return this.isTimelineNameMatchItemName(timelineName, String((item as any).name));
+    }
+
+    private resolveLibraryItemPath(name: string): string | null {
+        if (!name) return null;
+
+        const library: any = this._document.library;
+        try {
+            if (library && library.itemExists && library.itemExists(name)) {
+                return name;
+            }
+        } catch (e) {
+            // Fall through to item scan.
+        }
+
+        const items = library && library.items ? library.items : null;
+        if (!items || items.length === 0) return null;
+
+        let match: string | null = null;
+        for (let i = 0; i < items.length; i++) {
+            const item: any = items[i];
+            const itemName = item && item.name ? String(item.name) : '';
+            if (!itemName) continue;
+            if (!this.isTimelineNameMatchItemName(name, itemName)) continue;
+
+            if (match != null && match !== itemName) {
+                Logger.warning(`[Ctx] Multiple library items match timeline '${name}'. Skipping direct restore.`);
+                return null;
+            }
+
+            match = itemName;
+        }
+
+        return match;
+    }
+
     private restoreTimelineContext(targetTimelineName: string): void {
         if (!targetTimelineName) return;
 
         const dom = this._document;
+        const targetItemName = this.resolveLibraryItemPath(targetTimelineName);
         let currentName = '';
         try {
             currentName = dom.getTimeline().name;
@@ -123,9 +167,9 @@ export class Converter {
             return;
         }
 
-        if (currentName === targetTimelineName) return;
+        if (currentName === targetTimelineName || (targetItemName != null && this.isTimelineNameMatchItemName(currentName, targetItemName))) return;
 
-        Logger.status(`[Ctx] restore tl '${currentName}' -> '${targetTimelineName}'`);
+        Logger.status(`[Ctx] restore tl '${currentName}' -> '${targetTimelineName}' item='${targetItemName || '<none>'}'`);
 
         for (let i = 0; i < 8; i++) {
             try {
@@ -133,11 +177,11 @@ export class Converter {
             } catch (e) {
                 break;
             }
-            if (currentName === targetTimelineName) break;
+            if (currentName === targetTimelineName || (targetItemName != null && this.isTimelineNameMatchItemName(currentName, targetItemName))) break;
 
             try {
-                if (dom.library && (dom.library as any).itemExists && (dom.library as any).itemExists(targetTimelineName)) {
-                    dom.library.editItem(targetTimelineName);
+                if (targetItemName != null) {
+                    dom.library.editItem(targetItemName);
                 } else {
                     dom.exitEditMode();
                 }
@@ -146,10 +190,16 @@ export class Converter {
             }
         }
 
+        let finalName = '';
         try {
-            Logger.status(`[Ctx] now tl='${dom.getTimeline().name}'`);
+            finalName = dom.getTimeline().name;
+            Logger.status(`[Ctx] now tl='${finalName}' target='${targetTimelineName}' item='${targetItemName || '<none>'}'`);
         } catch (e) {
             // ignore
+        }
+
+        if (finalName && finalName !== targetTimelineName && (targetItemName == null || !this.isTimelineNameMatchItemName(finalName, targetItemName))) {
+            Logger.warning(`[Ctx] restore mismatch target='${targetTimelineName}' final='${finalName}' item='${targetItemName || '<none>'}'`);
         }
     }
 
@@ -267,7 +317,7 @@ export class Converter {
         const startTlName = currentTl ? currentTl.name : '';
         let mustEdit = false;
         
-        if (containerItem && currentTl.name !== containerItem.name) {
+        if (containerItem && !this.isTimelineForLibraryItem(currentTl.name, containerItem)) {
             if (dom.library.itemExists(containerItem.name)) {
                 mustEdit = true;
             }
@@ -345,7 +395,7 @@ export class Converter {
             if (!refreshed) {
                 const resolved = this.resolveElementFallback(preHints, beforeLayerName, beforeElementName, beforeLibraryItemName);
                 if (resolved) {
-                    context.layer = resolved.layer;
+                    context.switchContextLayer(resolved.layer);
                     context.frame = resolved.frame;
                     context.element = resolved.element;
                     refreshed = true;
@@ -1017,7 +1067,7 @@ export class Converter {
         let mustRestoreContext = false;
         const currentTl = this._document.getTimeline();
         
-        if (currentTl.name !== item.name) {
+        if (!this.isTimelineForLibraryItem(currentTl.name, item)) {
             if (this._document.library.itemExists(item.name)) {
                 // ALWAYS enter edit mode to enable "Live" matrix sampling for all depths.
                 // This ensures nested tweens are correctly interpolated.
@@ -1715,7 +1765,7 @@ export class Converter {
                     const targetName = context.element.libraryItem.name;
                     const dom = this._document;
                     const currentTl = dom.getTimeline();
-                    if (currentTl.name !== targetName) {
+                    if (!this.isTimelineNameMatchItemName(currentTl.name, targetName)) {
                         if (dom.library.itemExists(targetName)) {
                             dom.library.editItem(targetName);
                         }

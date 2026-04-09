@@ -57,7 +57,7 @@ var Converter = /** @class */ (function () {
             var el = frame.elements && frame.elements[hints.elementIndex];
             if (!el)
                 return false;
-            context.layer = layer;
+            context.switchContextLayer(layer);
             context.frame = frame;
             context.element = el;
             return true;
@@ -111,10 +111,52 @@ var Converter = /** @class */ (function () {
             return null;
         }
     };
+    Converter.prototype.isTimelineNameMatchItemName = function (timelineName, itemName) {
+        if (!timelineName || !itemName)
+            return false;
+        return timelineName === itemName || timelineName === PathUtil_1.PathUtil.fileName(itemName);
+    };
+    Converter.prototype.isTimelineForLibraryItem = function (timelineName, item) {
+        if (!item || !item.name)
+            return false;
+        return this.isTimelineNameMatchItemName(timelineName, String(item.name));
+    };
+    Converter.prototype.resolveLibraryItemPath = function (name) {
+        if (!name)
+            return null;
+        var library = this._document.library;
+        try {
+            if (library && library.itemExists && library.itemExists(name)) {
+                return name;
+            }
+        }
+        catch (e) {
+            // Fall through to item scan.
+        }
+        var items = library && library.items ? library.items : null;
+        if (!items || items.length === 0)
+            return null;
+        var match = null;
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var itemName = item && item.name ? String(item.name) : '';
+            if (!itemName)
+                continue;
+            if (!this.isTimelineNameMatchItemName(name, itemName))
+                continue;
+            if (match != null && match !== itemName) {
+                Logger_1.Logger.warning("[Ctx] Multiple library items match timeline '".concat(name, "'. Skipping direct restore."));
+                return null;
+            }
+            match = itemName;
+        }
+        return match;
+    };
     Converter.prototype.restoreTimelineContext = function (targetTimelineName) {
         if (!targetTimelineName)
             return;
         var dom = this._document;
+        var targetItemName = this.resolveLibraryItemPath(targetTimelineName);
         var currentName = '';
         try {
             currentName = dom.getTimeline().name;
@@ -122,9 +164,9 @@ var Converter = /** @class */ (function () {
         catch (e) {
             return;
         }
-        if (currentName === targetTimelineName)
+        if (currentName === targetTimelineName || (targetItemName != null && this.isTimelineNameMatchItemName(currentName, targetItemName)))
             return;
-        Logger_1.Logger.status("[Ctx] restore tl '".concat(currentName, "' -> '").concat(targetTimelineName, "'"));
+        Logger_1.Logger.status("[Ctx] restore tl '".concat(currentName, "' -> '").concat(targetTimelineName, "' item='").concat(targetItemName || '<none>', "'"));
         for (var i = 0; i < 8; i++) {
             try {
                 currentName = dom.getTimeline().name;
@@ -132,11 +174,11 @@ var Converter = /** @class */ (function () {
             catch (e) {
                 break;
             }
-            if (currentName === targetTimelineName)
+            if (currentName === targetTimelineName || (targetItemName != null && this.isTimelineNameMatchItemName(currentName, targetItemName)))
                 break;
             try {
-                if (dom.library && dom.library.itemExists && dom.library.itemExists(targetTimelineName)) {
-                    dom.library.editItem(targetTimelineName);
+                if (targetItemName != null) {
+                    dom.library.editItem(targetItemName);
                 }
                 else {
                     dom.exitEditMode();
@@ -149,11 +191,16 @@ var Converter = /** @class */ (function () {
                 catch (e3) { /* ignore */ }
             }
         }
+        var finalName = '';
         try {
-            Logger_1.Logger.status("[Ctx] now tl='".concat(dom.getTimeline().name, "'"));
+            finalName = dom.getTimeline().name;
+            Logger_1.Logger.status("[Ctx] now tl='".concat(finalName, "' target='").concat(targetTimelineName, "' item='").concat(targetItemName || '<none>', "'"));
         }
         catch (e) {
             // ignore
+        }
+        if (finalName && finalName !== targetTimelineName && (targetItemName == null || !this.isTimelineNameMatchItemName(finalName, targetItemName))) {
+            Logger_1.Logger.warning("[Ctx] restore mismatch target='".concat(targetTimelineName, "' final='").concat(finalName, "' item='").concat(targetItemName || '<none>', "'"));
         }
     };
     Converter.prototype.isSpanBaked = function (timeline, layerIndex, spanStart, frameIndex) {
@@ -278,7 +325,7 @@ var Converter = /** @class */ (function () {
         var currentTl = dom.getTimeline();
         var startTlName = currentTl ? currentTl.name : '';
         var mustEdit = false;
-        if (containerItem && currentTl.name !== containerItem.name) {
+        if (containerItem && !this.isTimelineForLibraryItem(currentTl.name, containerItem)) {
             if (dom.library.itemExists(containerItem.name)) {
                 mustEdit = true;
             }
@@ -357,7 +404,7 @@ var Converter = /** @class */ (function () {
             if (!refreshed) {
                 var resolved = this.resolveElementFallback(preHints, beforeLayerName, beforeElementName, beforeLibraryItemName);
                 if (resolved) {
-                    context.layer = resolved.layer;
+                    context.switchContextLayer(resolved.layer);
                     context.frame = resolved.frame;
                     context.element = resolved.element;
                     refreshed = true;
@@ -957,7 +1004,7 @@ var Converter = /** @class */ (function () {
         var canEdit = false;
         var mustRestoreContext = false;
         var currentTl = this._document.getTimeline();
-        if (currentTl.name !== item.name) {
+        if (!this.isTimelineForLibraryItem(currentTl.name, item)) {
             if (this._document.library.itemExists(item.name)) {
                 // ALWAYS enter edit mode to enable "Live" matrix sampling for all depths.
                 // This ensures nested tweens are correctly interpolated.
@@ -1629,7 +1676,7 @@ var Converter = /** @class */ (function () {
                     var targetName = context.element.libraryItem.name;
                     var dom = this_2._document;
                     var currentTl = dom.getTimeline();
-                    if (currentTl.name !== targetName) {
+                    if (!this_2.isTimelineNameMatchItemName(currentTl.name, targetName)) {
                         if (dom.library.itemExists(targetName)) {
                             dom.library.editItem(targetName);
                         }
@@ -2073,6 +2120,11 @@ var ConverterContext = /** @class */ (function () {
             context.slot.blend = context.blendMode;
             if (context.layer != null) {
                 var layerSlots = context.global.layersCache.get(context.layer);
+                if (layerSlots == null) {
+                    Logger_1.Logger.warning("[ConverterContext] Missing layersCache entry for layer '".concat(context.layer.name, "' while creating slot '").concat(context.slot.name, "'. Initializing late."));
+                    layerSlots = [];
+                    context.global.layersCache.set(context.layer, layerSlots);
+                }
                 layerSlots.push(context.slot);
             }
         }
