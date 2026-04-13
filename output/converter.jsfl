@@ -4496,11 +4496,22 @@ var ConvertUtil = /** @class */ (function () {
         if (!context || !context.global || !context.global.skeleton || !context.global.boneNameBySignature) {
             return baseFullName;
         }
-        // Create a stable signature so the same element gets the same bone name every frame.
+        // Keep the same layer element on the same bone even when the backing library
+        // symbol changes across keyframes.
         var layerName = element.layer && element.layer.name ? element.layer.name : '';
-        var libName = element.libraryItem && element.libraryItem.name ? element.libraryItem.name : '';
         var elName = element && element.name ? element.name : '';
-        var signature = parentName + '|' + elName + '|' + layerName + '|' + libName;
+        var elementIndex = -1;
+        var frameElements = context && context.frame && context.frame.elements ? context.frame.elements : null;
+        if (frameElements != null) {
+            for (var i = 0; i < frameElements.length; i++) {
+                if (frameElements[i] === element) {
+                    elementIndex = i;
+                    break;
+                }
+            }
+        }
+        var identity = (elementIndex >= 0) ? ('idx:' + elementIndex) : ('name:' + elName);
+        var signature = parentName + '|' + layerName + '|' + identity;
         var existing = context.global.boneNameBySignature.get(signature);
         if (existing)
             return existing;

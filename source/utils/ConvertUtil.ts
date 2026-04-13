@@ -156,11 +156,22 @@ export class ConvertUtil {
             return baseFullName;
         }
 
-        // Create a stable signature so the same element gets the same bone name every frame.
+        // Keep the same layer element on the same bone even when the backing library
+        // symbol changes across keyframes.
         const layerName = (element as any).layer && (element as any).layer.name ? (element as any).layer.name : '';
-        const libName = (element as any).libraryItem && (element as any).libraryItem.name ? (element as any).libraryItem.name : '';
         const elName = element && element.name ? element.name : '';
-        const signature = parentName + '|' + elName + '|' + layerName + '|' + libName;
+        let elementIndex = -1;
+        const frameElements = context && context.frame && context.frame.elements ? context.frame.elements : null;
+        if (frameElements != null) {
+            for (let i = 0; i < frameElements.length; i++) {
+                if (frameElements[i] === element) {
+                    elementIndex = i;
+                    break;
+                }
+            }
+        }
+        const identity = (elementIndex >= 0) ? ('idx:' + elementIndex) : ('name:' + elName);
+        const signature = parentName + '|' + layerName + '|' + identity;
 
         const existing = context.global.boneNameBySignature.get(signature);
         if (existing) return existing;

@@ -37,7 +37,7 @@ export class ConverterContextGlobal extends ConverterContext {
     public processedSymbols:ConverterMap<string, boolean>;
 
     // Ensure stable, unique bone names when multiple instances share the same name.
-    // Key: element signature (parentBone|elementName|layerName|libraryItemName)
+    // Key: element signature (parentBone|layerName|elementIndex-or-name)
     // Val: resolved unique bone name
     public boneNameBySignature:ConverterMap<string, string>;
     // Key: base bone name (before suffix), Val: next numeric suffix to try
