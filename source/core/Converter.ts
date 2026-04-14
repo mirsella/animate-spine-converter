@@ -21,6 +21,7 @@ import { IColorData } from './ConverterColor';
 import { ConverterConfig } from './ConverterConfig';
 import { ConverterContext } from './ConverterContext';
 import { CanonicalBoneTransform, ConverterContextGlobal } from './ConverterContextGlobal';
+import { ConverterFrameLabel } from './ConverterFrameLabel';
 import { ConverterStageType } from './ConverterStageType';
 
 export class Converter {
@@ -1829,6 +1830,14 @@ export class Converter {
         return PathUtil.joinPath(this._workingPath, path);
     }
 
+    private extendAnimationToLabelEnd(context: ConverterContext, label: ConverterFrameLabel): void {
+        if (!context.global.animation || !label) {
+            return;
+        }
+
+        context.global.animation.extendToTime(Math.max(0, (label.endFrameIdx - label.startFrameIdx) / context.global.frameRate));
+    }
+
     public convertSymbolInstance(element:FlashElement, context:ConverterContext):boolean {
         if (element.elementType === 'instance' && element.instanceType === 'symbol') {
             try {
@@ -1850,6 +1859,7 @@ export class Converter {
                             const sub = context.switchContextAnimation(l);
                             sub.global.stageType = ConverterStageType.ANIMATION;
                             this.convertElement(sub);
+                            this.extendAnimationToLabelEnd(sub, l);
                             Logger.status(`[Anim] Label '${l.name}' done`);
                         }
                     } else {
@@ -1859,6 +1869,7 @@ export class Converter {
                         const sub = context.switchContextAnimation(context.global.labels[0]);
                         sub.global.stageType = ConverterStageType.ANIMATION;
                         this.convertElement(sub);
+                        this.extendAnimationToLabelEnd(sub, context.global.labels[0]);
                         Logger.status(`[Anim] Label 'default' done`);
                     }
                 }

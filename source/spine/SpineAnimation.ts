@@ -1,6 +1,7 @@
 import { SpineBone } from './SpineBone';
 import { SpineSlot } from './SpineSlot';
 import { SpineTimeline } from './timeline/SpineTimeline';
+import { SpineTimelineFrame } from './timeline/SpineTimelineFrame';
 import { SpineTimelineGroupBone } from './timeline/SpineTimelineGroupBone';
 import { SpineTimelineGroupSlot } from './timeline/SpineTimelineGroupSlot';
 
@@ -49,6 +50,45 @@ export class SpineAnimation {
         this.slots.push(timeline);
 
         return timeline;
+    }
+
+    public extendToTime(time:number):void {
+        if (!(time > 0)) {
+            return;
+        }
+
+        for (const group of this.bones) {
+            this.extendGroupTimelines(group.timelines, time);
+        }
+
+        for (const group of this.slots) {
+            this.extendGroupTimelines(group.timelines, time);
+        }
+    }
+
+    //-----------------------------------
+
+    private extendGroupTimelines(timelines:SpineTimeline[], time:number):void {
+        for (const timeline of timelines) {
+            this.extendTimeline(timeline, time);
+        }
+    }
+
+    private extendTimeline(timeline:SpineTimeline, time:number):void {
+        const last = timeline.frames.length > 0 ? timeline.frames[timeline.frames.length - 1] : null;
+        if (last == null || last.time >= time) {
+            return;
+        }
+
+        this.copyFrame(timeline.createFrame(time, null, false), last);
+    }
+
+    private copyFrame(target:SpineTimelineFrame, source:SpineTimelineFrame):void {
+        target.angle = source.angle;
+        target.name = source.name;
+        target.color = source.color;
+        target.x = source.x;
+        target.y = source.y;
     }
 
     //-----------------------------------

@@ -1742,6 +1742,12 @@ var Converter = /** @class */ (function () {
     Converter.prototype.resolveWorkingPath = function (path) {
         return PathUtil_1.PathUtil.joinPath(this._workingPath, path);
     };
+    Converter.prototype.extendAnimationToLabelEnd = function (context, label) {
+        if (!context.global.animation || !label) {
+            return;
+        }
+        context.global.animation.extendToTime(Math.max(0, (label.endFrameIdx - label.startFrameIdx) / context.global.frameRate));
+    };
     Converter.prototype.convertSymbolInstance = function (element, context) {
         if (element.elementType === 'instance' && element.instanceType === 'symbol') {
             try {
@@ -1761,6 +1767,7 @@ var Converter = /** @class */ (function () {
                             var sub = context.switchContextAnimation(l);
                             sub.global.stageType = "animation" /* ConverterStageType.ANIMATION */;
                             this.convertElement(sub);
+                            this.extendAnimationToLabelEnd(sub, l);
                             Logger_1.Logger.status("[Anim] Label '".concat(l.name, "' done"));
                         }
                     }
@@ -1771,6 +1778,7 @@ var Converter = /** @class */ (function () {
                         var sub = context.switchContextAnimation(context.global.labels[0]);
                         sub.global.stageType = "animation" /* ConverterStageType.ANIMATION */;
                         this.convertElement(sub);
+                        this.extendAnimationToLabelEnd(sub, context.global.labels[0]);
                         Logger_1.Logger.status("[Anim] Label 'default' done");
                     }
                 }
@@ -2555,6 +2563,40 @@ var SpineAnimation = /** @class */ (function () {
         timeline.slot = slot;
         this.slots.push(timeline);
         return timeline;
+    };
+    SpineAnimation.prototype.extendToTime = function (time) {
+        if (!(time > 0)) {
+            return;
+        }
+        for (var _i = 0, _a = this.bones; _i < _a.length; _i++) {
+            var group = _a[_i];
+            this.extendGroupTimelines(group.timelines, time);
+        }
+        for (var _b = 0, _c = this.slots; _b < _c.length; _b++) {
+            var group = _c[_b];
+            this.extendGroupTimelines(group.timelines, time);
+        }
+    };
+    //-----------------------------------
+    SpineAnimation.prototype.extendGroupTimelines = function (timelines, time) {
+        for (var _i = 0, timelines_1 = timelines; _i < timelines_1.length; _i++) {
+            var timeline = timelines_1[_i];
+            this.extendTimeline(timeline, time);
+        }
+    };
+    SpineAnimation.prototype.extendTimeline = function (timeline, time) {
+        var last = timeline.frames.length > 0 ? timeline.frames[timeline.frames.length - 1] : null;
+        if (last == null || last.time >= time) {
+            return;
+        }
+        this.copyFrame(timeline.createFrame(time, null, false), last);
+    };
+    SpineAnimation.prototype.copyFrame = function (target, source) {
+        target.angle = source.angle;
+        target.name = source.name;
+        target.color = source.color;
+        target.x = source.x;
+        target.y = source.y;
     };
     //-----------------------------------
     SpineAnimation.prototype.findBoneTimeline = function (bone) {
