@@ -4409,6 +4409,16 @@ exports.SPINE_NAME_PATH_SEPARATOR = '___';
 var ConvertUtil = /** @class */ (function () {
     function ConvertUtil() {
     }
+    ConvertUtil.makeOrderAliasCollisionSafeName = function (value) {
+        var result = value;
+        while (result.indexOf('__ord__') !== -1) {
+            result = result.replace('__ord__', '__alias__');
+        }
+        while (result.indexOf('_ord_') !== -1) {
+            result = result.replace('_ord_', '_alias_');
+        }
+        return result;
+    };
     ConvertUtil.createElementName = function (element, context) {
         var _a;
         var result = element.layer.name;
@@ -4569,20 +4579,26 @@ var ConvertUtil = /** @class */ (function () {
             context.global.boneNameBySignature.set(signature, baseFullName);
             return baseFullName;
         }
+        // Avoid collision-generated names that still look like alias-collapse markers.
+        var collisionSafeBaseName = ConvertUtil.makeOrderAliasCollisionSafeName(baseFullName);
+        if (collisionSafeBaseName !== baseFullName && sk.findBone(collisionSafeBaseName) == null) {
+            context.global.boneNameBySignature.set(signature, collisionSafeBaseName);
+            return collisionSafeBaseName;
+        }
         // Collision: append a stable-ish suffix derived from the layer name, then fallback to numeric.
-        var layerSuffix = layerName ? ('__' + StringUtil_1.StringUtil.simplify(layerName)) : '';
-        var candidate = baseFullName + layerSuffix;
+        var layerSuffix = layerName ? ('__' + ConvertUtil.makeOrderAliasCollisionSafeName(StringUtil_1.StringUtil.simplify(layerName))) : '';
+        var candidate = collisionSafeBaseName + layerSuffix;
         if (layerSuffix && sk.findBone(candidate) == null) {
             context.global.boneNameBySignature.set(signature, candidate);
             return candidate;
         }
         // Numeric suffix fallback.
-        var counterKey = baseFullName;
+        var counterKey = collisionSafeBaseName;
         var next = context.global.boneNameSuffixCounter.get(counterKey);
         if (next == null)
             next = 2;
         while (true) {
-            candidate = baseFullName + '_' + next;
+            candidate = collisionSafeBaseName + '_' + next;
             if (sk.findBone(candidate) == null) {
                 context.global.boneNameSuffixCounter.set(counterKey, next + 1);
                 context.global.boneNameBySignature.set(signature, candidate);

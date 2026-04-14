@@ -16,6 +16,20 @@ import { StringUtil } from './StringUtil';
 export const SPINE_NAME_PATH_SEPARATOR = '___';
 
 export class ConvertUtil {
+    private static makeOrderAliasCollisionSafeName(value:string):string {
+        let result = value;
+
+        while (result.indexOf('__ord__') !== -1) {
+            result = result.replace('__ord__', '__alias__');
+        }
+
+        while (result.indexOf('_ord_') !== -1) {
+            result = result.replace('_ord_', '_alias_');
+        }
+
+        return result;
+    }
+
     public static createElementName(element:FlashElement, context:ConverterContext):string {
         let result = element.layer.name;
 
@@ -183,21 +197,28 @@ export class ConvertUtil {
             return baseFullName;
         }
 
+        // Avoid collision-generated names that still look like alias-collapse markers.
+        const collisionSafeBaseName = ConvertUtil.makeOrderAliasCollisionSafeName(baseFullName);
+        if (collisionSafeBaseName !== baseFullName && sk.findBone(collisionSafeBaseName) == null) {
+            context.global.boneNameBySignature.set(signature, collisionSafeBaseName);
+            return collisionSafeBaseName;
+        }
+
         // Collision: append a stable-ish suffix derived from the layer name, then fallback to numeric.
-        const layerSuffix = layerName ? ('__' + StringUtil.simplify(layerName)) : '';
-        let candidate = baseFullName + layerSuffix;
+        const layerSuffix = layerName ? ('__' + ConvertUtil.makeOrderAliasCollisionSafeName(StringUtil.simplify(layerName))) : '';
+        let candidate = collisionSafeBaseName + layerSuffix;
         if (layerSuffix && sk.findBone(candidate) == null) {
             context.global.boneNameBySignature.set(signature, candidate);
             return candidate;
         }
 
         // Numeric suffix fallback.
-        const counterKey = baseFullName;
+        const counterKey = collisionSafeBaseName;
         let next = context.global.boneNameSuffixCounter.get(counterKey);
         if (next == null) next = 2;
 
         while (true) {
-            candidate = baseFullName + '_' + next;
+            candidate = collisionSafeBaseName + '_' + next;
             if (sk.findBone(candidate) == null) {
                 context.global.boneNameSuffixCounter.set(counterKey, next + 1);
                 context.global.boneNameBySignature.set(signature, candidate);
