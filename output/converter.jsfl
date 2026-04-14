@@ -2601,9 +2601,15 @@ var SpineAnimationHelper = /** @class */ (function () {
         var n = String(name).toLowerCase();
         return (n.indexOf('yellow') !== -1 && n.indexOf('glow') !== -1) || (n.indexOf('yellow_glow') !== -1);
     };
+    SpineAnimationHelper.isOrderAliasName = function (name) {
+        return !!name && (name.indexOf('__ord__') !== -1 || name.indexOf('_ord_') !== -1);
+    };
+    SpineAnimationHelper.aliasSafeCurve = function (name, curve) {
+        return SpineAnimationHelper.isOrderAliasName(name) ? 'stepped' : curve;
+    };
     SpineAnimationHelper.applyBoneAnimation = function (animation, bone, context, transform, time) {
         var timeline = animation.createBoneTimeline(bone);
-        var curve = SpineAnimationHelper.obtainFrameCurve(context);
+        var curve = SpineAnimationHelper.aliasSafeCurve(bone.name, SpineAnimationHelper.obtainFrameCurve(context));
         var rotateTimeline = timeline.createTimeline("rotate" /* SpineTimelineType.ROTATE */);
         // Rotation Unwrapping (Shortest Path)
         // Ensure that the new angle is continuous relative to the previous keyframe
@@ -2660,7 +2666,7 @@ var SpineAnimationHelper = /** @class */ (function () {
     };
     SpineAnimationHelper.applySlotAttachment = function (animation, slot, context, attachment, time) {
         var timeline = animation.createSlotTimeline(slot);
-        var curve = SpineAnimationHelper.obtainFrameCurve(context);
+        var curve = SpineAnimationHelper.aliasSafeCurve(slot.name, SpineAnimationHelper.obtainFrameCurve(context));
         var attachmentTimeline = timeline.createTimeline("attachment" /* SpineTimelineType.ATTACHMENT */);
         var frameStart = context && context.frame ? context.frame.startFrame : -1;
         var previousTail = attachmentTimeline.frames.length > 0 ? attachmentTimeline.frames[attachmentTimeline.frames.length - 1] : null;

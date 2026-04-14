@@ -15,9 +15,17 @@ export class SpineAnimationHelper {
         return (n.indexOf('yellow') !== -1 && n.indexOf('glow') !== -1) || (n.indexOf('yellow_glow') !== -1);
     }
 
+    private static isOrderAliasName(name: string | null | undefined): boolean {
+        return !!name && (name.indexOf('__ord__') !== -1 || name.indexOf('_ord_') !== -1);
+    }
+
+    private static aliasSafeCurve(name: string | null | undefined, curve: SpineCurveType): SpineCurveType {
+        return SpineAnimationHelper.isOrderAliasName(name) ? 'stepped' : curve;
+    }
+
     public static applyBoneAnimation(animation:SpineAnimation, bone:SpineBone, context:ConverterContext, transform:SpineTransform, time:number):void {
         const timeline = animation.createBoneTimeline(bone);
-        const curve = SpineAnimationHelper.obtainFrameCurve(context);
+        const curve = SpineAnimationHelper.aliasSafeCurve(bone.name, SpineAnimationHelper.obtainFrameCurve(context));
 
         const rotateTimeline = timeline.createTimeline(SpineTimelineType.ROTATE);
         
@@ -86,7 +94,7 @@ export class SpineAnimationHelper {
 
     public static applySlotAttachment(animation:SpineAnimation, slot:SpineSlot, context:ConverterContext, attachment:SpineAttachment, time:number):void {
         const timeline = animation.createSlotTimeline(slot);
-        const curve = SpineAnimationHelper.obtainFrameCurve(context);
+        const curve = SpineAnimationHelper.aliasSafeCurve(slot.name, SpineAnimationHelper.obtainFrameCurve(context));
 
         const attachmentTimeline = timeline.createTimeline(SpineTimelineType.ATTACHMENT);
         const frameStart = context && context.frame ? context.frame.startFrame : -1;
