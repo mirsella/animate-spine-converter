@@ -75,6 +75,10 @@ export class Logger {
         return !!(inst._debugEnabled && Logger.isTraceEnabled());
     }
 
+    public static isStatusEnabled():boolean {
+        return !!Logger._instance._statusFileURI;
+    }
+
     //-----------------------------------
 
     private static appendToFile(fileURI: string, content: string): void {
@@ -102,12 +106,16 @@ export class Logger {
     }
 
     public static debug(...params:any[]):void {
-        if (!Logger._instance._debugEnabled) return;
+        if (!Logger.isDebugEnabled()) return;
         Logger._instance.log('[DEBUG] ' + params.join(' '), 'trace');
     }
 
     public static status(...params:any[]):void {
-        Logger._instance.status(params.join(' '));
+        const inst = Logger._instance;
+        if (!inst._statusFileURI) return;
+
+        inst._statusSeq++;
+        Logger.appendToFile(inst._statusFileURI, `[STATUS ${inst._statusSeq}] ${params.join(' ')}\n`);
     }
 
     public static warning(...params:any[]):void {
@@ -153,14 +161,6 @@ export class Logger {
         this._output.push(message);
     }
 
-    private status(message:string):void {
-        if (!this._statusFileURI) return;
-        this._statusSeq++;
-
-        const line = `[STATUS ${this._statusSeq}] ${message}`;
-        Logger.appendToFile(this._statusFileURI, line + '\n');
-    }
-
     public flush():void {
         if (!this._panelEnabled) {
             this._output.length = 0;
@@ -172,6 +172,8 @@ export class Logger {
         if (this._droppedLines > 0) {
             output.unshift(`[WARNING] Logger dropped ${this._droppedLines} lines (buffer limit ${this._maxBufferLines}).`);
         }
+
+        if (output.length === 0) return;
 
         fl.outputPanel.clear();
         fl.outputPanel.trace(output.join('\n'));

@@ -657,7 +657,7 @@ var Converter = /** @class */ (function () {
         var _this = this;
         this.convertElementSlot(context, context.element.libraryItem, function (context, imagePath) {
             var _a;
-            return ImageUtil_1.ImageUtil.exportBitmap(imagePath, context.element, _this._document, (_a = _this._config.rasterExportScale) !== null && _a !== void 0 ? _a : 1, _this._config.exportImages);
+            return ImageUtil_1.ImageUtil.exportBitmap(imagePath, context.element, _this._document, (_a = _this._config.rasterExportScale) !== null && _a !== void 0 ? _a : 1, !!_this._config.exportImages);
         });
     };
     Converter.prototype.convertShapeMaskElementSlot = function (context, matrix, controlOffset) {
@@ -690,7 +690,7 @@ var Converter = /** @class */ (function () {
         this.convertElementSlot(context, context.element, function (context, imagePath) {
             var _a;
             var hints = _this.createSelectionHints(context);
-            return ImageUtil_1.ImageUtil.exportShape(imagePath, context.element, _this._document, (_a = _this._config.rasterExportScale) !== null && _a !== void 0 ? _a : 1, _this._config.exportShapes, hints);
+            return ImageUtil_1.ImageUtil.exportShape(imagePath, context.element, _this._document, (_a = _this._config.rasterExportScale) !== null && _a !== void 0 ? _a : 1, !!_this._config.exportShapes, hints);
         });
     };
     Converter.prototype.composeElementMaskLayer = function (context, convertLayer, allowBaking) {
@@ -755,7 +755,7 @@ var Converter = /** @class */ (function () {
         var _this = this;
         this.convertElementSlot(context, context.element.libraryItem, function (context, imagePath) {
             var _a;
-            return ImageUtil_1.ImageUtil.exportLibraryItem(imagePath, context.element, (_a = _this._config.rasterExportScale) !== null && _a !== void 0 ? _a : 1, _this._config.exportShapes);
+            return ImageUtil_1.ImageUtil.exportLibraryItem(imagePath, context.element, (_a = _this._config.rasterExportScale) !== null && _a !== void 0 ? _a : 1, !!_this._config.exportShapes);
         });
     };
     Converter.prototype.convertCompositeElementLayer = function (context, convertLayer, allowBaking) {
@@ -2412,6 +2412,9 @@ var Logger = /** @class */ (function () {
         var inst = Logger._instance;
         return !!(inst._debugEnabled && Logger.isTraceEnabled());
     };
+    Logger.isStatusEnabled = function () {
+        return !!Logger._instance._statusFileURI;
+    };
     //-----------------------------------
     Logger.appendToFile = function (fileURI, content) {
         // JSFL's FLfile.write append parameter differs across versions/docs.
@@ -2451,7 +2454,7 @@ var Logger = /** @class */ (function () {
         for (var _i = 0; _i < arguments.length; _i++) {
             params[_i] = arguments[_i];
         }
-        if (!Logger._instance._debugEnabled)
+        if (!Logger.isDebugEnabled())
             return;
         Logger._instance.log('[DEBUG] ' + params.join(' '), 'trace');
     };
@@ -2460,7 +2463,11 @@ var Logger = /** @class */ (function () {
         for (var _i = 0; _i < arguments.length; _i++) {
             params[_i] = arguments[_i];
         }
-        Logger._instance.status(params.join(' '));
+        var inst = Logger._instance;
+        if (!inst._statusFileURI)
+            return;
+        inst._statusSeq++;
+        Logger.appendToFile(inst._statusFileURI, "[STATUS ".concat(inst._statusSeq, "] ").concat(params.join(' '), "\n"));
     };
     Logger.warning = function () {
         var params = [];
@@ -2506,13 +2513,6 @@ var Logger = /** @class */ (function () {
         }
         this._output.push(message);
     };
-    Logger.prototype.status = function (message) {
-        if (!this._statusFileURI)
-            return;
-        this._statusSeq++;
-        var line = "[STATUS ".concat(this._statusSeq, "] ").concat(message);
-        Logger.appendToFile(this._statusFileURI, line + '\n');
-    };
     Logger.prototype.flush = function () {
         if (!this._panelEnabled) {
             this._output.length = 0;
@@ -2523,6 +2523,8 @@ var Logger = /** @class */ (function () {
         if (this._droppedLines > 0) {
             output.unshift("[WARNING] Logger dropped ".concat(this._droppedLines, " lines (buffer limit ").concat(this._maxBufferLines, ")."));
         }
+        if (output.length === 0)
+            return;
         fl.outputPanel.clear();
         fl.outputPanel.trace(output.join('\n'));
         this._output.length = 0;
@@ -2931,7 +2933,6 @@ exports.SpineImage = SpineImage;
 
 
 exports.SpineSkeleton = void 0;
-var JsonEncoder_1 = __webpack_require__(/*! ../utils/JsonEncoder */ "./source/utils/JsonEncoder.ts");
 var SpineAnimation_1 = __webpack_require__(/*! ./SpineAnimation */ "./source/spine/SpineAnimation.ts");
 var SpineBone_1 = __webpack_require__(/*! ./SpineBone */ "./source/spine/SpineBone.ts");
 var SpineEvent_1 = __webpack_require__(/*! ./SpineEvent */ "./source/spine/SpineEvent.ts");
@@ -3025,10 +3026,6 @@ var SpineSkeleton = /** @class */ (function () {
             }
         }
         return null;
-    };
-    //-----------------------------------
-    SpineSkeleton.prototype.convert = function (format) {
-        return JsonEncoder_1.JsonEncoder.stringify(format.convert(this));
     };
     return SpineSkeleton;
 }());
@@ -6363,17 +6360,11 @@ var PathUtil_1 = __webpack_require__(/*! ./utils/PathUtil */ "./source/utils/Pat
 var JsonEncoder_1 = __webpack_require__(/*! ./utils/JsonEncoder */ "./source/utils/JsonEncoder.ts");
 //-----------------------------------
 fl.showIdleMessage(false);
-// Logging:
-// - Write a persistent log file next to the .fla so we can inspect the last step before a crash.
-// - Keep the Output panel quiet (trace logs are file-only).
-var LOG_TO_FILE = true;
+// Verbose logs are opt-in because JSFL file I/O is expensive on large exports.
 var LOG_FILE_SUFFIX = '_export.log.txt';
 var STATUS_FILE_SUFFIX = '_export.status.txt';
-// If false: trace logs won't write to the log file (safer for large exports).
-var TRACE_TO_LOG_FILE = true;
-var TRACE_TO_OUTPUT_PANEL = false;
-var DEBUG_VERBOSE_LOGS = true;
 var OUTPUT_PANEL_MAX_LINES = 200;
+var verboseDebugLogs = false;
 var config = {
     outputFormat: new SpineFormatV4_2_00_1.SpineFormatV4_2_00(),
     imagesExportPath: './images/',
@@ -6392,73 +6383,58 @@ var config = {
     mergeImages: true,
     maskTolerance: 0.5
 };
-var NUMBER_SETTINGS = [
-    {
-        key: 'rasterExportScale',
-        label: 'Raster export scale',
-        defaultValue: 1
+var numberSetting = function (key, label, defaultValue) { return ({
+    key: key,
+    label: label,
+    getValue: function () {
+        var value = config[key];
+        return typeof value === 'number' && isFinite(value) && value > 0 ? value : defaultValue;
     },
-    {
-        key: 'rootScaleMultiplier',
-        label: 'Root/world scale multiplier',
-        defaultValue: 1
-    }
+    setValue: function (value) { config[key] = value; }
+}); };
+var booleanSetting = function (key, label, defaultValue) { return ({
+    key: key,
+    label: label,
+    getValue: function () {
+        var value = config[key];
+        return typeof value === 'boolean' ? value : defaultValue;
+    },
+    setValue: function (value) { config[key] = value; }
+}); };
+var NUMBER_SETTINGS = [
+    numberSetting('rasterExportScale', 'Raster export scale', 1),
+    numberSetting('rootScaleMultiplier', 'Root/world scale multiplier', 1)
 ];
 var BOOLEAN_SETTING_GROUPS = [
     {
         title: 'Export content',
         settings: [
-            {
-                key: 'exportImages',
-                label: 'Export bitmap/images',
-                defaultValue: true
-            },
-            {
-                key: 'exportShapes',
-                label: 'Export vector shapes',
-                defaultValue: true
-            },
-            {
-                key: 'mergeImages',
-                label: 'Merge duplicate images',
-                defaultValue: true
-            },
-            {
-                key: 'mergeShapes',
-                label: 'Merge duplicate shapes',
-                defaultValue: true
-            }
+            booleanSetting('exportImages', 'Export bitmap/images', true),
+            booleanSetting('exportShapes', 'Export vector shapes', true),
+            booleanSetting('mergeImages', 'Merge duplicate images', true),
+            booleanSetting('mergeShapes', 'Merge duplicate shapes', true)
         ]
     },
     {
         title: 'Structure and transforms',
         settings: [
+            booleanSetting('transformRootBone', 'Apply full root transform', false),
+            booleanSetting('mergeSkeletons', 'Merge selected skeletons', false),
+            booleanSetting('mergeSkeletonsRootBone', 'Keep root bone when merging skeletons', false)
+        ]
+    },
+    {
+        title: 'Diagnostics',
+        settings: [
             {
-                key: 'transformRootBone',
-                label: 'Apply full root transform',
-                defaultValue: false
-            },
-            {
-                key: 'mergeSkeletons',
-                label: 'Merge selected skeletons',
-                defaultValue: false
-            },
-            {
-                key: 'mergeSkeletonsRootBone',
-                label: 'Keep root bone when merging skeletons',
-                defaultValue: false
+                key: 'verboseDebugLogs',
+                label: 'Debug/profiling logs (slow)',
+                getValue: function () { return verboseDebugLogs; },
+                setValue: function (value) { verboseDebugLogs = value; }
             }
         ]
     }
 ];
-var getNumberSettingValue = function (setting) {
-    var value = config[setting.key];
-    return typeof value === 'number' && isFinite(value) && value > 0 ? value : setting.defaultValue;
-};
-var getBooleanSettingValue = function (setting) {
-    var value = config[setting.key];
-    return typeof value === 'boolean' ? value : setting.defaultValue;
-};
 var buildExportSettingsPanelXml = function () {
     var lines = [
         '<?xml version="1.0" encoding="utf-8"?>',
@@ -6473,7 +6449,7 @@ var buildExportSettingsPanelXml = function () {
         var setting = NUMBER_SETTINGS[i];
         lines.push('    <hbox>');
         lines.push("      <label value=\"".concat(setting.label, "\" width=\"180\" />"));
-        lines.push("      <textbox id=\"".concat(setting.key, "\" value=\"").concat(getNumberSettingValue(setting), "\" size=\"8\" />"));
+        lines.push("      <textbox id=\"".concat(setting.key, "\" value=\"").concat(setting.getValue(), "\" size=\"8\" />"));
         lines.push('    </hbox>');
     }
     for (var groupIndex = 0; groupIndex < BOOLEAN_SETTING_GROUPS.length; groupIndex++) {
@@ -6482,7 +6458,7 @@ var buildExportSettingsPanelXml = function () {
         lines.push("    <label value=\"".concat(group.title, "\" />"));
         for (var i = 0; i < group.settings.length; i++) {
             var setting = group.settings[i];
-            lines.push("    <checkbox id=\"".concat(setting.key, "\" label=\"").concat(setting.label, "\" checked=\"").concat(getBooleanSettingValue(setting) ? 'true' : 'false', "\" />"));
+            lines.push("    <checkbox id=\"".concat(setting.key, "\" label=\"").concat(setting.label, "\" checked=\"").concat(setting.getValue() ? 'true' : 'false', "\" />"));
         }
     }
     lines.push('  </vbox>');
@@ -6512,13 +6488,13 @@ var parsePanelBoolean = function (value, fallback) {
 var applyExportSettingsDialog = function (dialog) {
     for (var i = 0; i < NUMBER_SETTINGS.length; i++) {
         var setting = NUMBER_SETTINGS[i];
-        config[setting.key] = parsePanelNumber(dialog[setting.key], getNumberSettingValue(setting), setting.key);
+        setting.setValue(parsePanelNumber(dialog[setting.key], setting.getValue(), setting.key));
     }
     for (var groupIndex = 0; groupIndex < BOOLEAN_SETTING_GROUPS.length; groupIndex++) {
         var group = BOOLEAN_SETTING_GROUPS[groupIndex];
         for (var i = 0; i < group.settings.length; i++) {
             var setting = group.settings[i];
-            config[setting.key] = parsePanelBoolean(dialog[setting.key], getBooleanSettingValue(setting));
+            setting.setValue(parsePanelBoolean(dialog[setting.key], setting.getValue()));
         }
     }
 };
@@ -6534,6 +6510,29 @@ var promptExportSettings = function () {
     }
     applyExportSettingsDialog(dialog);
     return true;
+};
+var configureLogging = function (workingDir, baseName, originalPath) {
+    try {
+        Logger_1.Logger.setPanelEnabled(true);
+        Logger_1.Logger.setPanelTraceEnabled(false);
+        Logger_1.Logger.setDebugEnabled(verboseDebugLogs);
+        Logger_1.Logger.setMaxBufferLines(OUTPUT_PANEL_MAX_LINES);
+        Logger_1.Logger.setFileTraceEnabled(verboseDebugLogs);
+        Logger_1.Logger.setLogFile(null);
+        Logger_1.Logger.setStatusFile(null);
+        if (!verboseDebugLogs)
+            return;
+        var logPath = PathUtil_1.PathUtil.joinPath(workingDir, baseName + LOG_FILE_SUFFIX);
+        var statusPath = PathUtil_1.PathUtil.joinPath(workingDir, baseName + STATUS_FILE_SUFFIX);
+        Logger_1.Logger.setLogFile(logPath, true);
+        Logger_1.Logger.setStatusFile(statusPath, true);
+        Logger_1.Logger.warning("Debug export log: ".concat(logPath));
+        Logger_1.Logger.warning("Debug export status: ".concat(statusPath));
+        Logger_1.Logger.status("Original: ".concat(originalPath));
+    }
+    catch (e) {
+        Logger_1.Logger.warning("[Logger] Failed to configure export logging: ".concat(e));
+    }
 };
 var getSelectionPaths = function (doc) {
     var paths = [];
@@ -6603,6 +6602,10 @@ var run = function () {
     if (!promptExportSettings()) {
         return;
     }
+    var originalPath = originalDoc.pathURI;
+    var workingDir = PathUtil_1.PathUtil.parentPath(originalPath);
+    var baseName = PathUtil_1.PathUtil.fileBaseName(originalPath);
+    configureLogging(workingDir, baseName, originalPath);
     // --- CAPTURE STATE FROM ORIGINAL DOC ---
     var selectionData = getSelectionPaths(originalDoc);
     if (selectionData.paths.length === 0) {
@@ -6613,28 +6616,6 @@ var run = function () {
         return;
     }
     Logger_1.Logger.trace("Selected ".concat(selectionData.paths.length, " items for export."));
-    var originalPath = originalDoc.pathURI;
-    var workingDir = PathUtil_1.PathUtil.parentPath(originalPath);
-    var baseName = PathUtil_1.PathUtil.fileBaseName(originalPath);
-    // Configure logging as early as possible.
-    try {
-        Logger_1.Logger.setPanelTraceEnabled(TRACE_TO_OUTPUT_PANEL);
-        Logger_1.Logger.setDebugEnabled(DEBUG_VERBOSE_LOGS);
-        Logger_1.Logger.setMaxBufferLines(OUTPUT_PANEL_MAX_LINES);
-        Logger_1.Logger.setFileTraceEnabled(TRACE_TO_LOG_FILE);
-        if (LOG_TO_FILE) {
-            var logPath = PathUtil_1.PathUtil.joinPath(workingDir, baseName + LOG_FILE_SUFFIX);
-            Logger_1.Logger.setLogFile(logPath, true);
-            Logger_1.Logger.warning("Export log: ".concat(logPath));
-        }
-        var statusPath = PathUtil_1.PathUtil.joinPath(workingDir, baseName + STATUS_FILE_SUFFIX);
-        Logger_1.Logger.setStatusFile(statusPath, true);
-        Logger_1.Logger.warning("Export status: ".concat(statusPath));
-        Logger_1.Logger.status("Original: ".concat(originalPath));
-    }
-    catch (e) {
-        // ignore logger init errors
-    }
     var tempPath = PathUtil_1.PathUtil.joinPath(workingDir, baseName + "_export_tmp.fla");
     // Check if we are already in the temp file (prevent infinite recursion if user runs script on temp)
     if (originalPath.indexOf("_export_tmp.fla") !== -1) {
@@ -6703,6 +6684,132 @@ var run = function () {
         fl.openDocument(originalPath);
     }
 };
+var logSkeletonStats = function (skeleton) {
+    if (!Logger_1.Logger.isStatusEnabled())
+        return;
+    try {
+        var anims = skeleton.animations || [];
+        var bones = skeleton.bones || [];
+        var slots = skeleton.slots || [];
+        Logger_1.Logger.status("[Stats] bones=".concat(bones.length, " slots=").concat(slots.length, " animations=").concat(anims.length));
+        for (var ai = 0; ai < anims.length; ai++) {
+            var anim = anims[ai];
+            var boneGroups = anim.bones || [];
+            var slotGroups = anim.slots || [];
+            var eventTimeline = anim.events;
+            var eventFrames = (eventTimeline && eventTimeline.frames) ? eventTimeline.frames.length : 0;
+            var boneTimelines = 0;
+            var boneFrames = 0;
+            var slotTimelines = 0;
+            var slotFrames = 0;
+            var rotateFrames = 0;
+            var translateFrames = 0;
+            var scaleFrames = 0;
+            var shearFrames = 0;
+            var attachmentFrames = 0;
+            var rgbaFrames = 0;
+            for (var bi = 0; bi < boneGroups.length; bi++) {
+                var timelines = boneGroups[bi] && boneGroups[bi].timelines ? boneGroups[bi].timelines : [];
+                boneTimelines += timelines.length;
+                for (var ti = 0; ti < timelines.length; ti++) {
+                    var timeline = timelines[ti];
+                    var frames = timeline && timeline.frames ? timeline.frames : [];
+                    boneFrames += frames.length;
+                    if (timeline.type === 'rotate')
+                        rotateFrames += frames.length;
+                    else if (timeline.type === 'translate')
+                        translateFrames += frames.length;
+                    else if (timeline.type === 'scale')
+                        scaleFrames += frames.length;
+                    else if (timeline.type === 'shear')
+                        shearFrames += frames.length;
+                }
+            }
+            for (var si = 0; si < slotGroups.length; si++) {
+                var timelines = slotGroups[si] && slotGroups[si].timelines ? slotGroups[si].timelines : [];
+                slotTimelines += timelines.length;
+                for (var ti = 0; ti < timelines.length; ti++) {
+                    var timeline = timelines[ti];
+                    var frames = timeline && timeline.frames ? timeline.frames : [];
+                    slotFrames += frames.length;
+                    if (timeline.type === 'attachment')
+                        attachmentFrames += frames.length;
+                    else if (timeline.type === 'color')
+                        rgbaFrames += frames.length;
+                }
+            }
+            Logger_1.Logger.status("[Stats] anim='".concat(anim.name, "' boneGroups=").concat(boneGroups.length, " boneTimelines=").concat(boneTimelines, " boneFrames=").concat(boneFrames, " (rot=").concat(rotateFrames, " pos=").concat(translateFrames, " scale=").concat(scaleFrames, " shear=").concat(shearFrames, ") slotGroups=").concat(slotGroups.length, " slotTimelines=").concat(slotTimelines, " slotFrames=").concat(slotFrames, " (attach=").concat(attachmentFrames, " rgba=").concat(rgbaFrames, ") events=").concat(eventFrames));
+        }
+    }
+    catch (e) {
+        Logger_1.Logger.status('[Stats] failed: ' + e);
+    }
+};
+var logConvertedStats = function (converted) {
+    if (!Logger_1.Logger.isStatusEnabled())
+        return;
+    try {
+        var anims = converted && converted.animations ? converted.animations : null;
+        if (!anims) {
+            Logger_1.Logger.status('[OutStats] no animations object in converted JSON');
+            return;
+        }
+        for (var animName in anims) {
+            var anim = anims[animName];
+            var bones = anim && anim.bones ? anim.bones : {};
+            var slots = anim && anim.slots ? anim.slots : {};
+            var boneTimelines = 0;
+            var boneFrames = 0;
+            for (var boneName in bones) {
+                var group = bones[boneName];
+                for (var tlName in group) {
+                    var frames = group[tlName];
+                    boneTimelines++;
+                    if (frames && frames.length)
+                        boneFrames += frames.length;
+                }
+            }
+            var slotTimelines = 0;
+            var slotFrames = 0;
+            for (var slotName in slots) {
+                var group = slots[slotName];
+                for (var tlName in group) {
+                    var frames = group[tlName];
+                    slotTimelines++;
+                    if (frames && frames.length)
+                        slotFrames += frames.length;
+                }
+            }
+            Logger_1.Logger.status("[OutStats] anim='".concat(animName, "' boneTimelines=").concat(boneTimelines, " boneFrames=").concat(boneFrames, " slotTimelines=").concat(slotTimelines, " slotFrames=").concat(slotFrames));
+            try {
+                for (var boneName in bones) {
+                    var rotate = bones[boneName] && bones[boneName].rotate ? bones[boneName].rotate : null;
+                    if (rotate && rotate.length) {
+                        var first = rotate[0];
+                        var last = rotate[rotate.length - 1];
+                        Logger_1.Logger.status("[OutSnip] rotate bone='".concat(boneName, "' n=").concat(rotate.length, " first(t=").concat(first.time || 0, ", v=").concat(first.value, ") last(t=").concat(last.time || 0, ", v=").concat(last.value, ")"));
+                        break;
+                    }
+                }
+                for (var slotName in slots) {
+                    var attachment = slots[slotName] && slots[slotName].attachment ? slots[slotName].attachment : null;
+                    if (attachment && attachment.length) {
+                        var first = attachment[0];
+                        var last = attachment[attachment.length - 1];
+                        Logger_1.Logger.status("[OutSnip] attach slot='".concat(slotName, "' n=").concat(attachment.length, " first(t=").concat(first.time || 0, ", name=").concat(first.name, ") last(t=").concat(last.time || 0, ", name=").concat(last.name, ")"));
+                        break;
+                    }
+                }
+            }
+            catch (eSnip) {
+                Logger_1.Logger.status('[OutSnip] failed: ' + eSnip);
+            }
+        }
+    }
+    catch (e) {
+        Logger_1.Logger.status('[OutStats] failed: ' + e);
+    }
+};
 var processDocument = function (document) {
     var converter = new Converter_1.Converter(document, config);
     Logger_1.Logger.status('Converter created');
@@ -6710,156 +6817,20 @@ var processDocument = function (document) {
     for (var _i = 0, result_1 = result; _i < result_1.length; _i++) {
         var skeleton = result_1[_i];
         Logger_1.Logger.status('Exporting skeleton: ' + skeleton.name);
-        // Minimal stats to diagnose "no animation" exports.
-        try {
-            var anims = skeleton.animations || [];
-            var bones = skeleton.bones || [];
-            var slots = skeleton.slots || [];
-            Logger_1.Logger.status("[Stats] bones=".concat(bones.length, " slots=").concat(slots.length, " animations=").concat(anims.length));
-            for (var ai = 0; ai < anims.length; ai++) {
-                var anim = anims[ai];
-                var boneGroups = anim.bones || [];
-                var slotGroups = anim.slots || [];
-                var eventTimeline = anim.events;
-                var eventFrames = (eventTimeline && eventTimeline.frames) ? eventTimeline.frames.length : 0;
-                var boneTimelines = 0;
-                var boneFrames = 0;
-                var slotTimelines = 0;
-                var slotFrames = 0;
-                var rotateFrames = 0;
-                var translateFrames = 0;
-                var scaleFrames = 0;
-                var shearFrames = 0;
-                var attachmentFrames = 0;
-                var rgbaFrames = 0;
-                // Bone timelines
-                for (var bi = 0; bi < boneGroups.length; bi++) {
-                    var g = boneGroups[bi];
-                    var tls = (g && g.timelines) ? g.timelines : [];
-                    boneTimelines += tls.length;
-                    for (var ti = 0; ti < tls.length; ti++) {
-                        var tl = tls[ti];
-                        var frames = tl && tl.frames ? tl.frames : [];
-                        boneFrames += frames.length;
-                        if (tl.type === 'rotate')
-                            rotateFrames += frames.length;
-                        else if (tl.type === 'translate')
-                            translateFrames += frames.length;
-                        else if (tl.type === 'scale')
-                            scaleFrames += frames.length;
-                        else if (tl.type === 'shear')
-                            shearFrames += frames.length;
-                    }
-                }
-                // Slot timelines
-                for (var si = 0; si < slotGroups.length; si++) {
-                    var g = slotGroups[si];
-                    var tls = (g && g.timelines) ? g.timelines : [];
-                    slotTimelines += tls.length;
-                    for (var ti = 0; ti < tls.length; ti++) {
-                        var tl = tls[ti];
-                        var frames = tl && tl.frames ? tl.frames : [];
-                        slotFrames += frames.length;
-                        if (tl.type === 'attachment')
-                            attachmentFrames += frames.length;
-                        else if (tl.type === 'color')
-                            rgbaFrames += frames.length;
-                    }
-                }
-                Logger_1.Logger.status("[Stats] anim='".concat(anim.name, "' boneGroups=").concat(boneGroups.length, " boneTimelines=").concat(boneTimelines, " boneFrames=").concat(boneFrames, " (rot=").concat(rotateFrames, " pos=").concat(translateFrames, " scale=").concat(scaleFrames, " shear=").concat(shearFrames, ") slotGroups=").concat(slotGroups.length, " slotTimelines=").concat(slotTimelines, " slotFrames=").concat(slotFrames, " (attach=").concat(attachmentFrames, " rgba=").concat(rgbaFrames, ") events=").concat(eventFrames));
-            }
-        }
-        catch (e) {
-            Logger_1.Logger.status('[Stats] failed: ' + e);
-        }
+        logSkeletonStats(skeleton);
         if (config.simplifyBonesAndSlots) {
             SpineSkeletonHelper_1.SpineSkeletonHelper.simplifySkeletonNames(skeleton);
         }
-        if (skeleton.bones.length > 0) {
-            var skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
-            Logger_1.Logger.status('Writing skeleton: ' + skeletonPath);
-            // Convert once so we can inspect what survives optimization.
-            var converted = null;
-            try {
-                converted = config.outputFormat.convert(skeleton);
-                var anims = converted && converted.animations ? converted.animations : null;
-                if (anims) {
-                    for (var animName in anims) {
-                        var anim = anims[animName];
-                        var bones = anim && anim.bones ? anim.bones : {};
-                        var slots = anim && anim.slots ? anim.slots : {};
-                        var boneTimelines = 0;
-                        var boneFrames = 0;
-                        for (var boneName in bones) {
-                            var group = bones[boneName];
-                            for (var tlName in group) {
-                                var frames = group[tlName];
-                                boneTimelines++;
-                                if (frames && frames.length)
-                                    boneFrames += frames.length;
-                            }
-                        }
-                        var slotTimelines = 0;
-                        var slotFrames = 0;
-                        for (var slotName in slots) {
-                            var group = slots[slotName];
-                            for (var tlName in group) {
-                                var frames = group[tlName];
-                                slotTimelines++;
-                                if (frames && frames.length)
-                                    slotFrames += frames.length;
-                            }
-                        }
-                        Logger_1.Logger.status("[OutStats] anim='".concat(animName, "' boneTimelines=").concat(boneTimelines, " boneFrames=").concat(boneFrames, " slotTimelines=").concat(slotTimelines, " slotFrames=").concat(slotFrames));
-                        // Print a tiny snippet of the first rotate + attachment timelines.
-                        try {
-                            var printed = false;
-                            for (var bName in bones) {
-                                var g = bones[bName];
-                                var rot = g && g.rotate ? g.rotate : null;
-                                if (rot && rot.length) {
-                                    var first = rot[0];
-                                    var last = rot[rot.length - 1];
-                                    Logger_1.Logger.status("[OutSnip] rotate bone='".concat(bName, "' n=").concat(rot.length, " first(t=").concat(first.time || 0, ", v=").concat(first.value, ") last(t=").concat(last.time || 0, ", v=").concat(last.value, ")"));
-                                    printed = true;
-                                    break;
-                                }
-                            }
-                            for (var sName in slots) {
-                                var g = slots[sName];
-                                var att = g && g.attachment ? g.attachment : null;
-                                if (att && att.length) {
-                                    var first = att[0];
-                                    var last = att[att.length - 1];
-                                    Logger_1.Logger.status("[OutSnip] attach slot='".concat(sName, "' n=").concat(att.length, " first(t=").concat(first.time || 0, ", name=").concat(first.name, ") last(t=").concat(last.time || 0, ", name=").concat(last.name, ")"));
-                                    break;
-                                }
-                            }
-                        }
-                        catch (eSnip) {
-                            Logger_1.Logger.status('[OutSnip] failed: ' + eSnip);
-                        }
-                    }
-                }
-                else {
-                    Logger_1.Logger.status('[OutStats] no animations object in converted JSON');
-                }
-            }
-            catch (e) {
-                Logger_1.Logger.status('[OutStats] failed: ' + e);
-            }
-            if (converted) {
-                FLfile.write(skeletonPath, JsonEncoder_1.JsonEncoder.stringify(converted));
-            }
-            else {
-                // Fallback (should behave the same but keeps exporter working if debug convert fails).
-                FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
-            }
-            Logger_1.Logger.status('Skeleton export completed');
-        }
-        else {
+        if (skeleton.bones.length === 0) {
             Logger_1.Logger.error('Nothing to export.');
+            continue;
         }
+        var skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
+        Logger_1.Logger.status('Writing skeleton: ' + skeletonPath);
+        var converted = config.outputFormat.convert(skeleton);
+        logConvertedStats(converted);
+        FLfile.write(skeletonPath, JsonEncoder_1.JsonEncoder.stringify(converted));
+        Logger_1.Logger.status('Skeleton export completed');
     }
 };
 run();

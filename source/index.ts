@@ -10,17 +10,11 @@ import { JsonEncoder } from './utils/JsonEncoder';
 
 fl.showIdleMessage(false);
 
-// Logging:
-// - Write a persistent log file next to the .fla so we can inspect the last step before a crash.
-// - Keep the Output panel quiet (trace logs are file-only).
-const LOG_TO_FILE = true;
+// Verbose logs are opt-in because JSFL file I/O is expensive on large exports.
 const LOG_FILE_SUFFIX = '_export.log.txt';
 const STATUS_FILE_SUFFIX = '_export.status.txt';
-// If false: trace logs won't write to the log file (safer for large exports).
-const TRACE_TO_LOG_FILE = true;
-const TRACE_TO_OUTPUT_PANEL = false;
-const DEBUG_VERBOSE_LOGS = true;
 const OUTPUT_PANEL_MAX_LINES = 200;
+let verboseDebugLogs = false;
 
 const config:ConverterConfig = {
     outputFormat: new SpineFormatV4_2_00(),
@@ -42,7 +36,7 @@ const config:ConverterConfig = {
 };
 
 type NumberSettingKey = 'rasterExportScale' | 'rootScaleMultiplier';
-type BooleanSettingKey =
+type ConfigBooleanSettingKey =
     | 'exportImages'
     | 'exportShapes'
     | 'mergeImages'
@@ -52,15 +46,17 @@ type BooleanSettingKey =
     | 'mergeSkeletonsRootBone';
 
 interface NumberSettingDefinition {
-    key:NumberSettingKey;
+    key:string;
     label:string;
-    defaultValue:number;
+    getValue:() => number;
+    setValue:(value:number) => void;
 }
 
 interface BooleanSettingDefinition {
-    key:BooleanSettingKey;
+    key:string;
     label:string;
-    defaultValue:boolean;
+    getValue:() => boolean;
+    setValue:(value:boolean) => void;
 }
 
 interface BooleanSettingGroup {
@@ -68,76 +64,61 @@ interface BooleanSettingGroup {
     settings:BooleanSettingDefinition[];
 }
 
-const NUMBER_SETTINGS:NumberSettingDefinition[] = [
-    {
-        key: 'rasterExportScale',
-        label: 'Raster export scale',
-        defaultValue: 1
+const numberSetting = (key:NumberSettingKey, label:string, defaultValue:number):NumberSettingDefinition => ({
+    key,
+    label,
+    getValue: () => {
+        const value = config[key];
+        return typeof value === 'number' && isFinite(value) && value > 0 ? value : defaultValue;
     },
-    {
-        key: 'rootScaleMultiplier',
-        label: 'Root/world scale multiplier',
-        defaultValue: 1
-    }
+    setValue: (value:number) => { config[key] = value; }
+});
+
+const booleanSetting = (key:ConfigBooleanSettingKey, label:string, defaultValue:boolean):BooleanSettingDefinition => ({
+    key,
+    label,
+    getValue: () => {
+        const value = config[key];
+        return typeof value === 'boolean' ? value : defaultValue;
+    },
+    setValue: (value:boolean) => { config[key] = value; }
+});
+
+const NUMBER_SETTINGS:NumberSettingDefinition[] = [
+    numberSetting('rasterExportScale', 'Raster export scale', 1),
+    numberSetting('rootScaleMultiplier', 'Root/world scale multiplier', 1)
 ];
 
 const BOOLEAN_SETTING_GROUPS:BooleanSettingGroup[] = [
     {
         title: 'Export content',
         settings: [
-            {
-                key: 'exportImages',
-                label: 'Export bitmap/images',
-                defaultValue: true
-            },
-            {
-                key: 'exportShapes',
-                label: 'Export vector shapes',
-                defaultValue: true
-            },
-            {
-                key: 'mergeImages',
-                label: 'Merge duplicate images',
-                defaultValue: true
-            },
-            {
-                key: 'mergeShapes',
-                label: 'Merge duplicate shapes',
-                defaultValue: true
-            }
+            booleanSetting('exportImages', 'Export bitmap/images', true),
+            booleanSetting('exportShapes', 'Export vector shapes', true),
+            booleanSetting('mergeImages', 'Merge duplicate images', true),
+            booleanSetting('mergeShapes', 'Merge duplicate shapes', true)
         ]
     },
     {
         title: 'Structure and transforms',
         settings: [
+            booleanSetting('transformRootBone', 'Apply full root transform', false),
+            booleanSetting('mergeSkeletons', 'Merge selected skeletons', false),
+            booleanSetting('mergeSkeletonsRootBone', 'Keep root bone when merging skeletons', false)
+        ]
+    },
+    {
+        title: 'Diagnostics',
+        settings: [
             {
-                key: 'transformRootBone',
-                label: 'Apply full root transform',
-                defaultValue: false
-            },
-            {
-                key: 'mergeSkeletons',
-                label: 'Merge selected skeletons',
-                defaultValue: false
-            },
-            {
-                key: 'mergeSkeletonsRootBone',
-                label: 'Keep root bone when merging skeletons',
-                defaultValue: false
+                key: 'verboseDebugLogs',
+                label: 'Debug/profiling logs (slow)',
+                getValue: () => verboseDebugLogs,
+                setValue: (value:boolean) => { verboseDebugLogs = value; }
             }
         ]
     }
 ];
-
-const getNumberSettingValue = (setting:NumberSettingDefinition):number => {
-    const value = config[setting.key];
-    return typeof value === 'number' && isFinite(value) && value > 0 ? value : setting.defaultValue;
-};
-
-const getBooleanSettingValue = (setting:BooleanSettingDefinition):boolean => {
-    const value = config[setting.key];
-    return typeof value === 'boolean' ? value : setting.defaultValue;
-};
 
 const buildExportSettingsPanelXml = ():string => {
     const lines:string[] = [
@@ -154,7 +135,7 @@ const buildExportSettingsPanelXml = ():string => {
         const setting = NUMBER_SETTINGS[i];
         lines.push('    <hbox>');
         lines.push(`      <label value="${setting.label}" width="180" />`);
-        lines.push(`      <textbox id="${setting.key}" value="${getNumberSettingValue(setting)}" size="8" />`);
+        lines.push(`      <textbox id="${setting.key}" value="${setting.getValue()}" size="8" />`);
         lines.push('    </hbox>');
     }
 
@@ -164,7 +145,7 @@ const buildExportSettingsPanelXml = ():string => {
         lines.push(`    <label value="${group.title}" />`);
         for (let i = 0; i < group.settings.length; i++) {
             const setting = group.settings[i];
-            lines.push(`    <checkbox id="${setting.key}" label="${setting.label}" checked="${getBooleanSettingValue(setting) ? 'true' : 'false'}" />`);
+            lines.push(`    <checkbox id="${setting.key}" label="${setting.label}" checked="${setting.getValue() ? 'true' : 'false'}" />`);
         }
     }
 
@@ -195,14 +176,14 @@ const parsePanelBoolean = (value:any, fallback:boolean):boolean => {
 const applyExportSettingsDialog = (dialog:any):void => {
     for (let i = 0; i < NUMBER_SETTINGS.length; i++) {
         const setting = NUMBER_SETTINGS[i];
-        config[setting.key] = parsePanelNumber(dialog[setting.key], getNumberSettingValue(setting), setting.key);
+        setting.setValue(parsePanelNumber(dialog[setting.key], setting.getValue(), setting.key));
     }
 
     for (let groupIndex = 0; groupIndex < BOOLEAN_SETTING_GROUPS.length; groupIndex++) {
         const group = BOOLEAN_SETTING_GROUPS[groupIndex];
         for (let i = 0; i < group.settings.length; i++) {
             const setting = group.settings[i];
-            config[setting.key] = parsePanelBoolean(dialog[setting.key], getBooleanSettingValue(setting));
+            setting.setValue(parsePanelBoolean(dialog[setting.key], setting.getValue()));
         }
     }
 };
@@ -222,6 +203,31 @@ const promptExportSettings = ():boolean => {
 
     applyExportSettingsDialog(dialog);
     return true;
+};
+
+const configureLogging = (workingDir:string, baseName:string, originalPath:string):void => {
+    try {
+        Logger.setPanelEnabled(true);
+        Logger.setPanelTraceEnabled(false);
+        Logger.setDebugEnabled(verboseDebugLogs);
+        Logger.setMaxBufferLines(OUTPUT_PANEL_MAX_LINES);
+        Logger.setFileTraceEnabled(verboseDebugLogs);
+        Logger.setLogFile(null);
+        Logger.setStatusFile(null);
+
+        if (!verboseDebugLogs) return;
+
+        const logPath = PathUtil.joinPath(workingDir, baseName + LOG_FILE_SUFFIX);
+        const statusPath = PathUtil.joinPath(workingDir, baseName + STATUS_FILE_SUFFIX);
+
+        Logger.setLogFile(logPath, true);
+        Logger.setStatusFile(statusPath, true);
+        Logger.warning(`Debug export log: ${logPath}`);
+        Logger.warning(`Debug export status: ${statusPath}`);
+        Logger.status(`Original: ${originalPath}`);
+    } catch (e) {
+        Logger.warning(`[Logger] Failed to configure export logging: ${e}`);
+    }
 };
 
 //-----------------------------------
@@ -313,6 +319,11 @@ const run = () => {
         return;
     }
 
+    const originalPath = originalDoc.pathURI;
+    const workingDir = PathUtil.parentPath(originalPath);
+    const baseName = PathUtil.fileBaseName(originalPath);
+    configureLogging(workingDir, baseName, originalPath);
+
     // --- CAPTURE STATE FROM ORIGINAL DOC ---
     const selectionData = getSelectionPaths(originalDoc);
     
@@ -325,31 +336,6 @@ const run = () => {
     }
     
     Logger.trace(`Selected ${selectionData.paths.length} items for export.`);
-
-    const originalPath = originalDoc.pathURI;
-    const workingDir = PathUtil.parentPath(originalPath);
-    const baseName = PathUtil.fileBaseName(originalPath);
-
-    // Configure logging as early as possible.
-    try {
-        Logger.setPanelTraceEnabled(TRACE_TO_OUTPUT_PANEL);
-        Logger.setDebugEnabled(DEBUG_VERBOSE_LOGS);
-        Logger.setMaxBufferLines(OUTPUT_PANEL_MAX_LINES);
-        Logger.setFileTraceEnabled(TRACE_TO_LOG_FILE);
-
-        if (LOG_TO_FILE) {
-            const logPath = PathUtil.joinPath(workingDir, baseName + LOG_FILE_SUFFIX);
-            Logger.setLogFile(logPath, true);
-            Logger.warning(`Export log: ${logPath}`);
-        }
-
-        const statusPath = PathUtil.joinPath(workingDir, baseName + STATUS_FILE_SUFFIX);
-        Logger.setStatusFile(statusPath, true);
-        Logger.warning(`Export status: ${statusPath}`);
-        Logger.status(`Original: ${originalPath}`);
-    } catch (e) {
-        // ignore logger init errors
-    }
     const tempPath = PathUtil.joinPath(workingDir, baseName + "_export_tmp.fla");
 
     // Check if we are already in the temp file (prevent infinite recursion if user runs script on temp)
@@ -430,6 +416,133 @@ const run = () => {
     }
 };
 
+const logSkeletonStats = (skeleton:any):void => {
+    if (!Logger.isStatusEnabled()) return;
+
+    try {
+        const anims:any[] = skeleton.animations || [];
+        const bones:any[] = skeleton.bones || [];
+        const slots:any[] = skeleton.slots || [];
+        Logger.status(`[Stats] bones=${bones.length} slots=${slots.length} animations=${anims.length}`);
+
+        for (let ai = 0; ai < anims.length; ai++) {
+            const anim:any = anims[ai];
+            const boneGroups:any[] = anim.bones || [];
+            const slotGroups:any[] = anim.slots || [];
+            const eventTimeline:any = anim.events;
+            const eventFrames = (eventTimeline && eventTimeline.frames) ? eventTimeline.frames.length : 0;
+
+            let boneTimelines = 0;
+            let boneFrames = 0;
+            let slotTimelines = 0;
+            let slotFrames = 0;
+            let rotateFrames = 0;
+            let translateFrames = 0;
+            let scaleFrames = 0;
+            let shearFrames = 0;
+            let attachmentFrames = 0;
+            let rgbaFrames = 0;
+
+            for (let bi = 0; bi < boneGroups.length; bi++) {
+                const timelines:any[] = boneGroups[bi] && boneGroups[bi].timelines ? boneGroups[bi].timelines : [];
+                boneTimelines += timelines.length;
+                for (let ti = 0; ti < timelines.length; ti++) {
+                    const timeline:any = timelines[ti];
+                    const frames:any[] = timeline && timeline.frames ? timeline.frames : [];
+                    boneFrames += frames.length;
+                    if (timeline.type === 'rotate') rotateFrames += frames.length;
+                    else if (timeline.type === 'translate') translateFrames += frames.length;
+                    else if (timeline.type === 'scale') scaleFrames += frames.length;
+                    else if (timeline.type === 'shear') shearFrames += frames.length;
+                }
+            }
+
+            for (let si = 0; si < slotGroups.length; si++) {
+                const timelines:any[] = slotGroups[si] && slotGroups[si].timelines ? slotGroups[si].timelines : [];
+                slotTimelines += timelines.length;
+                for (let ti = 0; ti < timelines.length; ti++) {
+                    const timeline:any = timelines[ti];
+                    const frames:any[] = timeline && timeline.frames ? timeline.frames : [];
+                    slotFrames += frames.length;
+                    if (timeline.type === 'attachment') attachmentFrames += frames.length;
+                    else if (timeline.type === 'color') rgbaFrames += frames.length;
+                }
+            }
+
+            Logger.status(`[Stats] anim='${anim.name}' boneGroups=${boneGroups.length} boneTimelines=${boneTimelines} boneFrames=${boneFrames} (rot=${rotateFrames} pos=${translateFrames} scale=${scaleFrames} shear=${shearFrames}) slotGroups=${slotGroups.length} slotTimelines=${slotTimelines} slotFrames=${slotFrames} (attach=${attachmentFrames} rgba=${rgbaFrames}) events=${eventFrames}`);
+        }
+    } catch (e) {
+        Logger.status('[Stats] failed: ' + e);
+    }
+};
+
+const logConvertedStats = (converted:any):void => {
+    if (!Logger.isStatusEnabled()) return;
+
+    try {
+        const anims = converted && converted.animations ? converted.animations : null;
+        if (!anims) {
+            Logger.status('[OutStats] no animations object in converted JSON');
+            return;
+        }
+
+        for (const animName in anims) {
+            const anim = anims[animName];
+            const bones = anim && anim.bones ? anim.bones : {};
+            const slots = anim && anim.slots ? anim.slots : {};
+
+            let boneTimelines = 0;
+            let boneFrames = 0;
+            for (const boneName in bones) {
+                const group = bones[boneName];
+                for (const tlName in group) {
+                    const frames = group[tlName];
+                    boneTimelines++;
+                    if (frames && frames.length) boneFrames += frames.length;
+                }
+            }
+
+            let slotTimelines = 0;
+            let slotFrames = 0;
+            for (const slotName in slots) {
+                const group = slots[slotName];
+                for (const tlName in group) {
+                    const frames = group[tlName];
+                    slotTimelines++;
+                    if (frames && frames.length) slotFrames += frames.length;
+                }
+            }
+
+            Logger.status(`[OutStats] anim='${animName}' boneTimelines=${boneTimelines} boneFrames=${boneFrames} slotTimelines=${slotTimelines} slotFrames=${slotFrames}`);
+
+            try {
+                for (const boneName in bones) {
+                    const rotate = bones[boneName] && bones[boneName].rotate ? bones[boneName].rotate : null;
+                    if (rotate && rotate.length) {
+                        const first = rotate[0];
+                        const last = rotate[rotate.length - 1];
+                        Logger.status(`[OutSnip] rotate bone='${boneName}' n=${rotate.length} first(t=${first.time || 0}, v=${first.value}) last(t=${last.time || 0}, v=${last.value})`);
+                        break;
+                    }
+                }
+                for (const slotName in slots) {
+                    const attachment = slots[slotName] && slots[slotName].attachment ? slots[slotName].attachment : null;
+                    if (attachment && attachment.length) {
+                        const first = attachment[0];
+                        const last = attachment[attachment.length - 1];
+                        Logger.status(`[OutSnip] attach slot='${slotName}' n=${attachment.length} first(t=${first.time || 0}, name=${first.name}) last(t=${last.time || 0}, name=${last.name})`);
+                        break;
+                    }
+                }
+            } catch (eSnip) {
+                Logger.status('[OutSnip] failed: ' + eSnip);
+            }
+        }
+    } catch (e) {
+        Logger.status('[OutStats] failed: ' + e);
+    }
+};
+
 const processDocument = (document: FlashDocument) => {
     const converter = new Converter(document, config);
     Logger.status('Converter created');
@@ -437,158 +550,24 @@ const processDocument = (document: FlashDocument) => {
 
     for (const skeleton of result) {
         Logger.status('Exporting skeleton: ' + skeleton.name);
-
-        // Minimal stats to diagnose "no animation" exports.
-        try {
-            const anims:any[] = (skeleton as any).animations || [];
-            const bones:any[] = (skeleton as any).bones || [];
-            const slots:any[] = (skeleton as any).slots || [];
-            Logger.status(`[Stats] bones=${bones.length} slots=${slots.length} animations=${anims.length}`);
-
-            for (let ai = 0; ai < anims.length; ai++) {
-                const anim:any = anims[ai];
-                const boneGroups:any[] = anim.bones || [];
-                const slotGroups:any[] = anim.slots || [];
-                const eventTimeline:any = anim.events;
-                const eventFrames = (eventTimeline && eventTimeline.frames) ? eventTimeline.frames.length : 0;
-
-                let boneTimelines = 0;
-                let boneFrames = 0;
-                let slotTimelines = 0;
-                let slotFrames = 0;
-
-                let rotateFrames = 0;
-                let translateFrames = 0;
-                let scaleFrames = 0;
-                let shearFrames = 0;
-                let attachmentFrames = 0;
-                let rgbaFrames = 0;
-
-                // Bone timelines
-                for (let bi = 0; bi < boneGroups.length; bi++) {
-                    const g:any = boneGroups[bi];
-                    const tls:any[] = (g && g.timelines) ? g.timelines : [];
-                    boneTimelines += tls.length;
-                    for (let ti = 0; ti < tls.length; ti++) {
-                        const tl:any = tls[ti];
-                        const frames:any[] = tl && tl.frames ? tl.frames : [];
-                        boneFrames += frames.length;
-                        if (tl.type === 'rotate') rotateFrames += frames.length;
-                        else if (tl.type === 'translate') translateFrames += frames.length;
-                        else if (tl.type === 'scale') scaleFrames += frames.length;
-                        else if (tl.type === 'shear') shearFrames += frames.length;
-                    }
-                }
-
-                // Slot timelines
-                for (let si = 0; si < slotGroups.length; si++) {
-                    const g:any = slotGroups[si];
-                    const tls:any[] = (g && g.timelines) ? g.timelines : [];
-                    slotTimelines += tls.length;
-                    for (let ti = 0; ti < tls.length; ti++) {
-                        const tl:any = tls[ti];
-                        const frames:any[] = tl && tl.frames ? tl.frames : [];
-                        slotFrames += frames.length;
-                        if (tl.type === 'attachment') attachmentFrames += frames.length;
-                        else if (tl.type === 'color') rgbaFrames += frames.length;
-                    }
-                }
-
-                Logger.status(`[Stats] anim='${anim.name}' boneGroups=${boneGroups.length} boneTimelines=${boneTimelines} boneFrames=${boneFrames} (rot=${rotateFrames} pos=${translateFrames} scale=${scaleFrames} shear=${shearFrames}) slotGroups=${slotGroups.length} slotTimelines=${slotTimelines} slotFrames=${slotFrames} (attach=${attachmentFrames} rgba=${rgbaFrames}) events=${eventFrames}`);
-            }
-        } catch (e) {
-            Logger.status('[Stats] failed: ' + e);
-        }
+        logSkeletonStats(skeleton);
 
         if (config.simplifyBonesAndSlots) {
             SpineSkeletonHelper.simplifySkeletonNames(skeleton);
         }
 
-        if (skeleton.bones.length > 0) {
-            const skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
-            Logger.status('Writing skeleton: ' + skeletonPath);
-
-            // Convert once so we can inspect what survives optimization.
-            let converted:any = null;
-            try {
-                converted = (config.outputFormat as any).convert(skeleton);
-
-                const anims = converted && converted.animations ? converted.animations : null;
-                if (anims) {
-                    for (const animName in anims) {
-                        const anim = anims[animName];
-                        const bones = anim && anim.bones ? anim.bones : {};
-                        const slots = anim && anim.slots ? anim.slots : {};
-
-                        let boneTimelines = 0;
-                        let boneFrames = 0;
-                        for (const boneName in bones) {
-                            const group = bones[boneName];
-                            for (const tlName in group) {
-                                const frames = group[tlName];
-                                boneTimelines++;
-                                if (frames && frames.length) boneFrames += frames.length;
-                            }
-                        }
-
-                        let slotTimelines = 0;
-                        let slotFrames = 0;
-                        for (const slotName in slots) {
-                            const group = slots[slotName];
-                            for (const tlName in group) {
-                                const frames = group[tlName];
-                                slotTimelines++;
-                                if (frames && frames.length) slotFrames += frames.length;
-                            }
-                        }
-
-                        Logger.status(`[OutStats] anim='${animName}' boneTimelines=${boneTimelines} boneFrames=${boneFrames} slotTimelines=${slotTimelines} slotFrames=${slotFrames}`);
-
-                        // Print a tiny snippet of the first rotate + attachment timelines.
-                        try {
-                            let printed = false;
-                            for (const bName in bones) {
-                                const g = bones[bName];
-                                const rot = g && g.rotate ? g.rotate : null;
-                                if (rot && rot.length) {
-                                    const first = rot[0];
-                                    const last = rot[rot.length - 1];
-                                    Logger.status(`[OutSnip] rotate bone='${bName}' n=${rot.length} first(t=${first.time || 0}, v=${first.value}) last(t=${last.time || 0}, v=${last.value})`);
-                                    printed = true;
-                                    break;
-                                }
-                            }
-                            for (const sName in slots) {
-                                const g = slots[sName];
-                                const att = g && g.attachment ? g.attachment : null;
-                                if (att && att.length) {
-                                    const first = att[0];
-                                    const last = att[att.length - 1];
-                                    Logger.status(`[OutSnip] attach slot='${sName}' n=${att.length} first(t=${first.time || 0}, name=${first.name}) last(t=${last.time || 0}, name=${last.name})`);
-                                    break;
-                                }
-                            }
-                        } catch (eSnip) {
-                            Logger.status('[OutSnip] failed: ' + eSnip);
-                        }
-                    }
-                } else {
-                    Logger.status('[OutStats] no animations object in converted JSON');
-                }
-            } catch (e) {
-                Logger.status('[OutStats] failed: ' + e);
-            }
-
-            if (converted) {
-                FLfile.write(skeletonPath, JsonEncoder.stringify(converted));
-            } else {
-                // Fallback (should behave the same but keeps exporter working if debug convert fails).
-                FLfile.write(skeletonPath, skeleton.convert(config.outputFormat));
-            }
-            Logger.status('Skeleton export completed');
-        } else {
+        if (skeleton.bones.length === 0) {
             Logger.error('Nothing to export.');
+            continue;
         }
+
+        const skeletonPath = converter.resolveWorkingPath(skeleton.name + '.json');
+        Logger.status('Writing skeleton: ' + skeletonPath);
+
+        const converted = config.outputFormat.convert(skeleton);
+        logConvertedStats(converted);
+        FLfile.write(skeletonPath, JsonEncoder.stringify(converted));
+        Logger.status('Skeleton export completed');
     }
 };
 

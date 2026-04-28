@@ -1,5 +1,3 @@
-import { JsonEncoder } from '../utils/JsonEncoder';
-import { SpineFormat } from './formats/SpineFormat';
 import { SpineAnimation } from './SpineAnimation';
 import { SpineBone } from './SpineBone';
 import { SpineEvent } from './SpineEvent';
@@ -122,13 +120,5 @@ export class SpineSkeleton {
         }
 
         return null;
-    }
-
-    //-----------------------------------
-
-    public convert(format:SpineFormat):string {
-        return JsonEncoder.stringify(
-            format.convert(this)
-        );
     }
 }
