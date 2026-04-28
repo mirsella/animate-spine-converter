@@ -33,6 +33,7 @@ export class Converter {
     // Keyed by timeline.name|layerIndex|spanStart -> spanEndExclusive.
     private readonly _bakedSpanEndByKey:Record<string, number> = {};
     private readonly _canonicalBoneTransformsByFamily = new ConverterMap<string, ConverterMap<string, CanonicalBoneTransform>>();
+    private readonly _exportedImagesCache = new ConverterMap<string, SpineImage>();
 
     public constructor(document:FlashDocument, config:ConverterConfig) {
         this._document = document;
@@ -366,6 +367,13 @@ export class Converter {
 
         const baseImagePath = this.prepareImagesExportPath(context, baseImageName);
         let spineImage = context.global.imagesCache.get(baseImagePath);
+        if (spineImage == null) {
+            spineImage = this._exportedImagesCache.get(baseImagePath);
+            if (spineImage != null) {
+                context.global.imagesCache.set(baseImagePath, spineImage);
+                Logger.status(`[IMAGE] Reusing '${baseImageName}'`);
+            }
+        }
         let didExportImage = false;
         if (spineImage == null) {
             try {
@@ -383,6 +391,11 @@ export class Converter {
                 Logger.status(`[IMAGE] Placeholder for '${baseImageName}'`);
             }
             context.global.imagesCache.set(baseImagePath, spineImage);
+            if (spineImage.width === 1 && spineImage.height === 1) {
+                Logger.warning(`[IMAGE] Not reusing likely failed 1x1 export '${baseImageName}' across root symbols.`);
+            } else {
+                this._exportedImagesCache.set(baseImagePath, spineImage);
+            }
         } else {
             // Logger.trace(`[IMAGE] Cache hit for: ${baseImageName}`);
         }

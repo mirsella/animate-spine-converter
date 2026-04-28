@@ -31,6 +31,7 @@ var Converter = /** @class */ (function () {
         // Keyed by timeline.name|layerIndex|spanStart -> spanEndExclusive.
         this._bakedSpanEndByKey = {};
         this._canonicalBoneTransformsByFamily = new ConverterMap_1.ConverterMap();
+        this._exportedImagesCache = new ConverterMap_1.ConverterMap();
         this._document = document;
         this._workingPath = PathUtil_1.PathUtil.parentPath(document.pathURI);
         this._config = config;
@@ -373,6 +374,13 @@ var Converter = /** @class */ (function () {
         Logger_1.Logger.status("[Slot] start element='".concat(beforeElementName, "' image='").concat(baseImageName, "' stage=").concat(context.global.stageType, " depth=").concat(context.recursionDepth));
         var baseImagePath = this.prepareImagesExportPath(context, baseImageName);
         var spineImage = context.global.imagesCache.get(baseImagePath);
+        if (spineImage == null) {
+            spineImage = this._exportedImagesCache.get(baseImagePath);
+            if (spineImage != null) {
+                context.global.imagesCache.set(baseImagePath, spineImage);
+                Logger_1.Logger.status("[IMAGE] Reusing '".concat(baseImageName, "'"));
+            }
+        }
         var didExportImage = false;
         if (spineImage == null) {
             try {
@@ -391,6 +399,12 @@ var Converter = /** @class */ (function () {
                 Logger_1.Logger.status("[IMAGE] Placeholder for '".concat(baseImageName, "'"));
             }
             context.global.imagesCache.set(baseImagePath, spineImage);
+            if (spineImage.width === 1 && spineImage.height === 1) {
+                Logger_1.Logger.warning("[IMAGE] Not reusing likely failed 1x1 export '".concat(baseImageName, "' across root symbols."));
+            }
+            else {
+                this._exportedImagesCache.set(baseImagePath, spineImage);
+            }
         }
         else {
             // Logger.trace(`[IMAGE] Cache hit for: ${baseImageName}`);
