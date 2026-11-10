@@ -8,6 +8,7 @@
         "noImplicitThis": true,
         "noImplicitOverride": true,
         "strictBindCallApply": true,
+        "skipLibCheck": true,
         "allowSyntheticDefaultImports": true,
         "alwaysStrict": true,
         "preserveConstEnums": true,

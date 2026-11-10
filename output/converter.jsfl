@@ -2703,6 +2703,19 @@ var SpineAnimationHelper = /** @class */ (function () {
         var scaleFrame = scaleTimeline.createFrame(time, curve);
         scaleFrame.x = transform.scaleX / bone.scaleX;
         scaleFrame.y = transform.scaleY / bone.scaleY;
+        // A mirror between adjacent Animate poses is a discrete flip. Linear or
+        // eased interpolation would invent a zero-width/height pose at higher FPS.
+        // Keep ordinary scale tweens and explicitly authored zero-scale keys intact.
+        if (scaleTimeline.frames.length > 1) {
+            var previous = scaleTimeline.frames[scaleTimeline.frames.length - 2];
+            var duration = scaleFrame.time - previous.time;
+            var mirrors = previous.x * scaleFrame.x < 0 || previous.y * scaleFrame.y < 0;
+            // Tolerate the six-decimal timestamps used in exported Spine JSON.
+            if (mirrors && duration > 0 && duration <= 1 / context.global.frameRate + 0.000001) {
+                previous.curve = 'stepped';
+                Logger_1.Logger.debug("[SCALE_FLIP] Bone '".concat(bone.name, "' ").concat(previous.time.toFixed(6), " -> ").concat(time.toFixed(6), ": preserving adjacent-frame mirror."));
+            }
+        }
         var shearTimeline = timeline.createTimeline("shear" /* SpineTimelineType.SHEAR */);
         var shearFrame = shearTimeline.createFrame(time, curve);
         shearFrame.x = transform.shearX - bone.shearX;

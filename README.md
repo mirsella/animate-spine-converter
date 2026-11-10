@@ -32,11 +32,24 @@ Several examples of converted animations are available [here](https://dmn-chumak
 - open Spine > "Import Data..." and select converted **.json** file;
 - **animation will be imported to Spine project**.
 
+### Mirrored poses
+
+The converter exports scale sign changes between adjacent source frames as stepped
+scale keys. This preserves one-frame horizontal or vertical flips without inserting
+a flattened pose when Spine plays a 30 fps animation at 60 fps. Position, rotation
+and shear keep their original interpolation. Longer scale tweens and explicitly
+authored zero-scale poses are left unchanged.
+
+Use the rebuilt **output/converter.jsfl** when re-exporting affected animations.
+Replacing the script does not update JSON files that were already exported.
+
 ## Development
 
 - run **npm install** to install all packages;
 - open **source/index.ts** file to change converter configuration;
 - run **npm run compile** to re-build **output/converter.jsfl** file.
+- run **npm test** to type-check the source and run the exporter regressions. The
+  compiler skips declaration checks for the incomplete third-party JSFL typings.
 
 ## Configuration
 
