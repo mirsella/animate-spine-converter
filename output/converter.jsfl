@@ -2098,6 +2098,9 @@ var ConverterContext = /** @class */ (function () {
         if (labels.indexOf(label) !== -1) {
             this.global.animation = skeleton.createAnimation(label.name);
             this.global.label = label;
+            // Slot ownership is per animation: a slot a layer keyed in another label may
+            // belong to a same-named sibling layer in this one.
+            this.global.layerKeyedSlotsCache.clear();
         }
         return this;
     };

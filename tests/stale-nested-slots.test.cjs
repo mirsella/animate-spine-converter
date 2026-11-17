@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { Converter } = require('../.scratch/tests/core/Converter.js');
+const { ConverterContext } = require('../.scratch/tests/core/ConverterContext.js');
 const { ConverterMap } = require('../.scratch/tests/core/ConverterMap.js');
 const { SpineAnimation } = require('../.scratch/tests/spine/SpineAnimation.js');
 const { SpineAnimationHelper } = require('../.scratch/tests/spine/SpineAnimationHelper.js');
@@ -28,7 +29,8 @@ function hiddenTowerRig() {
         layerBonesCache: new ConverterMap(),
         layerKeyedSlotsCache: new ConverterMap(),
         attachmentKeySerial: 0,
-        frameRate: FPS
+        frameRate: FPS,
+        labels: [{ name: 'a' }, { name: 'b' }]
     };
     global.layerBonesCache.set(layer, [layerBone]);
     const context = { global, bone: root, recursionDepth: 0, symbolPath: '', timeOffset: 0, time: 0, frame: { startFrame: 0, tweenType: 'none' } };
@@ -45,7 +47,8 @@ function hiddenTowerRig() {
     const attachmentKeys = (slot) => global.animation.findSlotTimeline(slot)
         .findTimeline(SpineTimelineType.ATTACHMENT).frames
         .map((f) => [Math.round(f.time * FPS), f.name]);
-    return { slots, outsider, key, convertFrame, attachmentKeys };
+    const switchAnimation = (index) => ConverterContext.prototype.switchContextAnimation.call(context, global.labels[index]);
+    return { slots, outsider, key, convertFrame, attachmentKeys, switchAnimation };
 }
 
 test('hides the previous nested symbol\'s layers when a keyframe swaps the symbol', () => {
@@ -79,6 +82,19 @@ test('keeps slots a same-named sibling layer showed at the same time, and slots 
 test('keeps a slot a same-named sibling layer holds from an earlier keyframe', () => {
     const { slots, key, convertFrame, attachmentKeys } = hiddenTowerRig();
     // A static sibling layer sharing this layer's bone keys base2 once and holds it.
+    key(slots.base2, 'base2', 0);
+    convertFrame(0, [[slots.base1, 'base1']]);
+    convertFrame(1, [[slots.base1, 'base1']]);
+
+    assert.deepEqual(attachmentKeys(slots.base2), [[0, 'base2']]);
+});
+
+test('forgets which slots a layer keyed when the next animation starts', () => {
+    const { slots, key, convertFrame, attachmentKeys, switchAnimation } = hiddenTowerRig();
+    switchAnimation(0);
+    convertFrame(0, [[slots.base2, 'base2'], [slots.base1, 'base1']]);
+    // In the next label only a same-named sibling layer shows base2.
+    switchAnimation(1);
     key(slots.base2, 'base2', 0);
     convertFrame(0, [[slots.base1, 'base1']]);
     convertFrame(1, [[slots.base1, 'base1']]);
