@@ -127,6 +127,9 @@ export class SpineAnimationHelper {
 
         const attachmentFrame = attachmentTimeline.createFrame(time, curve);
         attachmentFrame.name = (attachment != null) ? attachment.name : null;
+        if (context && context.global && typeof context.global.attachmentKeySerial === 'number') {
+            slot.attachmentKeySerial = ++context.global.attachmentKeySerial;
+        }
 
         let prevSummary = '<none>';
         if (attachmentTimeline.frames.length > 1) {

@@ -15,9 +15,12 @@ export class SpineSlot {
     public attachment:SpineAttachment;
     public blend:SpineBlendMode;
     public color:string;
+    /** Global order of this slot's latest attachment key; see ConverterContextGlobal.attachmentKeySerial. */
+    public attachmentKeySerial:number;
 
     public constructor() {
         this.initialized = false;
+        this.attachmentKeySerial = 0;
         this.attachments = [];
     }
 

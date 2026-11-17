@@ -6,6 +6,7 @@ import { SpineImage } from '../spine/SpineImage';
 import { SpineSkeleton } from '../spine/SpineSkeleton';
 import { SpineTransformMatrix } from '../spine/transform/SpineTransformMatrix';
 import { SpineAttachmentType } from '../spine/types/SpineAttachmentType';
+import { SpineTimelineType } from '../spine/types/SpineTimelineType';
 import { ConvertUtil } from '../utils/ConvertUtil';
 import { ImageExportFactory } from '../utils/ImageExportFactory';
 import { ImageUtil } from '../utils/ImageUtil';
@@ -1194,6 +1195,66 @@ export class Converter {
         }
     }
 
+    /**
+     * Hides slots under this layer's bones that the frame just converted did not key.
+     *
+     * When a keyframe swaps one nested symbol for another, both instances resolve to the
+     * same bone, but the old symbol's inner layers become slots that nothing keys again.
+     * Spine then keeps showing their last attachment for the rest of the animation.
+     */
+    private hideSlotsNotKeyedSince(context: ConverterContext, layer: FlashLayer, serialBefore: number, time: number): void {
+        const layerBones = context.global.layerBonesCache.get(layer);
+        if (!layerBones || layerBones.length === 0) return;
+
+        const scopeBone = context.bone;
+        const bones: any[] = [];
+        for (const b of layerBones) {
+            if (!scopeBone || this.isBoneDescendant(b, scopeBone)) bones.push(b);
+        }
+        if (bones.length === 0) return;
+
+        const animation = context.global.animation;
+        const slots = context.global.skeleton.slots;
+        for (let i = 0; i < slots.length; i++) {
+            const slot = slots[i];
+            if (slot.attachmentKeySerial > serialBefore) continue;
+            if (!this.isBoneUnderAny(slot.bone, bones)) continue;
+
+            const group = animation.findSlotTimeline(slot);
+            const timeline = group ? group.findTimeline(SpineTimelineType.ATTACHMENT) : null;
+            if (!timeline) continue;
+
+            // The key in effect at `time`. Already hidden needs nothing; a visible key at this
+            // exact time came from a same-named sibling layer, which shares this layer's bones.
+            let current: any = null;
+            for (const f of timeline.frames) {
+                if (f.time <= time + 0.000001 && (current == null || f.time >= current.time)) current = f;
+            }
+            if (current == null || current.name == null) continue;
+            if (Math.abs(current.time - time) <= 0.000001) continue;
+
+            if (Logger.isTraceEnabled()) Logger.trace(`${this.getIndent(context.recursionDepth)}    [Visibility] Hiding stale slot '${slot.name}' at Time ${time.toFixed(3)} (Layer: ${layer.name}, last shown '${current.name}' at ${current.time.toFixed(3)})`);
+            SpineAnimationHelper.applySlotAttachment(animation, slot, context, null, time);
+        }
+    }
+
+    private isBoneUnderAny(bone: any, ancestors: any[]): boolean {
+        for (let curr = bone; curr; curr = curr.parent) {
+            if (ancestors.indexOf(curr) !== -1) return true;
+        }
+        return false;
+    }
+
+    private registerLayerBone(context: ConverterContext, layer: FlashLayer, bone: any): void {
+        if (!bone) return;
+        let bones = context.global.layerBonesCache.get(layer);
+        if (!bones) {
+            bones = [];
+            context.global.layerBonesCache.set(layer, bones);
+        }
+        if (bones.indexOf(bone) === -1) bones.push(bone);
+    }
+
     private convertElementLayer(context:ConverterContext, layer:FlashLayer, factory:LayerConvertFactory, allowBaking:boolean = true):void {
         const { label, stageType, frameRate } = context.global;
         let start = 0, end = layer.frames.length - 1;
@@ -1297,6 +1358,7 @@ export class Converter {
             }
 
             const activeSlots: any[] = [];
+            const serialBefore = context.global.attachmentKeySerial;
             for (let eIdx = 0; eIdx < frame.elements.length; eIdx++) {
                 let el = frame.elements[eIdx];
                 
@@ -1352,6 +1414,7 @@ export class Converter {
 
                 // FIX: When flattening, we pass 0 as time because context.time is already absolute for Spine.
                 const sub = context.switchContextFrame(frame).createBone(el, 0, matrixOverride, positionOverride, colorOverride);
+                this.registerLayerBone(context, layer, sub.bone);
                 sub.internalFrame = start; // Store the calculated internal frame for child symbols
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === ConverterStageType.ANIMATION) {
                     const instance = el as any;
@@ -1397,6 +1460,7 @@ export class Converter {
                         }
                     }
                 }
+                this.hideSlotsNotKeyedSince(context, layer, serialBefore, time);
             }
 
             return;
@@ -1496,6 +1560,7 @@ export class Converter {
             }
             
             const activeSlots: any[] = [];
+            const serialBefore = context.global.attachmentKeySerial;
             for (let eIdx = 0; eIdx < frame.elements.length; eIdx++) {
                 let el = frame.elements[eIdx];
                 const elName = el.name || el.libraryItem?.name || '<anon>';
@@ -1744,16 +1809,7 @@ export class Converter {
                 // Pass finalColorOverride to createBone
                 const sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride, finalColorOverride);
                 // Register bone to layer for visibility tracking (Structure Phase or Animation Phase if missed)
-                if (sub.bone) {
-                    let bones = context.global.layerBonesCache.get(layer);
-                    if (!bones) {
-                        bones = [];
-                        context.global.layerBonesCache.set(layer, bones);
-                    }
-                    if (bones.indexOf(sub.bone) === -1) {
-                        bones.push(sub.bone);
-                    }
-                }
+                this.registerLayerBone(context, layer, sub.bone);
 
                 sub.internalFrame = i; // Fix: Pass current loop index as internal frame for nested time resolution
                 if (Logger.isTraceEnabled()) Logger.trace(`${indent}    [INTERNAL] Passed internal frame ${i} to child '${el.name || el.libraryItem?.name || '<anon>'}'`);
@@ -1814,6 +1870,7 @@ export class Converter {
                         }
                     }
                 }
+                this.hideSlotsNotKeyedSince(context, layer, serialBefore, time);
             }
         }
     }

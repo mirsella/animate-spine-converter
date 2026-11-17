@@ -35,6 +35,9 @@ export class ConverterContextGlobal extends ConverterContext {
     public assetTransforms:ConverterMap<string, SpineTransformMatrix>;
     public attachmentVariants:ConverterMap<string, Array<{x:number, y:number, name:string}>>;
     public processedSymbols:ConverterMap<string, boolean>;
+    // Increments on every attachment key. A layer compares it before and after a frame
+    // to find slots that frame's content did not key.
+    public attachmentKeySerial:number;
 
     // Ensure stable, unique bone names when multiple instances share the same name.
     // Key: element signature (parentBone|layerName|elementIndex-or-name)
@@ -146,6 +149,7 @@ export class ConverterContextGlobal extends ConverterContext {
         context.assetTransforms = new ConverterMap<string, SpineTransformMatrix>();
         context.attachmentVariants = new ConverterMap<string, Array<{x:number, y:number, name:string}>>();
         context.processedSymbols = new ConverterMap<string, boolean>();
+        context.attachmentKeySerial = 0;
 
         context.boneNameBySignature = new ConverterMap<string, string>();
         context.boneNameSuffixCounter = new ConverterMap<string, number>();

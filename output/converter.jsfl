@@ -1130,6 +1130,73 @@ var Converter = /** @class */ (function () {
             }
         }
     };
+    /**
+     * Hides slots under this layer's bones that the frame just converted did not key.
+     *
+     * When a keyframe swaps one nested symbol for another, both instances resolve to the
+     * same bone, but the old symbol's inner layers become slots that nothing keys again.
+     * Spine then keeps showing their last attachment for the rest of the animation.
+     */
+    Converter.prototype.hideSlotsNotKeyedSince = function (context, layer, serialBefore, time) {
+        var layerBones = context.global.layerBonesCache.get(layer);
+        if (!layerBones || layerBones.length === 0)
+            return;
+        var scopeBone = context.bone;
+        var bones = [];
+        for (var _i = 0, layerBones_1 = layerBones; _i < layerBones_1.length; _i++) {
+            var b = layerBones_1[_i];
+            if (!scopeBone || this.isBoneDescendant(b, scopeBone))
+                bones.push(b);
+        }
+        if (bones.length === 0)
+            return;
+        var animation = context.global.animation;
+        var slots = context.global.skeleton.slots;
+        for (var i = 0; i < slots.length; i++) {
+            var slot = slots[i];
+            if (slot.attachmentKeySerial > serialBefore)
+                continue;
+            if (!this.isBoneUnderAny(slot.bone, bones))
+                continue;
+            var group = animation.findSlotTimeline(slot);
+            var timeline = group ? group.findTimeline("attachment" /* SpineTimelineType.ATTACHMENT */) : null;
+            if (!timeline)
+                continue;
+            // The key in effect at `time`. Already hidden needs nothing; a visible key at this
+            // exact time came from a same-named sibling layer, which shares this layer's bones.
+            var current = null;
+            for (var _a = 0, _b = timeline.frames; _a < _b.length; _a++) {
+                var f = _b[_a];
+                if (f.time <= time + 0.000001 && (current == null || f.time >= current.time))
+                    current = f;
+            }
+            if (current == null || current.name == null)
+                continue;
+            if (Math.abs(current.time - time) <= 0.000001)
+                continue;
+            if (Logger_1.Logger.isTraceEnabled())
+                Logger_1.Logger.trace("".concat(this.getIndent(context.recursionDepth), "    [Visibility] Hiding stale slot '").concat(slot.name, "' at Time ").concat(time.toFixed(3), " (Layer: ").concat(layer.name, ", last shown '").concat(current.name, "' at ").concat(current.time.toFixed(3), ")"));
+            SpineAnimationHelper_1.SpineAnimationHelper.applySlotAttachment(animation, slot, context, null, time);
+        }
+    };
+    Converter.prototype.isBoneUnderAny = function (bone, ancestors) {
+        for (var curr = bone; curr; curr = curr.parent) {
+            if (ancestors.indexOf(curr) !== -1)
+                return true;
+        }
+        return false;
+    };
+    Converter.prototype.registerLayerBone = function (context, layer, bone) {
+        if (!bone)
+            return;
+        var bones = context.global.layerBonesCache.get(layer);
+        if (!bones) {
+            bones = [];
+            context.global.layerBonesCache.set(layer, bones);
+        }
+        if (bones.indexOf(bone) === -1)
+            bones.push(bone);
+    };
     Converter.prototype.convertElementLayer = function (context, layer, factory, allowBaking) {
         var _a, _b, _c;
         if (allowBaking === void 0) { allowBaking = true; }
@@ -1227,6 +1294,7 @@ var Converter = /** @class */ (function () {
                 return;
             }
             var activeSlots = [];
+            var serialBefore = context.global.attachmentKeySerial;
             var _loop_1 = function (eIdx) {
                 var el = frame.elements[eIdx];
                 var matrixOverride = null;
@@ -1274,6 +1342,7 @@ var Converter = /** @class */ (function () {
                 }
                 // FIX: When flattening, we pass 0 as time because context.time is already absolute for Spine.
                 var sub = context.switchContextFrame(frame).createBone(el, 0, matrixOverride, positionOverride, colorOverride);
+                this_1.registerLayerBone(context, layer, sub.bone);
                 sub.internalFrame = start; // Store the calculated internal frame for child symbols
                 if (el.elementType === 'instance' && el.instanceType === 'symbol' && stageType === "animation" /* ConverterStageType.ANIMATION */) {
                     var instance = el;
@@ -1321,6 +1390,7 @@ var Converter = /** @class */ (function () {
                         }
                     }
                 }
+                this.hideSlotsNotKeyedSince(context, layer, serialBefore, time);
             }
             return;
         }
@@ -1416,6 +1486,7 @@ var Converter = /** @class */ (function () {
                 continue;
             }
             var activeSlots = [];
+            var serialBefore = context.global.attachmentKeySerial;
             var _loop_2 = function (eIdx) {
                 var el = frame.elements[eIdx];
                 var elName = el.name || ((_b = el.libraryItem) === null || _b === void 0 ? void 0 : _b.name) || '<anon>';
@@ -1658,16 +1729,7 @@ var Converter = /** @class */ (function () {
                 // Pass finalColorOverride to createBone
                 var sub = context.switchContextFrame(frame).createBone(el, time, finalMatrixOverride, finalPositionOverride, finalColorOverride);
                 // Register bone to layer for visibility tracking (Structure Phase or Animation Phase if missed)
-                if (sub.bone) {
-                    var bones = context.global.layerBonesCache.get(layer);
-                    if (!bones) {
-                        bones = [];
-                        context.global.layerBonesCache.set(layer, bones);
-                    }
-                    if (bones.indexOf(sub.bone) === -1) {
-                        bones.push(sub.bone);
-                    }
-                }
+                this_2.registerLayerBone(context, layer, sub.bone);
                 sub.internalFrame = i; // Fix: Pass current loop index as internal frame for nested time resolution
                 if (Logger_1.Logger.isTraceEnabled())
                     Logger_1.Logger.trace("".concat(indent, "    [INTERNAL] Passed internal frame ").concat(i, " to child '").concat(el.name || ((_c = el.libraryItem) === null || _c === void 0 ? void 0 : _c.name) || '<anon>', "'"));
@@ -1730,6 +1792,7 @@ var Converter = /** @class */ (function () {
                         }
                     }
                 }
+                this.hideSlotsNotKeyedSince(context, layer, serialBefore, time);
             }
         }
     };
@@ -2282,6 +2345,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.assetTransforms = new ConverterMap_1.ConverterMap();
         context.attachmentVariants = new ConverterMap_1.ConverterMap();
         context.processedSymbols = new ConverterMap_1.ConverterMap();
+        context.attachmentKeySerial = 0;
         context.boneNameBySignature = new ConverterMap_1.ConverterMap();
         context.boneNameSuffixCounter = new ConverterMap_1.ConverterMap();
         context.canonicalBoneTransformsByFamily = new ConverterMap_1.ConverterMap();
@@ -2752,6 +2816,9 @@ var SpineAnimationHelper = /** @class */ (function () {
         }
         var attachmentFrame = attachmentTimeline.createFrame(time, curve);
         attachmentFrame.name = (attachment != null) ? attachment.name : null;
+        if (context && context.global && typeof context.global.attachmentKeySerial === 'number') {
+            slot.attachmentKeySerial = ++context.global.attachmentKeySerial;
+        }
         var prevSummary = '<none>';
         if (attachmentTimeline.frames.length > 1) {
             var prevFrame = attachmentTimeline.frames[attachmentTimeline.frames.length - 2];
@@ -3130,6 +3197,7 @@ var SpineRegionAttachment_1 = __webpack_require__(/*! ./attachment/SpineRegionAt
 var SpineSlot = /** @class */ (function () {
     function SpineSlot() {
         this.initialized = false;
+        this.attachmentKeySerial = 0;
         this.attachments = [];
     }
     //-----------------------------------
