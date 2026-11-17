@@ -26,6 +26,7 @@ function hiddenTowerRig() {
         skeleton,
         animation: new SpineAnimation(),
         layerBonesCache: new ConverterMap(),
+        layerKeyedSlotsCache: new ConverterMap(),
         attachmentKeySerial: 0,
         frameRate: FPS
     };
@@ -73,4 +74,14 @@ test('keeps slots a same-named sibling layer showed at the same time, and slots 
 
     assert.deepEqual(attachmentKeys(slots.base3), [[0, 'base3'], [1, 'base3']]);
     assert.deepEqual(attachmentKeys(outsider), [[0, 'other'], [1, 'other']]);
+});
+
+test('keeps a slot a same-named sibling layer holds from an earlier keyframe', () => {
+    const { slots, key, convertFrame, attachmentKeys } = hiddenTowerRig();
+    // A static sibling layer sharing this layer's bone keys base2 once and holds it.
+    key(slots.base2, 'base2', 0);
+    convertFrame(0, [[slots.base1, 'base1']]);
+    convertFrame(1, [[slots.base1, 'base1']]);
+
+    assert.deepEqual(attachmentKeys(slots.base2), [[0, 'base2']]);
 });

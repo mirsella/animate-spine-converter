@@ -1213,12 +1213,24 @@ export class Converter {
         }
         if (bones.length === 0) return;
 
+        let keyedSlots = context.global.layerKeyedSlotsCache.get(layer);
+        if (!keyedSlots) {
+            keyedSlots = [];
+            context.global.layerKeyedSlotsCache.set(layer, keyedSlots);
+        }
+
         const animation = context.global.animation;
         const slots = context.global.skeleton.slots;
         for (let i = 0; i < slots.length; i++) {
             const slot = slots[i];
-            if (slot.attachmentKeySerial > serialBefore) continue;
             if (!this.isBoneUnderAny(slot.bone, bones)) continue;
+            if (slot.attachmentKeySerial > serialBefore) {
+                if (keyedSlots.indexOf(slot) === -1) keyedSlots.push(slot);
+                continue;
+            }
+            // Only this layer's own content can go stale here; a same-named sibling layer
+            // shares these bones but holds its slots on its own schedule.
+            if (keyedSlots.indexOf(slot) === -1) continue;
 
             const group = animation.findSlotTimeline(slot);
             const timeline = group ? group.findTimeline(SpineTimelineType.ATTACHMENT) : null;

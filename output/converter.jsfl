@@ -1150,13 +1150,25 @@ var Converter = /** @class */ (function () {
         }
         if (bones.length === 0)
             return;
+        var keyedSlots = context.global.layerKeyedSlotsCache.get(layer);
+        if (!keyedSlots) {
+            keyedSlots = [];
+            context.global.layerKeyedSlotsCache.set(layer, keyedSlots);
+        }
         var animation = context.global.animation;
         var slots = context.global.skeleton.slots;
         for (var i = 0; i < slots.length; i++) {
             var slot = slots[i];
-            if (slot.attachmentKeySerial > serialBefore)
-                continue;
             if (!this.isBoneUnderAny(slot.bone, bones))
+                continue;
+            if (slot.attachmentKeySerial > serialBefore) {
+                if (keyedSlots.indexOf(slot) === -1)
+                    keyedSlots.push(slot);
+                continue;
+            }
+            // Only this layer's own content can go stale here; a same-named sibling layer
+            // shares these bones but holds its slots on its own schedule.
+            if (keyedSlots.indexOf(slot) === -1)
                 continue;
             var group = animation.findSlotTimeline(slot);
             var timeline = group ? group.findTimeline("attachment" /* SpineTimelineType.ATTACHMENT */) : null;
@@ -2342,6 +2354,7 @@ var ConverterContextGlobal = /** @class */ (function (_super) {
         context.shapesCache = new ConverterMap_1.ConverterMap();
         context.layersCache = new ConverterMap_1.ConverterMap();
         context.layerBonesCache = new ConverterMap_1.ConverterMap();
+        context.layerKeyedSlotsCache = new ConverterMap_1.ConverterMap();
         context.assetTransforms = new ConverterMap_1.ConverterMap();
         context.attachmentVariants = new ConverterMap_1.ConverterMap();
         context.processedSymbols = new ConverterMap_1.ConverterMap();

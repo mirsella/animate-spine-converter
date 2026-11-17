@@ -32,6 +32,9 @@ export class ConverterContextGlobal extends ConverterContext {
     public shapesCache:ConverterMap<FlashElement | FlashItem, string>;
     public layersCache:ConverterMap<FlashLayer, SpineSlot[]>;
     public layerBonesCache:ConverterMap<FlashLayer, any[]>; // Cache for bones associated with a layer (e.g. nested symbols)
+    // Slots a layer's own frames have keyed, so its stale-slot cleanup leaves slots that
+    // same-named sibling layers (sharing its bones) hold untouched.
+    public layerKeyedSlotsCache:ConverterMap<FlashLayer, SpineSlot[]>;
     public assetTransforms:ConverterMap<string, SpineTransformMatrix>;
     public attachmentVariants:ConverterMap<string, Array<{x:number, y:number, name:string}>>;
     public processedSymbols:ConverterMap<string, boolean>;
@@ -146,6 +149,7 @@ export class ConverterContextGlobal extends ConverterContext {
         context.shapesCache = new ConverterMap<FlashElement | FlashItem, string>();
         context.layersCache = new ConverterMap<FlashLayer, SpineSlot[]>();
         context.layerBonesCache = new ConverterMap<FlashLayer, any[]>();
+        context.layerKeyedSlotsCache = new ConverterMap<FlashLayer, SpineSlot[]>();
         context.assetTransforms = new ConverterMap<string, SpineTransformMatrix>();
         context.attachmentVariants = new ConverterMap<string, Array<{x:number, y:number, name:string}>>();
         context.processedSymbols = new ConverterMap<string, boolean>();
